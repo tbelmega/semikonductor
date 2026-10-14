@@ -21,7 +21,7 @@ Use this skill when:
 
 Do NOT use when:
 
-- The request clearly maps to one skill or SOP (e.g., "write user stories" → `user-story-writing`, "design the system" → `system-design-patterns`)
+- The request clearly maps to one skill or SOP (e.g., "design the system" → `system-design-patterns`)
 - The user just needs a clarifying question: ask it directly instead
 
 ## Phase 0: Intent Classification
@@ -49,7 +49,7 @@ Run: the applicable implementation skill
 
 Questions: Similar existing code? Codebase conventions? Existing utilities? Testing strategy?
 Directives: Research patterns BEFORE implementation, reference specific files, define "done" criteria. Do NOT invent new patterns.
-Run: `user-story-writing` for a new product, or the applicable implementation skill for a new module
+Run: user stories (the artifact library's user-stories guide) for a new product, or the applicable implementation skill for a new module
 
 ### Mid-sized Task
 
@@ -86,7 +86,7 @@ Flag these common AI failure patterns:
 | Assumption Cascade     | Building on unvalidated assumptions | Validate assumptions first     |
 | Premature Optimization | Optimizing before it works          | Focus on "working" first       |
 | Analysis Paralysis     | Researching forever                 | Set time bounds, exit criteria |
-| Hero Syndrome          | Trying to do everything             | Decompose with `task-decomposition` |
+| Hero Syndrome          | Trying to do everything             | Decompose into a feature split |
 
 ## Escalation to Socratic Elicitation
 

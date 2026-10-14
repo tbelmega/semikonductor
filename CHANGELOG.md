@@ -138,6 +138,11 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `skill-lookup` MCP server.
 - The `legacy-to-agentic-estimate` skill.
 - The `about-konductor` skill and SOP, whose onboarding the `fuse-tutorial` skill now covers.
+- The `task-decomposition` and `user-story-writing` skills. Their instructions are now the
+  `feature-split` and `user-stories` guides in the artifact library.
+- The `plan-review` skill. No workflow reviews an implementation plan with an agent, and the
+  `implementation-plan` guide's self-review covers its core checks: spec coverage, ambiguous steps
+  and consistency between tasks.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

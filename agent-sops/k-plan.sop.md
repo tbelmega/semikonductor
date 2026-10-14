@@ -112,7 +112,7 @@ Match each task to the skills and capabilities needed to perform it.
 | Search codebase for patterns | Codebase research                  | Codebase navigation       |
 | Implement feature            | Code implementation                | Implement and validate    |
 | Write documentation          | Documentation authoring             | Explain user-facing change |
-| Review plan                  | `plan-review`                       | Independent plan critique |
+| Review plan                  | Independent review                 | Critique the plan before execution |
 | Evaluate architecture        | `trade-off-evaluator`               | Structured trade-off analysis |
 | Analyze media files          | Media analysis                      | Interpret PDFs and diagrams |
 

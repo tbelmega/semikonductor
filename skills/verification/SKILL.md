@@ -81,7 +81,7 @@ Use the checker that matches what you produced. Load its skill and apply its cri
 | System design or architecture document    | `design-doc-guidelines`                                                                                 |
 | Threat model                              | `threat-modeling` quality criteria                                                                      |
 | Technical research or decision evidence   | `decision-research`, to verify claims and surface prior art                                             |
-| User stories                              | `user-story-writing` criteria (INVEST, complete acceptance criteria), then `decision-research` on claims |
+| User stories                              | The self-check in the user-stories guide (INVEST, complete acceptance criteria), then `decision-research` on claims |
 | Any other document produced by a skill    | That skill's own quality criteria                                                                       |
 
 A change to a design-bearing artifact needs `design-impact-review` before you make it, not after.

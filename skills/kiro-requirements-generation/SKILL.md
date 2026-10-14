@@ -9,7 +9,7 @@ tags: [skill, kiro, specs, requirements, ears, acceptance-criteria]
 
 ## Overview
 
-Bridges product management artifacts to Kiro IDE's spec-driven development workflow. Takes user stories (from `user-story-writing`) and extracted requirements (from `requirements-extraction`) and produces `{spec_dir}/requirements.md` files using the EARS (Easy Approach to Requirements Syntax) format for acceptance criteria.
+Bridges product management artifacts to Kiro IDE's spec-driven development workflow. Takes user stories (written with the artifact library's user-stories guide, `fuse/flow/library/artifacts/user-stories/guide.md` in the fuse-konductor clone) and extracted requirements (from `requirements-extraction`) and produces `{spec_dir}/requirements.md` files using the EARS (Easy Approach to Requirements Syntax) format for acceptance criteria.
 
 This skill sits at the handoff point between product management and design, after user stories are approved and before architecture work begins. The output drives Kiro IDE's spec-driven development, where requirements.md is the source of truth for design and task generation.
 
@@ -17,14 +17,14 @@ This skill sits at the handoff point between product management and design, afte
 
 Use this skill when:
 
-- User stories from `user-story-writing` are approved and ready for design handoff
+- User stories are approved and ready for design handoff
 - Requirements have been extracted via `requirements-extraction` and need Kiro IDE formatting
 - Starting a new feature in Kiro IDE that needs a spec-driven workflow
 - Converting existing BDD-style (Given/When/Then) acceptance criteria to EARS format
 
 Do NOT use when:
 
-- User stories are not yet written or approved. Use `user-story-writing` first.
+- User stories are not yet written or approved. Write them first, with the user-stories guide.
 - You need to generate design artifacts. Use `kiro-design-generation` after this skill.
 - Requirements are still being gathered. Use `requirements-extraction` first.
 
@@ -32,7 +32,7 @@ Do NOT use when:
 
 This skill consumes two upstream artifacts:
 
-1. **User Stories** from `user-story-writing`: INVEST-format stories with Given/When/Then acceptance criteria
+1. **User Stories**: INVEST-format stories with acceptance criteria
 2. **Requirements** from `requirements-extraction`: structured design inputs including functional requirements, NFRs, constraints, and assumptions
 
 Input can come from:
@@ -111,7 +111,7 @@ For requirements combining a precondition with a trigger.
 
 ## Conversion Rules: BDD to EARS
 
-User stories from `user-story-writing` use Given/When/Then (BDD) acceptance criteria. Convert them to EARS using these mappings:
+Acceptance criteria written as Given/When/Then (BDD) convert to EARS using these mappings:
 
 | BDD Keyword | EARS Keyword | Role                                            |
 | ----------- | ------------ | ----------------------------------------------- |
@@ -239,7 +239,7 @@ Read the approved user stories from the upstream artifact. Sources (in priority 
 
 ### Step 2: Confirm Feature Scope
 
-This skill produces one `requirements.md` per invocation, for the single feature identified by `spec_dir` (or its default `.kiro/specs/{feature-name}/`). Feature splitting happens upstream, via `task-decomposition`. If the user stories read in Step 1 span multiple features, filter to only those in scope for this invocation's feature before continuing. Do not group them into multiple features or write more than one `requirements.md` in a single run. If multiple features need specs, invoke this skill once per feature with that feature's own `spec_dir`, the same way the `kiro-spec-workflow` SOP does by passing a single `feature_name`.
+This skill produces one `requirements.md` per invocation, for the single feature identified by `spec_dir` (or its default `.kiro/specs/{feature-name}/`). Feature splitting happens upstream, in a feature split. If the user stories read in Step 1 span multiple features, filter to only those in scope for this invocation's feature before continuing. Do not group them into multiple features or write more than one `requirements.md` in a single run. If multiple features need specs, invoke this skill once per feature with that feature's own `spec_dir`, the same way the `kiro-spec-workflow` SOP does by passing a single `feature_name`.
 
 ### Step 3: Create Output Path
 

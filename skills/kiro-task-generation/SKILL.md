@@ -25,7 +25,7 @@ Use this skill when:
 
 Do NOT use when:
 
-- Splitting features for independent engineering → use `task-decomposition`
+- Splitting features for independent engineering → follow the artifact library's feature-split guide (`fuse/flow/library/artifacts/feature-split/guide.md` in the fuse-konductor clone)
 - Requirements are not yet written → use `kiro-requirements-generation`
 - Design is not yet written → use `kiro-design-generation`
 
