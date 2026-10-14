@@ -7,8 +7,8 @@
 # prove it. First the agent catalogues the checks that exist, sorts them into the ones that must
 # pass unchanged and the ones tied to implementation details, and proposes cheap checks to add
 # where behavior the migration puts at risk has none. Gaps are closed before anything is migrated,
-# a baseline is recorded, the migration runs in increments that each keep the must-pass checks
-# green, and the result is compared against the baseline in a report the owner reviews before
+# a baseline is recorded, the migration runs in committed increments that each reach their
+# checkpoint, and the result is compared against the baseline in a report the owner reviews before
 # landing. Step and artifact names follow fuse-feature-development where they fit; review.md next
 # to this file is the review guide for every agent gate.
 #
@@ -17,9 +17,9 @@ version: 1
 name: fuse-dependency-migration
 description: >
   A complex migration or refactoring that must leave the system behaving the same: catalogue the
-  checks that prove it, add the ones missing, record a baseline, migrate in increments that keep
-  the checks green, and compare the result against the baseline in a report the owner reviews
-  before landing.
+  checks that prove it, add the ones missing, record a baseline, migrate in committed increments
+  that each reach their checkpoint, and compare the result against the baseline in a report the
+  owner reviews before landing.
 steps:
   - id: intake
     title: Intake
@@ -48,19 +48,42 @@ steps:
       for example because it needs an account you do not have), roughly how long it takes, and
       what behavior it protects. Run the ones you can, and record their current result; a check
       that fails before the migration is a pre-existing defect, recorded as such so it is not
-      blamed on the migration later. Sort every check into one of three classes: must pass
-      unchanged before and after; may change, because it is tied to implementation details the
-      migration replaces, such as unit tests of internals or snapshots of a library's output; or
-      not relevant to this migration. Then look for gaps: behavior the migration puts at risk
-      that no must-pass check covers, and the cheapest check that would cover it, such as a
-      characterization test, a golden output, a recorded baseline of a run, or a smoke test of
-      the main path. Propose the gaps worth closing with a cost for each. Read the release notes
-      and migration guides of what you are moving to, and list the behavior changes they announce
-      that touch this code, so the owner decides for each whether to accept it or to preserve the
-      old behavior. Finish the migration spec with the strategy: the increments the migration
-      will be done in, each leaving the system working, and what to do when one cannot be kept
-      green. Order both documents for review: the decisions the owner must make or check come
-      first, most important first.
+      blamed on the migration later. The full check is the project's default check, the command
+      the check gates of the later steps run when each step finishes. When it takes more than a
+      few minutes, start it in the background as soon as you know its command, on a checkout
+      whose code matches its last commit, keep its output in a file, and go on with the catalogue
+      while it runs. Wait for it
+      to finish before anything changes the code, and record its exit code. Record every run of
+      the full check in the catalogue with the commit it ran on and its result: a result stands
+      for that commit only, and only when the code matched that commit when it started and did
+      not change while it ran. Writing this workstream's own documents, such as the spec and the
+      catalogue, does not count as a code change, unless the full check reads them. Where a later
+      comparison needs a check's captured outputs, numbers or artifacts, have the check write them
+      to files the catalogue names, so that a run by a step's gate keeps them too; a run without
+      those files does not count as a result of that check. Note which must-pass checks the full
+      check includes and which run separately. Sort every check into
+      one of three classes: must pass unchanged before and after; may change, because it is tied
+      to implementation details the migration replaces, such as unit tests of internals or
+      snapshots of a library's output; or not relevant to this migration. Then look for gaps:
+      behavior the migration puts at risk that no must-pass check covers, and the cheapest check
+      that would cover it, such as a characterization test, a golden output, a recorded baseline
+      of a run, or a smoke test of the main path. Propose the gaps worth closing with a cost for
+      each. Read the release notes and migration guides of what you are moving to, and list the
+      behavior changes they announce that touch this code, so the owner decides for each whether
+      to accept it or to preserve the old behavior. Finish the migration spec with the strategy:
+      the increments the migration will be done in, and for each the checkpoint that shows it
+      worked. Where the must-pass checks can stay green from one increment to the next, that is
+      the checkpoint. Where parts must move together, for example a language version and a web
+      framework whose new releases only support each other, the must-pass checks may only go
+      green at the end; name a checkpoint for each increment instead, such as: the toolchain
+      installs, every module compiles, the main modules import, a smoke run starts, and say in
+      which increments the must-pass checks are expected to fail. When the full check takes more
+      than a few minutes, the strategy also names a fast loop for each increment: the cheapest
+      command that exercises what the increment changes, such as compiling one module, running
+      one package's tests, or importing the main modules from a partial build, with its
+      duration. The full check then runs only at the milestones the strategy names. Order both
+      documents for review: the decisions the owner must make or check come first, most
+      important first.
     consumes: [migration-spec]
     produces:
       - artifact: check-catalogue
@@ -85,7 +108,10 @@ steps:
       from the behavior it protects, not from the implementation, and show that it can fail:
       break the code briefly and watch it go red, then restore it and watch it pass. Wire each
       into the project's check command where it belongs. Commit them separately from any
-      migration work, and add each to the catalogue as a must-pass check with its result.
+      migration work, and add each to the catalogue as a must-pass check with its result. When
+      you finish this step, its gate runs the full check on the code as it is, so commit
+      everything first, and do not run the full check yourself just before finishing, even where
+      the finishing instructions list it.
     consumes: [check-catalogue]
     updates:
       - artifact: code
@@ -105,32 +131,43 @@ steps:
       comparison needs, kept where the catalogue says. Run a check that looks unstable several
       times and record how often it fails, so a later failure can be told from flakiness. Every
       must-pass check is green, or recorded as a pre-existing defect with the evidence. Ask the
-      owner to run the checks only they can run, and record what they report. Commit the
-      catalogue.
+      owner to run the checks only they can run, and record what they report. Do not run the
+      full check again when the catalogue already records a result of it for the current commit,
+      with the captured files the comparison needs, from the catalogue step's background run;
+      when the guardrails step ran and nothing has changed since, its gate's passing run of the
+      full check is that result, so record it with the commit. Commit the catalogue.
     consumes: [check-catalogue]
     updates:
       - artifact: check-catalogue
         path: docs/specs/{date}-{slug}/checks.md
-    gates:
-      - check: default
 
   - id: migration
     title: Migration
     phase: Build
     instruction: >
-      Do the migration in the increments the spec lays out, and commit each increment on its own
-      so the history can be bisected. After each increment, run the must-pass checks that cover
-      what it touched, and the full set before you call it done. A must-pass check is never
-      weakened, skipped or deleted to get to green. A changeable check may be adapted to the new
-      implementation when the behavior it protected still holds; record each adaptation in the
-      catalogue with the reason. When a must-pass check fails and the cause is a real change in
-      behavior, stop: either the spec accepts that change already, or the owner decides, and the
-      decision goes into the spec. A behavior change announced by the release notes that the
-      owner chose to preserve is preserved in code, not by changing the check. When something
-      fails unexpectedly, find the root cause before you change code. Decide ambiguities
-      yourself, with the spec and the catalogue as the authority, and list each decision for the
-      report. Stop and ask only before an irreversible action or one that reaches outside this
-      checkout.
+      Do the migration in the increments the spec lays out. Commit each increment in this checkout
+      when it reaches its checkpoint, so the history can be bisected. Do not do the migration in
+      another clone or directory and copy it back; work that is not committed here is lost when
+      the session ends. While you work on an increment, use its fast loop, and run the full check
+      only at the strategy's milestones; when the strategy names no fast loop because the full
+      check is quick, run the must-pass checks that cover what each increment touched after it.
+      Before you finish, each must-pass check you can run that the full check does not include
+      needs a result for the commit you finish on, green or a recorded pre-existing defect; after
+      a fix, run again the ones it could affect. The step's gate is the final run of the full
+      check: when you finish this step, it runs on the code as it is, so commit everything first,
+      and do not run the full check yourself just before finishing, even where the finishing
+      instructions list it; the gate's run counts, and when it fails, fix the cause and refresh
+      the results above before you finish again. A
+      must-pass check is never weakened, skipped or deleted to get to green. A changeable check
+      may be adapted to the new implementation when the behavior it protected still holds;
+      record each adaptation in the catalogue with the reason. When a must-pass check fails and
+      the cause is a real change in behavior, stop: either the spec accepts that change already,
+      or the owner decides, and the decision goes into the spec. A behavior change announced by
+      the release notes that the owner chose to preserve is preserved in code, not by changing
+      the check. When something fails unexpectedly, find the root cause before you change code.
+      Decide ambiguities yourself, with the spec and the catalogue as the authority, and list
+      each decision for the report. Stop and ask only before an irreversible action or one that
+      reaches outside this checkout.
     consumes: [migration-spec, check-catalogue]
     updates:
       - artifact: code
@@ -144,18 +181,32 @@ steps:
     title: Verification
     phase: Review
     instruction: >
-      Run every check in the catalogue again and compare against the baseline, check by check:
-      the same result, or better, for every must-pass check; every changeable check that was
-      adapted listed with what changed and why; captured outputs and numbers compared, with the
-      differences explained. Ask the owner to run the checks only they can run, and record what
-      they report, or list them as pending. Write the migration report: what changed, from which
-      versions to which; the checks before and after, side by side; the pre-existing defects and
-      whether the migration touched them; the behavior changes accepted on purpose; the risks no
-      check covers and what the owner should try by hand; and the decisions you made alone. If
-      the integration branch has moved, rebase the branch onto it first and run the checks again.
-      Get the branch and the report through review. Before the last round, fold fixups into the
-      commits it should land as, keeping the increments. Do not merge into the integration branch
-      or push to a shared branch; the owner lands it.
+      Record the result of the migration step's gate in the catalogue, with the commit it ran on.
+      Then compare every check in the catalogue against the baseline, check by check, using for
+      each the latest result recorded for the current commit and running only the checks that
+      have none. The same result, or better, for every must-pass check; every changeable check
+      that was adapted listed with what changed and why; captured outputs and numbers compared,
+      with the differences explained. Ask the owner to run the checks only they can run, and
+      record what they report, or list them as pending. Write the migration report: what
+      changed, from which versions to which; the checks before and after, side by side, each
+      with the commit it ran on; the pre-existing defects and whether the migration touched them;
+      the behavior changes accepted on purpose; the risks no check covers and what the owner
+      should try by hand; and the decisions you made alone. If the integration branch has moved,
+      rebase the branch onto it first and run again the checks other than the full check. When
+      the rebase or any fix changes the code after the migration step's gate, the report must
+      not present that gate's result as the result for the final commit: run the full check
+      again before the last review round when the report compares its captured outputs or
+      numbers; otherwise say in the report that the full check on the final commit is this
+      step's gate, whose result the owner sees in the hand-over. After any fix that changes code,
+      from review or for a failed gate, run again the checks other than the full check that it
+      could affect, update the comparison and the report, and have the change reviewed before
+      you finish again. Get the branch and the report through review. Before the last round,
+      fold fixups into the commits it should land as, keeping the increments. When you finish
+      this step, its gate runs the full check on the code as it is, so commit everything first,
+      the report and the catalogue included, and do not run the full check yourself just before
+      finishing, even where the finishing instructions list it. Do not merge into the
+      integration branch or push to a shared branch;
+      the owner lands it.
     consumes: [migration-spec, check-catalogue]
     produces:
       - artifact: migration-report
