@@ -13,12 +13,12 @@ steps:
   - id: intake
     instruction: Write down what the owner wants.
     produces:
-      - artifact: requirements
+      - artifact: wishlist
         path: requirements.md
   - id: requirements
     instruction: Turn the draft into requirements.
     updates:
-      - artifact: requirements
+      - artifact: wishlist
         path: requirements.md
     gates:
       - agent: review the requirements
@@ -28,13 +28,13 @@ steps:
     condition:
       agent: an assumption needs an experiment
     instruction: Run the experiments the owner agrees to, one research note each.
-    consumes: [requirements]
+    consumes: [wishlist]
     produces:
       - artifact: notes
         path: research/
   - id: design
     instruction: Design it, citing the research notes.
-    consumes: [requirements, notes]
+    consumes: [wishlist, notes]
     produces:
       - artifact: design
         path: design.md
@@ -190,7 +190,7 @@ test("a status message mentions an artifact's guide only when it has one", () =>
   );
   expect(back).not.toContain("as its guide says");
 
-  r.write(".konductor/library/artifacts/requirements/guide.md", "# guide\n");
+  r.write(".konductor/library/artifacts/wishlist/guide.md", "# guide\n");
   r.ok("continue", "ds", "--updated", "requirements.md");
   const approved = r.ok("continue", "ds", "--owner-approved");
   expect(approved).toContain("If any of requirements.md keeps a status of its own, as its guide says, set it to approved.");
