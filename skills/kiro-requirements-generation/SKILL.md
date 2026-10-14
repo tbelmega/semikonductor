@@ -9,7 +9,7 @@ tags: [skill, kiro, specs, requirements, ears, acceptance-criteria]
 
 ## Overview
 
-Bridges product management artifacts to Kiro IDE's spec-driven development workflow. Takes user stories (written with the artifact library's user-stories guide, `fuse/flow/library/artifacts/user-stories/guide.md` in the fuse-konductor clone) and extracted requirements (from `requirements-extraction`) and produces `{spec_dir}/requirements.md` files using the EARS (Easy Approach to Requirements Syntax) format for acceptance criteria.
+Bridges product management artifacts to Kiro IDE's spec-driven development workflow. Takes user stories (written with the artifact library's user-stories guide, `fuse/flow/library/artifacts/user-stories/guide.md` in the fuse-konductor clone) and a requirements document (written with the artifact library's requirements guide, `fuse/flow/library/artifacts/requirements/guide.md`) and produces `{spec_dir}/requirements.md` files using the EARS (Easy Approach to Requirements Syntax) format for acceptance criteria.
 
 This skill sits at the handoff point between product management and design, after user stories are approved and before architecture work begins. The output drives Kiro IDE's spec-driven development, where requirements.md is the source of truth for design and task generation.
 
@@ -18,7 +18,7 @@ This skill sits at the handoff point between product management and design, afte
 Use this skill when:
 
 - User stories are approved and ready for design handoff
-- Requirements have been extracted via `requirements-extraction` and need Kiro IDE formatting
+- A requirements document exists and needs Kiro IDE formatting
 - Starting a new feature in Kiro IDE that needs a spec-driven workflow
 - Converting existing BDD-style (Given/When/Then) acceptance criteria to EARS format
 
@@ -26,14 +26,14 @@ Do NOT use when:
 
 - User stories are not yet written or approved. Write them first, with the user-stories guide.
 - You need to generate design artifacts. Use `kiro-design-generation` after this skill.
-- Requirements are still being gathered. Use `requirements-extraction` first.
+- Requirements are still being gathered. Write them first, with the requirements guide.
 
 ## Input
 
 This skill consumes two upstream artifacts:
 
 1. **User Stories**: INVEST-format stories with acceptance criteria
-2. **Requirements** from `requirements-extraction`: structured design inputs including functional requirements, NFRs, constraints, and assumptions
+2. **Requirements document**, written with the requirements guide: requirements, quality requirements (NFRs), constraints, and assumptions
 
 Input can come from:
 
@@ -301,6 +301,6 @@ Before presenting output, verify:
 - Could add edge case criteria (concurrent access, boundary values, empty states)
 - Could add performance criteria using Ubiquitous pattern (THE system SHALL respond within X ms)
 - Could add security criteria using Unwanted pattern (IF unauthorized access attempted, THEN...)
-- Could cross-reference NFRs from `requirements-extraction` as additional criteria
+- Could cross-reference the requirements document's quality requirements (NFRs) as additional criteria
 
 Present findings as: CRITICAL → IMPORTANT → SUGGESTION. Ask: "Fix these issues? [y/n]", unless `scope_confirmed` is true, in which case report all the findings and leave fixing to the caller, without asking.

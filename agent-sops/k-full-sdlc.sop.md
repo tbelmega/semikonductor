@@ -1,5 +1,11 @@
 # Full SDLC
 
+> **Kept for reference.** Fuse-Konductor does not install this SOP; the `_k-full-sdlc` fuse-flow
+> workflow replaces it, and fuse-flow keeps each workstream's state. The `sop-state-management`
+> skill, which this SOP's session state, checklist and fix-cycle counters rely on, and the
+> `requirements-extraction` skill named in Step 2 were removed. Read their mentions below as
+> history; the SOP can no longer be run as written.
+
 ## Overview
 
 This SOP takes a project or feature through the full lifecycle: codebase analysis, requirements, design, principal engineer review, feature splitting, per-feature specs, implementation, code review, test coverage, and documentation. Each phase runs an existing SOP or skill where one covers the work. Every phase is skippable and gated.

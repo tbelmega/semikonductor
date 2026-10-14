@@ -168,6 +168,10 @@ script installs plain skills and an always-on instruction block that every suppo
   `smithy-modeling`.
 - The `backend-development` and `frontend-development` skills, now the implement mode of
   `backend-review` and `frontend-review`, which share one set of standards per side.
+- The `sop-state-management`, `progress-tracking` and `requirements-extraction` skills.
+  fuse-flow keeps each workstream's state, which the first served for the SOPs; nothing used the
+  second; and the requirements guide in the artifact library replaces the third's design handoff
+  files. The `k-full-sdlc` SOP, which relied on two of them, is marked as history.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.
