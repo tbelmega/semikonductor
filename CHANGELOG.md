@@ -172,6 +172,10 @@ script installs plain skills and an always-on instruction block that every suppo
   fuse-flow keeps each workstream's state, which the first served for the SOPs; nothing used the
   second; and the requirements guide in the artifact library replaces the third's design handoff
   files. The `k-full-sdlc` SOP, which relied on two of them, is marked as history.
+- The project-management skills `program-planning`, `sprint-planning`, `asana-sprint-planning`,
+  `status-reporting` and `risk-management`, with the Asana setup guide
+  `docs/guides/asana-integration.md`, and the `security-remediation` skill. They are outside
+  Fuse-Konductor's scope and no workflow or skill used them.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.
