@@ -150,6 +150,11 @@ script installs plain skills and an always-on instruction block that every suppo
   `.claude/skills`, which in a project install `install.sh` manages.
 - The `git-workflow` skill. Only the `_k-full-sdlc` implementation step used it; its commit and
   branch rules are now `fuse/flow/workflows/k-git-workflow.md`, which that step names.
+- The `pre-planning-analysis` and `test-coverage-analysis` skills. The `task-doc` and
+  `test-coverage` guides in the artifact library, which linked to them, are now short guides of
+  their own; the test coverage guide keeps the coverage procedure and report and drops the
+  release-readiness mode, which no workflow used.
+- The `architecture-advisor` skill, now the quick-opinion mode of `trade-off-evaluator`.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

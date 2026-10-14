@@ -46,12 +46,12 @@ Scan the source and test directories to understand the codebase structure.
 
 ### 2. Run Test Coverage Analysis
 
-Apply the test-coverage-analysis skill to identify gaps.
+Apply the test-coverage guide (`fuse/flow/library/artifacts/test-coverage/guide.md`) to identify gaps.
 
 **Constraints:**
 
-- You MUST use the `test-coverage-analysis` skill for this step
-- You MUST pass `source_dir`, `test_dir`, `stories_file`, and `design_file` through to the skill, and `output_dir/test-gap-analysis.md` as its output file, so it uses your paths instead of searching its own default locations
+- You MUST follow the test-coverage guide for this step
+- You MUST pass `source_dir`, `test_dir`, `stories_file`, and `design_file` through to the guide's procedure, and `output_dir/test-gap-analysis.md` as its output file, so it uses your paths instead of searching for them
 - You MUST analyze coverage across unit, integration, and E2E test types
 - If `stories_file` is provided, you MUST map tests to acceptance criteria
 - You MUST categorize gaps by severity: CRITICAL (core user journeys untested), IMPORTANT (error paths untested), SUGGESTION (edge cases)

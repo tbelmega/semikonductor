@@ -1,13 +1,119 @@
 ---
 name: trade-off-evaluator
-description: 'Use when a design decision has several options and someone asks to evaluate or compare them in depth ("evaluate the trade-offs between X and Y", "score these options", "which is better: SQS or EventBridge for this use case", "compare these alternatives"), or when the k-design-doc-creation SOP reaches its trade-off step. Scores cost, latency, complexity, scalability, and operability in a comparison matrix with a recommendation. For a quick opinion, use architecture-advisor.'
-version: 1.0.0
-tags: [skill, design, trade-offs, evaluation, decision, architecture]
+description: 'Use when a design decision has options to weigh: a quick architecture recommendation, opinion or sanity check ("should I use X or Y?", "does this approach make sense?"), or an in-depth comparison ("evaluate the trade-offs between X and Y", "score these options", "which is better: SQS or EventBridge for this use case", "compare these alternatives"), or when the k-design-doc-creation SOP reaches its trade-off step. Answers a quick question concisely with trade-offs; for a full comparison, scores cost, latency, complexity, scalability, and operability in a matrix with a recommendation.'
+version: 1.1.0
+tags: [skill, design, trade-offs, evaluation, decision, architecture, advisor, recommendations]
 ---
 
 # Trade-Off Evaluator
 
-Produces a scored comparison matrix for design decisions with multiple options. Each option is scored 1–5 across five dimensions. Outputs a recommendation with rationale and per-option risks.
+Two modes:
+
+- **Quick opinion:** the user wants a recommendation or a sanity check, not a design document. Give
+  one clear answer with its trade-offs, an action plan and an effort estimate. See
+  [Quick opinion](#quick-opinion).
+- **Scored comparison:** produces a scored comparison matrix for design decisions with multiple
+  options. Each option is scored 1–5 across five dimensions. Outputs a recommendation with
+  rationale and per-option risks. The rest of this file, from When to Use, describes it.
+
+Use the quick mode for a question, and the scored mode when the user asks to compare or score
+options, when an ADR needs scored alternatives, or when the decision is costly to reverse.
+
+## Quick opinion
+
+Do not use it when the user wants a full system design (use `system-design-patterns`), API specs
+(`smithy-modeling`), a data model (`dynamodb-design`) or a threat model (`threat-modeling`).
+
+### Decision framework
+
+1. **Bias toward simplicity**: Least complex solution that fulfills requirements
+2. **Use existing**: Favor modifications over new components
+3. **Developer experience**: Optimize for readability and maintainability
+4. **One clear path**: Single primary recommendation. Don't hedge
+5. **Match depth to complexity**: Quick questions get quick answers
+
+### Response structure
+
+**Essential (always include):**
+
+- **Bottom line**: 2-3 sentences capturing the recommendation
+- **Action plan**: Numbered steps for implementation
+- **Effort estimate**: Quick(<1h), Short(1-4h), Medium(1-2d), Large(3d+)
+
+**Expanded (include when trade-offs are involved):**
+
+- **Why this approach**: Brief reasoning behind the recommendation
+- **Trade-offs considered**: Alternatives evaluated and why they were rejected
+- **Watch out for**: Specific risks, pitfalls, or edge cases
+- **Mitigation strategies**: How to handle identified risks
+
+**Edge cases (include for scalability or architecture decisions):**
+
+- **Escalation triggers**: Conditions under which to abandon the simple approach
+- **Alternative sketch**: High-level outline of the more complex path
+- **When to reconsider**: Signals that the advanced approach is needed
+
+| Question complexity   | Include                           |
+| --------------------- | --------------------------------- |
+| Simple, clear answer  | Essential only                    |
+| Trade-offs involved   | Essential + Expanded              |
+| Scalability concerns  | Essential + Expanded + Edge cases |
+| Architecture decision | Essential + Expanded + Edge cases |
+
+### Examples
+
+> "Should I use useState or useReducer for this form?"
+
+**Bottom line**: Use useState. This form has 3 fields with no complex interdependencies.
+
+**Action plan**:
+
+1. Create state for each field
+2. Add onChange handlers
+3. Validate on submit
+
+**Effort estimate**: Quick (<1h)
+
+> "Should we migrate from REST to GraphQL?"
+
+**Bottom line**: Not yet. Your current API surface is small and REST is working. GraphQL adds complexity you don't need.
+
+**Action plan**:
+
+1. Document current pain points with REST
+2. Evaluate if BFF pattern solves issues more simply
+3. Revisit GraphQL when you have 10+ interconnected resources
+
+**Effort estimate**: N/A (recommending against)
+
+**Why this approach**: GraphQL works well with complex, interconnected data graphs. Your current 5 endpoints don't justify the tooling overhead.
+
+**Trade-offs considered**: GraphQL would give better client flexibility, but at the cost of server complexity, caching challenges, and team learning curve.
+
+**Watch out for**: N+1 query problems if you do migrate later. Plan resolver batching from day one.
+
+**Escalation triggers**: Reconsider if you're building 5+ new clients, or if over-fetching becomes a measurable performance issue.
+
+**Alternative sketch**: If migrating, start with a GraphQL gateway over existing REST, then incrementally move resolvers.
+
+### Quick opinion quality gate
+
+**CRITICAL (must fix):**
+
+- No clear recommendation (hedging with "it depends" without a primary path)
+- Missing effort estimate
+- Recommendation contradicts constraints the user stated
+
+**IMPORTANT (should fix):**
+
+- No trade-off analysis for decisions with multiple viable options
+- Missing risks or watch-out-for items
+- Action plan steps are vague
+
+**SUGGESTION:**
+
+- Could add escalation triggers for when to revisit the decision
+- Could reference specific AWS documentation or best practices
 
 ## When to Use
 
