@@ -123,7 +123,8 @@ steps:
       Before cutting the first branch, confirm the working tree is clean, and ask the owner if it
       is not. Implement each feature from its tasks.md on its own branch, with unit and integration
       tests. On a greenfield project build the scaffold first, from the design. Run the project's
-      check on each feature and commit the feature on its branch (the git-workflow skill) before
+      check on each feature and commit the feature on its branch, following
+      fuse/flow/workflows/k-git-workflow.md in the fuse-konductor clone, before
       starting the next. Record each feature's branch, commit and check result in the
       implementation report.
     produces:

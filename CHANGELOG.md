@@ -146,6 +146,10 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `design-doc-guidelines`, `design-evaluation` and `design-quality-check` skills. The first is
   now the `design` guide in the artifact library; the other two together are its review guide,
   one part for writing quality and one for production readiness.
+- The `workspace-skills` skill. It wrote agent-created skills into `.kiro/skills` and
+  `.claude/skills`, which in a project install `install.sh` manages.
+- The `git-workflow` skill. Only the `_k-full-sdlc` implementation step used it; its commit and
+  branch rules are now `fuse/flow/workflows/k-git-workflow.md`, which that step names.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

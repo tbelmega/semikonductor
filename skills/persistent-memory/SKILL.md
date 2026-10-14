@@ -1,6 +1,6 @@
 ---
 name: persistent-memory
-description: Use after an error-recovery sequence, when the user corrects your approach and the correction is durable, or when a non-obvious project or environment convention or preference is discovered. Persists the fact to bounded memory files that survive across sessions. For a reusable multi-step procedure, use workspace-skills.
+description: Use after an error-recovery sequence, when the user corrects your approach and the correction is durable, or when a non-obvious project or environment convention or preference is discovered. Persists the fact to bounded memory files that survive across sessions. It does not capture multi-step procedures.
 ---
 
 # Skill: Persistent Memory
@@ -114,14 +114,15 @@ Every 5-10 turns, self-evaluate: _Is there anything worth persisting?_
 
 ## Routing Note
 
-This skill handles **declarative facts, preferences, decisions, and conventions only**. Route
-reusable multi-step procedures to `workspace-skills` instead.
+This skill handles **declarative facts, preferences, decisions, and conventions only**. Do not
+capture reusable multi-step procedures here; tell the user about one instead, so they can decide
+whether it becomes a skill.
 
-| Captured knowledge is...                    | Route to            |
-| ------------------------------------------- | ------------------- |
-| A fact, preference, decision, or convention | `persistent-memory` |
-| A reusable multi-step procedure or workflow | `workspace-skills`  |
-| A one-time observation (not durable)        | Neither — discard   |
+| Captured knowledge is...                    | Route to                 |
+| ------------------------------------------- | ------------------------ |
+| A fact, preference, decision, or convention | `persistent-memory`      |
+| A reusable multi-step procedure or workflow | Neither — tell the user  |
+| A one-time observation (not durable)        | Neither — discard        |
 
 ---
 
