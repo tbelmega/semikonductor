@@ -181,6 +181,11 @@ script installs plain skills and an always-on instruction block that every suppo
   Fuse-Konductor's own branches keep.
 - The `k-code-simplifier` skill, formerly `asdlc-code-simplifier`: general cleanup advice that no
   workflow, guide or other skill used.
+- The `cypress-test-implementation`, `historical-issues-registry` and `document-formats` skills.
+  The first was a 1,900-line Cypress planning template that no workflow used; Playwright stays as
+  the end-to-end implementation skill. The second was an abstract filter that needed a platform
+  mapping Fuse-Konductor never shipped, so its only caller always skipped it. The third listed
+  basic Pandoc commands and had no caller.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

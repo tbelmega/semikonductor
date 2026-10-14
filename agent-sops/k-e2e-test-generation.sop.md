@@ -39,7 +39,7 @@ The agent running this SOP performs each step and loads the required skills. Bro
 ## Skills and Capabilities
 
 - Browser automation with `app-discovery` and its DOM inspection protocol: navigates the app, takes screenshots, discovers pages
-- Test generation with `e2e-test-strategy`, `cypress-test-implementation`, or `playwright-test-implementation`: generates test specs and unit test prompts
+- Test generation with `e2e-test-strategy` or `playwright-test-implementation`, and the Cypress instructions in Step 4B-iii: generates test specs and unit test prompts
 - Shell, file, and git operations: bootstraps projects, validates builds, and analyzes existing project files
 
 ## Steps
@@ -190,9 +190,9 @@ Perform this step using the listed shell and file tools.
 
 _Only if `output_mode=cypress`. Skip if `output_mode=playwright`._
 
-Load the listed test-generation skills and perform this step.
+Perform this step with the instructions below.
 
-**REQUIRED SKILLS:** cypress-test-implementation
+**REQUIRED SKILLS:** none
 **REQUIRED TOOLS:** read, write
 
 **MUST DO:**
@@ -353,7 +353,6 @@ Print a summary to the user:
 ## Related Skills
 
 - `e2e-test-strategy`: prioritized E2E test matrix (P0-P3)
-- `cypress-test-implementation`: detailed Cypress implementation planning and tracking
 - `playwright-test-implementation`: Playwright selector strategy, `global-setup.ts`/`storageState` authoring, and Cloudscape-specific locator patterns
 
 ## Examples

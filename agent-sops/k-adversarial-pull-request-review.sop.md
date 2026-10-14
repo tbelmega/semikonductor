@@ -4,7 +4,7 @@
 
 Runs an adversarial review of code changes. Not a replacement for standard code review. It runs after standard review to catch what style and quality reviewers miss: information disclosure, data integrity failures, and schema/validation gaps.
 
-Structure: three independent generator passes (security, integrity, schema), an independent reuse pass, a validator (checker) pass, and a historical-issues filter. Generator and checker independence is what keeps false positives out of the review.
+Structure: three independent generator passes (security, integrity, schema), an independent reuse pass, and a validator (checker) pass. A historical-issues filter is not available (see Roles). Generator and checker independence is what keeps false positives out of the review.
 
 ## Parameters
 
@@ -26,7 +26,7 @@ Structure: three independent generator passes (security, integrity, schema), an 
 
 - **Generator**: Run one isolated single-lens pass of `adversarial-code-review` in Generator Mode for each of its security, data integrity, and schema and contract lenses, plus the fresh reuse pass in Step 3. Each pass produces candidate findings.
 - **Validator / Checker**: Run `adversarial-code-review` in Validator Mode. The checker MUST NOT have authored any candidate finding. When generic subagents are available, run the checker in a separate subagent. Otherwise, run it as a separate pass started without the generator passes' conclusions or reasoning beyond their returned findings, and explicitly adopt the validator persona. See Step 4.
-- **Historical filter**: this SOP invokes `historical-issues-registry` in load and filter phases. **Unavailable without a platform mapping:** `historical-issues-registry` is an abstract skill. Per its own Usage section, it is not run standalone and needs a concrete mapping for the code review platform in use. This package provides no such mapping, and this SOP assumes no tool that reads a pull request's prior review comment threads. This is why Steps 0.5 and 5 below are documented no-ops when no mapping is available, rather than silently returning empty results. When the caller provides a concrete mapping and a tool that reads prior review threads, they run as `historical-issues-registry` describes. The same assumption means an arbitrary `pr_url` cannot be resolved to its diff content. See the Parameters section's `pr_url` note and Step 0 for how that separate gap is handled.
+- **Historical filter**: not available. An earlier version filtered new findings against a pull request's prior review state through a `historical-issues-registry` skill, which Fuse-Konductor does not ship, and this SOP assumes no tool that reads a pull request's prior review comment threads. Steps 0.5 and 5 are therefore documented no-ops, rather than silently returning empty results. The same assumption means an arbitrary `pr_url` cannot be resolved to its diff content. See the Parameters section's `pr_url` note and Step 0 for how that separate gap is handled.
 
 Independence rests on separate execution context or separate isolated passes, no shared conclusions between generator passes, a checker that did not author the findings, and the mechanical literal-diff-verification rule inside the checker skill.
 
@@ -52,15 +52,15 @@ Before reviewing the diff, autonomously gather the context needed to produce cod
 
 ### 0.5. Load Prior Review State
 
-**Without a concrete platform mapping, this step is skipped. It is a documented no-op, not a silent one.** This package ships no such mapping (see Roles above): `historical-issues-registry` is an abstract skill that cannot fetch prior review state without one, and this SOP assumes no tool that reads a pull request's prior review comment threads. Calling the skill's load phase without a concrete mapping would have no way to fetch real thread state; an unguarded call would silently return an empty list, indistinguishable from "no prior revisions," which misrepresents the reason nothing was loaded. When a concrete mapping and a tool that reads prior review threads are available, run the load phase as `historical-issues-registry` describes instead.
+**This step is a documented no-op, not a silent one.** Historical filtering is not available (see Roles above), so there is no prior review state to load. Recording nothing would be indistinguishable from "no prior revisions," which misrepresents the reason nothing was loaded.
 
 **Constraints:**
 
-- You MUST NOT call `historical-issues-registry`'s load phase without a concrete platform mapping; skip it outright
-- When you skip it, you MUST note in the context summary that historical filtering is unavailable (no concrete platform mapping), not that there were no prior revisions
+- You MUST skip this step
+- You MUST note in the context summary that historical filtering is unavailable, not that there were no prior revisions
 - You MUST NOT treat the absence of a fingerprint list in Step 5 as "no prior revisions"; it means "not checked," not "nothing found"
 
-**Expected Output:** Note recorded: "historical filtering unavailable: no concrete platform mapping"
+**Expected Output:** Note recorded: "historical filtering unavailable"
 
 ### 1. Ingest Diff
 
@@ -129,12 +129,12 @@ Run `adversarial-code-review` in Validator Mode to filter the consolidated findi
 
 ### 5. Historical Filter
 
-**When Step 0.5 was skipped, skip this step too: there is no fingerprint list to filter against (see Step 0.5).** Pass the checker-approved findings straight through to Step 6 unchanged.
+**This step is a documented no-op: Step 0.5 loaded no fingerprint list to filter against.** Pass the checker-approved findings straight through to Step 6 unchanged.
 
 **Constraints:**
 
-- You MUST NOT call `historical-issues-registry`'s filter phase when Step 0.5 was skipped; skip it outright and pass the checker-approved findings through to Step 6 unchanged
-- When you skip it, you MUST note in the summary that historical filtering was unavailable, not that zero matches were found
+- You MUST skip this step and pass the checker-approved findings through to Step 6 unchanged
+- You MUST note in the summary that historical filtering was unavailable, not that zero matches were found
 
 **Expected Output:** Checker-approved findings list passed through unchanged; note recorded that historical filtering was unavailable
 
@@ -160,7 +160,7 @@ Consolidate the surviving findings and produce a verdict.
   Findings: {N} CRITICAL, {N} IMPORTANT, {N} SUGGESTION
   Filtered by checker: {N}
   Isolation: {isolated | single-context (generator and checker independence reduced)}
-  Historical filtering: unavailable (no concrete platform mapping; see Step 0.5)
+  Historical filtering: unavailable (see Step 0.5)
 
   ## Critical Findings
 
@@ -171,7 +171,7 @@ Consolidate the surviving findings and produce a verdict.
   ## Filter Log
   ```
 
-  Every surviving finding goes in exactly one severity section (`## Critical Findings` / `## Important Findings` / `## Suggestions`). Without a concrete platform mapping, Steps 0.5 and 5 are skipped no-ops (see Step 0.5); no finding is ever tagged "regressed since ..." or "carried over from ...", so there is no separate historical-section machinery for a finding to land in instead of its own severity section.
+  Every surviving finding goes in exactly one severity section (`## Critical Findings` / `## Important Findings` / `## Suggestions`). Steps 0.5 and 5 are no-ops (see Step 0.5); no finding is ever tagged "regressed since ..." or "carried over from ...", so there is no separate historical-section machinery for a finding to land in instead of its own severity section.
 
 - You MUST NOT print the full report in your response; reference the file path
 - You MUST display: verdict, isolation mode, finding counts by severity, checker rejection count, and a one-line description of each CRITICAL-severity finding
