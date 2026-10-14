@@ -24,7 +24,7 @@ Structure: three independent generator passes (security, integrity, schema), an 
 
 ## Roles
 
-- **Generator**: Run one isolated pass for each of `adversarial-code-review-pass-security`, `-integrity`, and `-schema`, plus the fresh reuse pass in Step 3. Each pass produces candidate findings.
+- **Generator**: Run one isolated single-lens pass of `adversarial-code-review` in Generator Mode for each of its security, data integrity, and schema and contract lenses, plus the fresh reuse pass in Step 3. Each pass produces candidate findings.
 - **Validator / Checker**: Run `adversarial-code-review` in Validator Mode. The checker MUST NOT have authored any candidate finding. When generic subagents are available, run the checker in a separate subagent. Otherwise, run it as a separate pass started without the generator passes' conclusions or reasoning beyond their returned findings, and explicitly adopt the validator persona. See Step 4.
 - **Historical filter**: this SOP invokes `historical-issues-registry` in load and filter phases. **Unavailable without a platform mapping:** `historical-issues-registry` is an abstract skill. Per its own Usage section, it is not run standalone and needs a concrete mapping for the code review platform in use. This package provides no such mapping, and this SOP assumes no tool that reads a pull request's prior review comment threads. This is why Steps 0.5 and 5 below are documented no-ops when no mapping is available, rather than silently returning empty results. When the caller provides a concrete mapping and a tool that reads prior review threads, they run as `historical-issues-registry` describes. The same assumption means an arbitrary `pr_url` cannot be resolved to its diff content. See the Parameters section's `pr_url` note and Step 0 for how that separate gap is handled.
 
@@ -80,14 +80,14 @@ Resolve `diff_input` to reviewable content.
 
 ### 2. Parallel Review Passes
 
-Run three independent passes, one per pass skill. When the runtime offers generic subagents, run each pass in a separate subagent and launch them in parallel. Otherwise, run them as separate sequential passes, starting each without the other passes' conclusions.
+Run three independent passes, one per lens of `adversarial-code-review`. When the runtime offers generic subagents, run each pass in a separate subagent and launch them in parallel. Otherwise, run them as separate sequential passes, starting each without the other passes' conclusions.
 
 **Constraints:**
 
-- You MUST run the generator role three times, each loading exactly one pass skill:
-  - Security pass → `adversarial-code-review-pass-security`
-  - Data integrity pass → `adversarial-code-review-pass-integrity`
-  - Schema/contract pass → `adversarial-code-review-pass-schema`
+- You MUST run the generator role three times, each a single-lens pass of `adversarial-code-review` that names exactly one lens:
+  - Security pass → the security lens
+  - Data integrity pass → the data integrity lens
+  - Schema/contract pass → the schema and contract lens
 - Each subagent MUST receive the ingested diff and the Step 0 context summary
 - Each subagent MUST be framed neutrally; the prompt says "review through the lens of X", never "check if X is weak"
 - You MUST NOT share findings between the three passes; they run independently
@@ -106,7 +106,7 @@ Merge the three findings lists, then check for missed reuse opportunities not su
 - When generic subagents are available, You MUST run the reuse pass in a separate generic subagent. Otherwise, You MUST run it as a separate pass and MUST NOT reuse its authoring context for Step 4
 - This reuse pass MUST receive: the ingested diff, the Step 0 context summary, and the three Step 2 findings lists
 - Any findings this pass produces MUST be tagged with pass origin `reuse` and appended to the consolidated list. They are ordinary candidate findings like the other three passes' output; they get no exemption from Step 4's checker rules
-- You MUST assign IMPORTANT to a reuse finding that flags inline reimplementation or bypass of an existing shared utility, transaction/batch helper, validation middleware, error-mapping layer, or pagination token utility. For a reuse finding outside that list, apply the severity guidance from whichever of `adversarial-code-review-pass-security`/`-integrity`/`-schema` most closely matches the concern it raises
+- You MUST assign IMPORTANT to a reuse finding that flags inline reimplementation or bypass of an existing shared utility, transaction/batch helper, validation middleware, error-mapping layer, or pagination token utility. For a reuse finding outside that list, apply the `adversarial-code-review` Quality Gate entries of whichever lens most closely matches the concern it raises
 - The reuse pass MUST be independent from the checker and MUST NOT share its authoring context with Step 4
 - You MUST NOT re-run the individual Step 2 passes' own checks; this step only adds cross-pass reuse findings
 

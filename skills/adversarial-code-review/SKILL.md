@@ -1,7 +1,7 @@
 ---
 name: adversarial-code-review
-description: 'Use when a change needs a second-pass review after standard code review, as the checker in a maker-checker cycle, or before submitting a change that touches auth, data writes, or external API boundaries. Targets what standard review misses: information disclosure, data integrity, and schema validation. For a routine first review of a diff or PR, use code-review.'
-version: 1.0.0
+description: 'Use when a change needs a second-pass review after standard code review, as the checker in a maker-checker cycle, or before submitting a change that touches auth, data writes, or external API boundaries. Targets what standard review misses, through three lenses that can run together or as separate parallel passes: security and information disclosure, data integrity and failure modes, and schema and contract stability. For a routine first review of a diff or PR, use code-review.'
+version: 1.1.0
 tags:
   [
     skill,
@@ -18,7 +18,7 @@ tags:
 
 ## Overview
 
-Takes the stance of a security-focused architect arguing against approval. Does not duplicate what style or quality reviewers catch. It focuses exclusively on the three gap categories where standard review consistently misses: security/information disclosure, data integrity failure modes, and schema/validation completeness. Every finding must make a case for blocking or conditioning approval.
+Takes the stance of a security-focused architect arguing against approval. Does not duplicate what style or quality reviewers catch. It focuses exclusively on the three gap categories where standard review consistently misses, each reviewed through its own lens: security and information disclosure, data integrity and failure modes, and schema and contract stability. Every finding must make a case for blocking or conditioning approval.
 
 ## Usage
 
@@ -34,7 +34,16 @@ This skill operates in two modes. The invoker selects the mode; the two modes mu
 
 ### Generator Mode (Maker)
 
-The default. Read the diff, produce findings across the gap categories in `Core Concepts`. Findings may be incomplete or noisy. That is expected. A different persona in Validator Mode will filter them before they reach the pull request.
+The default. Read the diff and produce findings through the lenses below. Findings may be incomplete or noisy. That is expected. A different persona in Validator Mode will filter them before they reach the pull request.
+
+Generator Mode runs in one of two shapes:
+
+- **Full pass:** one pass applies all three lenses. Use this when the skill is invoked directly on a diff.
+- **Single-lens pass:** the invoker names one lens, and the pass applies only that lens. A review procedure such as `k-adversarial-pull-request-review` runs the three lenses as separate, parallel passes, so that one lens's conclusions do not shape another's. In a single-lens pass, read the other lenses only to recognize that a concern belongs to them, and leave it to their pass. Do not deduplicate against other passes; the review procedure does that.
+
+Frame every pass neutrally: review through the lens of security, integrity or contract, and do not assume any specific issue exists. Findings are candidates, not verdicts. Do not soften them for the checker; produce your honest read. The checker's job is to filter, not to nudge.
+
+For each concern, name the file:line, the concrete failure scenario, and a specific fix.
 
 ### Validator Mode (Checker)
 
@@ -52,85 +61,109 @@ For each proposed finding you review:
 
 Output for each finding: `KEEP` with the finding unchanged, or `REJECT` with a one-line reason drawn from the list above.
 
-**Scope note for Validator Mode:** the two rule lists above are exhaustive for this mode. Everything below is Generator Mode content. That includes `## Core Concepts`, `## Review Checklist`, `## Codebase Awareness`, `## Quality Gate`, and the closing "Ask: 'Fix these issues?'" line. In Validator Mode, treat it as reference only (e.g. to recognize what category a candidate finding belongs to); it adds no further rejection criteria beyond the list above, it never authorizes proposing a new finding, and the closing offer-to-fix line does not apply. Validator Mode never offers to fix anything, it only returns `KEEP`/`REJECT`.
+**Scope note for Validator Mode:** the two rule lists above are exhaustive for this mode. Everything below is Generator Mode content. That includes `## Lenses`, `## Codebase Awareness`, `## Quality Gate`, and the closing "Ask: 'Fix these issues?'" line. In Validator Mode, treat it as reference only (e.g. to recognize what lens a candidate finding belongs to); it adds no further rejection criteria beyond the list above, it never authorizes proposing a new finding, and the closing offer-to-fix line does not apply. Validator Mode never offers to fix anything, it only returns `KEEP`/`REJECT`.
 
-## Core Concepts
+## Lenses
 
-### Gap Categories
+### Security lens
 
-**Security Analysis**
-Information disclosure in error messages and logs (stack traces, internal IDs, raw exception messages surfaced to callers), API input leaks (request payloads logged at debug/info level), pagination token injection (opaque tokens decoded and used in queries without validation), abstraction boundary violations (internal service details crossing public API boundaries).
+Review through the lens of security. In this diff, does anything:
 
-**Data Integrity / Failure Modes**
-Partial write semantics (multi-item mutations not wrapped in a transaction), unconditional overwrites (put/update without a condition expression where a concurrent write could corrupt state), missing conditional writes (optimistic locking absent on contested resources), untested write paths (code paths that mutate state with no corresponding test exercising the write).
+- Surface stack traces, internal IDs, table names, partition keys, or raw exception messages to the caller
+- Log request payloads, response bodies, or auth headers at info or debug level
+- Decode a pagination token, opaque cursor, or user-supplied ID and use it in a query without validation
+- Cross an abstraction boundary, internal service details reaching a public API surface
+- Introduce a new authorization path without checking existing middleware or authorizer wiring
+- Accept input used in a query, path, or command before validation runs
+- Include a hardcoded secret, API key, credential, or embedded token
+- Widen an IAM policy, grant, or trust relationship
 
-**Schema / Validation Completeness**
-Missing map guards (accessing nested map keys without checking the map exists), missing standalone fields (new fields added to a schema but not validated or defaulted in all code paths), validate-then-act ordering violations (business logic executing before input validation completes), integration wiring gaps (new handler/route registered but not wired into the router, authorizer, or middleware chain).
+The failure scenario is what an attacker or an unlucky caller would do.
 
-## Review Checklist
+**Out of scope:** synthetic or fake values in test fixtures are not hardcoded secrets, keys or tokens. Synthetic account IDs, credentials and internal IDs are expected in test data. This exempts specific synthetic values, not test files as a category: a genuine injection pattern, an unvalidated-input path, or unsafe code that lives in a test file is still in scope.
 
-### Security
+### Data integrity lens
 
-- [ ] Error messages returned to callers contain no stack traces, internal IDs, or raw exception text
-- [ ] No request/response payloads logged at info or debug level
-- [ ] Pagination tokens and opaque cursors validated before use in queries
-- [ ] Internal service details (table names, partition keys, internal error codes) not exposed across API boundaries
+Review through the lens of data integrity and failure modes. In this diff, does anything:
 
-### Data Integrity
+- Perform a multi-item mutation without a transaction, meaning two or more writes that must succeed or fail together
+- Issue an unconditional `put` or `update` on a resource that can see concurrent writes
+- Miss a condition expression, version check, or optimistic-lock guard on a contested resource
+- Introduce a write path that has no test exercising the mutation
+- Retry a non-idempotent operation without an idempotency key
+- Depend on ordering across independent async events without a sequencing mechanism
+- Lose the return value of a write and then re-read the item redundantly
+- Delete or overwrite state on an error path where rollback or compensation is required
 
-- [ ] Multi-item mutations use DynamoDB transactions or equivalent atomic operation
-- [ ] Write operations on contested resources include a condition expression
-- [ ] No unconditional `put` where an `update` with condition is required
-- [ ] Every write path has at least one test that exercises the mutation
+The failure scenario is a partial write, a lost update or an ordering race.
 
-### Schema / Validation
+**Out of scope:**
 
-- [ ] Map/object access guarded by existence check before key traversal
-- [ ] New schema fields validated and defaulted in all entry points
-- [ ] Input validation runs before any business logic or side effects
-- [ ] New handlers/routes wired into router, authorizer, and middleware
+- A single-item write does not need a transaction. Transactions apply to multi-item mutations that must succeed or fail together, not to a lone `put` or `update`.
+- Bulk or unconditional writes in test setup and teardown, such as seeding fixture data or clearing state afterwards, are expected scaffolding. This exempts setup and teardown, not test files as a whole: a non-atomic write in the code path under test, the one the test's assertions target, is still in scope.
+
+### Schema and contract lens
+
+Review through the lens of schema and contract stability: API shapes, type changes, validation completeness and backward compatibility. In this diff, does anything:
+
+- Add a new required field, header, or parameter without a migration path for existing clients
+- Change a field type, remove a field, or rename a field in a shipped API or data model
+- Skip validation on a new field in one or more entry points
+- Read a nested map or optional field without a guard, then act on it
+- Run business logic or a side effect before input validation completes
+- Register a new handler or route without wiring it into the router, authorizer, or middleware chain
+- Introduce a schema field that lacks a default in read paths for existing records
+- Change enum values, error codes, or status names that consumers pattern-match on
+
+The failure scenario is which client breaks, or which record becomes unparseable.
+
+**Out of scope:** validation issues on synthetic fixture data in test files. Test fixtures intentionally skip production validation paths. This exempts fixture data, not test files as a category: a genuine contract or schema defect in production-reachable code that lives in a test file is still in scope.
 
 ## Codebase Awareness
 
-Before flagging a missing implementation, check whether the codebase already provides it:
+Before flagging a missing implementation, check whether the codebase already provides it. Flag reimplementation or bypass of an existing utility, not the absence of one:
 
-- Existing transaction helpers or batch-write utilities, flag reimplementation as a violation
-- Shared input validation middleware or schema validators, flag bypassing them
-- Established error-mapping layers, flag direct exception surfacing that bypasses them
-- Existing pagination token encode/decode utilities, flag inline reimplementation
+- Existing transaction or batch-write helpers → flag reimplementation
+- Shared repository or DAO layer → flag direct client calls that bypass it
+- Established idempotency-key middleware → flag routes that skip it
+- Shared input validation middleware or schema validators → flag bypassing them
+- Existing versioning or migration helpers → flag ad-hoc migration logic
+- Established default-handling patterns for schema evolution → flag divergence
+- Established error-mapping layers → flag direct exception surfacing that bypasses them
+- Existing pagination token encode/decode utilities → flag inline reimplementation
+- Auth middleware or authorizer wiring → flag routes that skip it
+- Secrets manager or parameter store → flag hardcoded values
 
 ## Quality Gate
 
 **CRITICAL (blocks approval):**
 
-- Information disclosure: stack trace, internal ID, or raw exception surfaced to caller
-- Non-atomic multi-item write without transaction (data corruption risk)
-- Unconditional overwrite on a resource subject to concurrent writes
-- Input used in a query before validation (injection or logic bypass risk)
+- Security: stack trace, internal ID, or raw exception surfaced to the caller; unvalidated input used in a query (injection or logic bypass risk); hardcoded credential; widened IAM policy on a production role
+- Data integrity: non-atomic multi-item mutation without a transaction (data corruption risk); unconditional overwrite on a resource subject to concurrent writes; delete or overwrite on an error path with no rollback
+- Schema and contract: breaking change to a shipped API or data model without a migration path; new field required by the write path but not defaulted in the read path (existing records unparseable)
 
 **IMPORTANT (should fix):**
 
-- Request payload logged at info/debug level
-- Write path with no test coverage
-- Map key accessed without existence guard
-- New field missing validation or default in one or more entry points
-- Validate-then-act ordering violated (validation present but runs after side effect)
-- Integration wiring gap (handler registered but not connected to auth/middleware)
-- Opaque token decoded inline where a shared utility exists
+- Security: request payload logged at info or debug level; opaque token decoded inline where a shared utility exists; new auth path not wired into existing middleware
+- Data integrity: write path with no test coverage; retry of a non-idempotent operation without an idempotency key; missing condition expression that a shared pattern in this repository uses
+- Schema and contract: validate-then-act ordering violated (validation present but runs after a side effect); integration wiring gap (handler registered but not connected to auth or middleware); map key or optional field accessed without a guard where it will be reached at runtime; new field missing validation or a default in one or more entry points
 
 **SUGGESTION:**
 
-- Abstraction boundary leak that does not directly expose sensitive data but increases coupling
-- Condition expression present but weaker than necessary (e.g., attribute_exists only when version check is warranted)
+- Security: abstraction boundary leak that does not directly expose sensitive data but increases coupling; log field that could be sensitive under some inputs
+- Data integrity: extra query where a write's return value could be used; condition expression present but weaker than warranted (e.g. `attribute_exists` where a version match would fit)
+- Schema and contract: enum change that consumers may pattern-match on
 
 Present findings as: CRITICAL → IMPORTANT → SUGGESTION. If invoked directly (not via SOP): Ask: "Fix these issues? [y/n]"
 
 ## Output Format
 
-Each finding must include:
+Each finding must include, with the lens as its category (`Security`, `Data Integrity` or `Schema/Contract`):
 
 ```
 [SEVERITY] Category — file:line
 Problem: {what is wrong and why it is a risk}
 Fix: {concrete suggested change}
 ```
+
+A single-lens pass returns its findings list as is.

@@ -159,6 +159,9 @@ script installs plain skills and an always-on instruction block that every suppo
   now covers them as modes: research before deciding, ADRs, and program decision documents. It
   also follows a project's existing decision-record convention when there is one. Checking the
   factual claims of research and decision evidence moved to `doc-accuracy-analyzer`.
+- The `adversarial-code-review-pass-security`, `-integrity` and `-schema` skills, now the three
+  lenses of `adversarial-code-review`, which runs them in one pass or as separate single-lens
+  passes.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.
