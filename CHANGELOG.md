@@ -166,6 +166,8 @@ script installs plain skills and an always-on instruction block that every suppo
   files of the skills that used them: `adversarial-design-review/argumentation-reference.md`,
   `app-discovery/dom-inspection.md`, and `smithy-modeling/review.md`, the review mode of
   `smithy-modeling`.
+- The `backend-development` and `frontend-development` skills, now the implement mode of
+  `backend-review` and `frontend-review`, which share one set of standards per side.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.
