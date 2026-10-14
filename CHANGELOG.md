@@ -162,6 +162,10 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `adversarial-code-review-pass-security`, `-integrity` and `-schema` skills, now the three
   lenses of `adversarial-code-review`, which runs them in one pass or as separate single-lens
   passes.
+- The `argumentation-reference`, `dom-inspection` and `smithy-validation` skills, now reference
+  files of the skills that used them: `adversarial-design-review/argumentation-reference.md`,
+  `app-discovery/dom-inspection.md`, and `smithy-modeling/review.md`, the review mode of
+  `smithy-modeling`.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

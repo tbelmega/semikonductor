@@ -188,7 +188,7 @@ Run the `k-principal-engineer-design-review` SOP against the design document in 
 
 - You MUST skip this step if `design-review` is in `skip_phases`.
 - You MUST set `doc_input` to `output_dir/design/system-design.md` and `output_file` to `output_dir/design/principal-engineer-review.md`.
-- Step 3's own adversarial loop challenged the draft; it does not substitute for this gate. This step is an independent second reviewer applying the same tooling (Part 1 of the design review guide, `argumentation-reference`) from a fresh, non-authoring perspective, which is what catches what the document's own author-and-critic loop missed, not different tooling doing a different check.
+- Step 3's own adversarial loop challenged the draft; it does not substitute for this gate. This step is an independent second reviewer applying the same tooling (Part 1 of the design review guide, the argumentation reference of `adversarial-design-review`) from a fresh, non-authoring perspective, which is what catches what the document's own author-and-critic loop missed, not different tooling doing a different check.
 - If the review returns CRITICAL findings, You MUST present them and MUST NOT proceed until the engineer resolves or overrides them. If `reply_channel_available` is `false` (an unattended run with no reply channel), You MUST mark this step BLOCKED on the checklist with the CRITICAL findings recorded and stop, the same handling as Step 0's `project_description` gate.
 - Route design fixes back to Step 3, not to implementation.
 - Record the `design-review` phase's outcome via the `sop-state-management` skill at the same point you update the checklist: `BLOCKED` while CRITICAL findings remain unresolved, `COMPLETED` with a one-line summary once the engineer confirms.

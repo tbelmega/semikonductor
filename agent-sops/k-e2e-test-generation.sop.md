@@ -38,7 +38,7 @@ The agent running this SOP performs each step and loads the required skills. Bro
 
 ## Skills and Capabilities
 
-- Browser automation with `app-discovery` and `dom-inspection`: navigates the app, takes screenshots, discovers pages
+- Browser automation with `app-discovery` and its DOM inspection protocol: navigates the app, takes screenshots, discovers pages
 - Test generation with `e2e-test-strategy`, `cypress-test-implementation`, or `playwright-test-implementation`: generates test specs and unit test prompts
 - Shell, file, and git operations: bootstraps projects, validates builds, and analyzes existing project files
 
@@ -93,12 +93,12 @@ After this step, `credentials_file` is either a valid path or empty.
 
 Run this step in a separate subagent when the runtime offers one. Otherwise, run it as a separate browser pass that does not reuse conclusions from earlier passes.
 
-**REQUIRED SKILLS:** app-discovery, dom-inspection
+**REQUIRED SKILLS:** app-discovery (including its `dom-inspection.md`)
 **REQUIRED TOOLS:** browser automation tools
 
 **MUST DO:**
 
-- Apply the `app-discovery` skill fully (see `skills/app-discovery/SKILL.md`): authenticate if needed, detect UI framework, crawl up to 50 pages or 30 minutes, capture all interactive elements, run `dom-inspection` on every form
+- Apply the `app-discovery` skill fully (see `skills/app-discovery/SKILL.md`): authenticate if needed, detect UI framework, crawl up to 50 pages or 30 minutes, capture all interactive elements, run its DOM inspection on every form
 - Include `ui_framework` in the discovery report. This flag is passed to Steps 4B-iii and 4B-iv to inject framework-specific selector patterns
 - If `credentials_file` is non-empty, sign out of the application before closing (navigate to the app's sign-out/log-off URL or click the sign-out control). Do this before closing the browser
 - Close the browser session after the discovery report is written. Only close the session opened for this discovery task; do not affect any other browser sessions that may be running

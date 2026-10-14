@@ -1,12 +1,6 @@
----
-name: argumentation-reference
-description: 'Use when checking a design document''s reasoning for weak arguments or logical fallacies, for example during an adversarial design review. Reference primer: the Toulmin model, a fallacy taxonomy, and an argument scoring rubric.'
-version: 1
----
-
 # Argumentation Reference
 
-A reference primer for argumentation theory covering Toulmin model, informal/formal fallacies (relevance, presumption, ambiguity, formal), a 0–3 scoring rubric across 5 criteria (max 15 pts), difficulty tiers (Beginner/Intermediate/Advanced/Competitive), and coaching intervention guidelines.
+Used by the `adversarial-design-review` skill to check decision justifications. A reference primer for argumentation theory covering Toulmin model, informal/formal fallacies (relevance, presumption, ambiguity, formal), a 0–3 scoring rubric across 5 criteria (max 15 pts), difficulty tiers (Beginner/Intermediate/Advanced/Competitive), and coaching intervention guidelines.
 
 ## Toulmin Model
 

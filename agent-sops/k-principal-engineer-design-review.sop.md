@@ -6,7 +6,7 @@ This SOP runs a pre-submission quality gate on a design document before it goes 
 
 Adversarial review uses the `adversarial-design-review` skill.
 
-This SOP uses Part 1 of the design review guide (`fuse/flow/library/artifacts/design/review.md`) for the slop and quality gate and `argumentation-reference` for fallacy checking. The adversarial loop runs a maximum of 5 rounds and exits when 0 CRITICAL + 0 IMPORTANT + fewer than 3 MINOR findings remain.
+This SOP uses Part 1 of the design review guide (`fuse/flow/library/artifacts/design/review.md`) for the slop and quality gate and the argumentation reference of `adversarial-design-review` for fallacy checking. The adversarial loop runs a maximum of 5 rounds and exits when 0 CRITICAL + 0 IMPORTANT + fewer than 3 MINOR findings remain.
 
 ## Parameters
 
@@ -74,7 +74,7 @@ Run adversarial review of all design decisions, trade-offs, and architectural ch
 
 - You MUST apply the `adversarial-design-review` skill
 - Before the first round, You MUST resolve `deliberation-panel`'s `consent_confirmed` parameter once, either by obtaining the engineer's explicit opt-in per `adversarial-design-review`'s Deliberation Panel Confirmation Gate, or by proceeding single-voice without the panel. You MUST carry the resulting `consent_confirmed` value through every round of this loop. Do not re-prompt or re-resolve it per round.
-- You MUST apply the `argumentation-reference` skill and run fallacy checking to every decision justification
+- You MUST apply the argumentation reference of the `adversarial-design-review` skill (`skills/adversarial-design-review/argumentation-reference.md`) and run fallacy checking to every decision justification
 - You MUST classify all findings using the following taxonomy:
   - **CRITICAL (architectural):** Wrong architecture choice, missing security boundary, fundamental scalability flaw.
   - **CRITICAL (factual):** Incorrect technical claim, wrong service behavior.

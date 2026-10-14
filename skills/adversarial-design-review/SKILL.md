@@ -1,6 +1,6 @@
 ---
 name: adversarial-design-review
-description: Use when someone wants the decisions, trade-offs, or architecture of a design document challenged rather than proofread ("adversarial design review", "challenge my design", "devil's advocate on this design doc", "review design decisions"). Works on design doc sections, not code diffs, and classifies findings as CRITICAL, IMPORTANT, or MINOR. For writing and structure, use the design guide in fuse-flow's artifact library.
+description: Use when someone wants the decisions, trade-offs, or architecture of a design document challenged rather than proofread ("adversarial design review", "challenge my design", "devil's advocate on this design doc", "review design decisions"), or its reasoning checked for weak arguments and logical fallacies. Works on design doc sections, not code diffs, and classifies findings as CRITICAL, IMPORTANT, or MINOR. For writing and structure, use the design guide in fuse-flow's artifact library.
 version: 1.0.0
 tags: [skill, design, adversarial, review, architecture, checker]
 ---
@@ -11,7 +11,7 @@ tags: [skill, design, adversarial, review, architecture, checker]
 
 Takes an adversarial stance against every major design decision, trade-off, and architectural choice in a design document. Unlike `adversarial-code-review` (which operates on code diffs), this skill operates on design doc sections.
 
-Use `argumentation-reference` skill during this review to identify logical fallacies in decision justifications.
+Use the argumentation reference (`argumentation-reference.md` in this skill's folder) during this review to identify logical fallacies in decision justifications.
 
 ## When to Use
 
@@ -40,7 +40,7 @@ Use `argumentation-reference` skill during this review to identify logical falla
 - Weak or missing justification for a significant decision (no alternatives considered, no trade-off)
 - Missing alternative in a decision that has obvious alternatives
 - Incomplete trade-off (dimensions missing: cost, latency, complexity, scalability, operability)
-- Logical fallacy in a decision justification (use `argumentation-reference` to identify)
+- Logical fallacy in a decision justification (use the argumentation reference to identify)
 - Unstated assumption that materially affects the design
 
 **MINOR:**
@@ -51,7 +51,7 @@ Use `argumentation-reference` skill during this review to identify logical falla
 
 ### Fallacy Checking
 
-For each decision justification, load `argumentation-reference` and check:
+For each decision justification, read the argumentation reference and check:
 
 - Is the warrant explicit? (Does the evidence actually support the claim?)
 - Is there a false dichotomy? (Are only two options presented when more exist?)
@@ -98,11 +98,11 @@ Flag any identified fallacy as IMPORTANT with the fallacy name and the affected 
    > 1. Convene the deliberation panel (recommended for high-stakes designs)
    > 2. Proceed without the panel: apply the Classification and Fallacy Checking sections above directly, single-voice
    - If the user opts in, proceed to Step 3 with `consent_confirmed=true`.
-   - If the user declines or gives no confirmation, skip the panel entirely: apply the Classification and Fallacy Checking sections (above) directly to each decision from Step 1. Evaluate each justification against the Toulmin model, flag fallacies via `argumentation-reference`, and classify findings directly using the Classification table (CRITICAL architectural/factual, IMPORTANT, MINOR). Then skip to Step 6 (Architecture stress test).
+   - If the user declines or gives no confirmation, skip the panel entirely: apply the Classification and Fallacy Checking sections (above) directly to each decision from Step 1. Evaluate each justification against the Toulmin model, flag fallacies via the argumentation reference, and classify findings directly using the Classification table (CRITICAL architectural/factual, IMPORTANT, MINOR). Then skip to Step 6 (Architecture stress test).
 
 3. **Adversarial Panel: Axis-Derived Challenge** (panel path only, per Step 2). Invoke the `deliberation-panel` skill with `decision_domain=design, stance=adversarial, consent_confirmed=true`. Pass the parsed design decisions and tradeoffs as the subject. The panel derives 3–6 axes specific to this document's decisions (Phase 0), then runs the adversarial challenge per axis (Phase 1: each axis argues why the currently-favored option fails on that axis), the anonymous cross-examination round (Phase 2), and the arbiter synthesis (Phase 3).
 
-   Each axis applies the Toulmin model (claim → data → warrant); the `argumentation-reference` skill is available to identify fallacies in decision justifications within each axis's analysis.
+   Each axis applies the Toulmin model (claim → data → warrant); the argumentation reference is available to identify fallacies in decision justifications within each axis's analysis.
 
 4. **Anonymous Cross-Examination** (panel path only). Handled internally by the `deliberation-panel` skill's Phase 2. Each axis-advocate reviews every other axis's challenges for logical soundness and blind spots without knowing which axis produced each finding, and must produce a weakness-or-corroboration pair per argument reviewed.
 
@@ -130,7 +130,7 @@ Flag any identified fallacy as IMPORTANT with the fallacy name and the affected 
    Axis/axes: {which derived axis/axes surfaced this — or "single-voice" if the panel was declined in Step 2}
    Confidence: HIGH | MEDIUM | LOW — corroboration strength, not a severity gate (single-voice: MEDIUM for a clear Toulmin warrant, LOW for a weak/speculative warrant — HIGH requires multi-axis corroboration and is unavailable when the panel is declined)
    Rebuttal needed: {what the author must address}
-   Fallacy (if any): {fallacy name from argumentation-reference}
+   Fallacy (if any): {fallacy name from the argumentation reference}
    ```
 
 8. **Summary.** Report: N CRITICAL (architectural), N CRITICAL (factual), N IMPORTANT, N MINOR. Include axis attribution for all CRITICAL findings (or note "single-voice review, panel declined" if applicable).

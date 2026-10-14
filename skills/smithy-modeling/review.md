@@ -1,11 +1,4 @@
----
-name: smithy-validation
-description: Use when a Smithy API model is ready for implementation, to catch structural, naming, security, and code generation issues first. Produces prioritized findings with specific fixes. To create a model, use smithy-modeling.
-version: 1.0.0
-tags: [skill, smithy, api-design, validation, checker, code-review]
----
-
-# Smithy Validation
+# Smithy Model Review
 
 ## Overview
 
@@ -13,7 +6,7 @@ Reviews Smithy models against AWS best practices covering structure, naming conv
 
 ## Usage
 
-Use this skill when:
+Use this review mode when:
 
 - Reviewing a Smithy model before handing off to implementation
 - Checking API design for security and type safety issues
@@ -27,7 +20,7 @@ Reviews cover structure (namespace, service definition), naming conventions (Pas
 
 ## Execution
 
-When this skill is activated, use the following as your full instruction set for validating the Smithy model. Apply the Quality Gate at the end before presenting output to the user.
+In review mode, use the following as your full instruction set for validating the Smithy model. Apply the Quality Gate at the end before presenting output to the user.
 
 ---
 

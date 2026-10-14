@@ -1,7 +1,7 @@
 ---
 name: app-discovery
 version: 1.0.0
-description: Use when you need a map of a deployed web application's pages, forms, and interactive elements, for example before writing UI or end-to-end tests for it. Crawls the app into a structured discovery report, using dom-inspection for form validation rules.
+description: Use when you need a map of a deployed web application's pages, forms, and interactive elements, for example before writing UI or end-to-end tests for it. Crawls the app into a structured discovery report, including each form's validation rules, error messages and conditional fields from the live DOM. The DOM inspection protocol in this skill also serves on its own when functional tests for a web form need its field-level rules.
 tags: [discovery, browser, dom, testing, playwright, app-inspection]
 ---
 
@@ -20,7 +20,7 @@ Use this skill when:
 - Discovering a deployed web app before generating test prompts or functional specs
 - Building a discovery report that captures DOM structure, validation rules, and UI framework
 
-Load this skill before performing browser-based application discovery. It depends on `dom-inspection`; load that skill as well.
+Load this skill before performing browser-based application discovery. Its form inspection protocol is in `dom-inspection.md` in this skill's folder; read that file as well.
 
 ## Discovery Protocol
 
@@ -80,14 +80,14 @@ For every interactive element on each page, capture:
 
 ### Phase 5: Form DOM Inspection
 
-For every form on each page, apply the `dom-inspection` skill:
+For every form on each page, apply the DOM inspection protocol (`dom-inspection.md`):
 
 - Extract HTML5 validation attributes (`required`, `pattern`, `min`, `max`, `minlength`, `maxlength`)
 - Determine `validation_trigger` (submit, blur, or change)
 - Capture error message selectors and exact error text
 - Identify conditional field visibility and cross-field business rules
 
-See `skills/dom-inspection/SKILL.md` for the full inspection protocol and output schema.
+See `dom-inspection.md` in this skill's folder for the full inspection protocol and output schema.
 
 ### Phase 6: Cleanup
 
@@ -119,7 +119,7 @@ Produce a discovery report with this structure:
 | ... | ... | ... | ... | ... | ... |
 
 **Forms:**
-{dom-inspection output per form — see dom-inspection skill for schema}
+{DOM inspection output per form — see dom-inspection.md for schema}
 
 **Failed paths:** {list of URLs or actions that failed, with reason}
 ```
@@ -136,7 +136,7 @@ Produce a discovery report with this structure:
 **CRITICAL:**
 
 - `ui_framework` not detected and set
-- Forms present on page but `dom-inspection` not run
+- Forms present on page but DOM inspection not run
 - Password value appears anywhere in the report
 
 **IMPORTANT:**

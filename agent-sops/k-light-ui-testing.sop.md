@@ -29,7 +29,7 @@ Use this SOP during development when pages are not yet ready for full functional
 
 ## Skills and Capabilities
 
-- Browser automation with `app-discovery` and `dom-inspection`, discovers the page, runs DOM inspection, executes test prompts
+- Browser automation with `app-discovery` and its DOM inspection protocol, discovers the page, runs DOM inspection, executes test prompts
 - Test prompt authoring, writes structured test prompt files from the discovery report
 
 ## Steps
@@ -75,12 +75,12 @@ Normalize credentials into a single `credentials_file` path.
 
 Run this step in a separate subagent when the runtime offers one. Otherwise, run it as a separate browser pass that does not reuse conclusions from earlier passes.
 
-**REQUIRED SKILLS:** app-discovery, dom-inspection
+**REQUIRED SKILLS:** app-discovery (including its `dom-inspection.md`)
 **REQUIRED TOOLS:** browser automation tools
 
 **MUST DO:**
 
-- Apply the `app-discovery` skill with the following overrides: authenticate if needed, detect UI framework, capture all interactive elements, run `dom-inspection` on every form
+- Apply the `app-discovery` skill with the following overrides: authenticate if needed, detect UI framework, capture all interactive elements, run its DOM inspection on every form
 - Focus discovery on `{url}` and any pages directly reachable from it (depth ≤ 2). This is a targeted page test, not a full app crawl
 - Stop after 10 pages or 15 minutes, whichever comes first (overrides app-discovery defaults of 50 pages / 30 minutes)
 - If `credentials_file` is non-empty, sign out of the application before closing (navigate to the app's sign-out/log-off URL or click the sign-out control). Do this before closing the browser
@@ -125,9 +125,9 @@ Run this as a separate test-writing pass. Carry `{credentials_file}` and `{agent
   - **Objective.** What feature is being tested
   - **Pre-requisites.** Authentication state, data setup
   - **Steps.** Exact interactions using selectors from the discovery report
-  - **Expected Outcome.** Specific assertions including validation error messages captured by `dom-inspection`
+  - **Expected Outcome.** Specific assertions including validation error messages captured by DOM inspection
   - **DOM Context.** Relevant selectors, validation rules, and error message text from the discovery report
-- Use the `dom-inspection` output to make assertions precise: test exact error messages, exact field constraints, exact conditional visibility triggers
+- Use the DOM inspection output to make assertions precise: test exact error messages, exact field constraints, exact conditional visibility triggers
 - Name files descriptively: `{feature-slug}.test-prompt.md`
 
 **ON FAILURE:** the test-writing pass runs `rm -f "{credentials_file}"` if `{agent_created_credentials_file}` is `true`, then surfaces the error and stops. (Reference the literal values, not shell variables. This pass MUST NOT assume shell state from Step 1.)
@@ -193,7 +193,7 @@ Print a summary:
 - Password value appears in any subagent prompt, log output, or prompt file
 - Temp credentials file not deleted after Step 7 (plaintext password persists on disk). Run `rm -f "$credentials_file" && unset agent_created_credentials_file` (Step 1, 3, 5, 7, which share Step 1's shell state) or the equivalent `rm -f "{credentials_file}"` against the literal value (Steps 2, 4, 6, which MUST NOT assume Step 1 shell state) on every exit path
 - Test prompts executed without user confirmation in Step 5, unless the caller set `scope_confirmed=true`
-- `dom-inspection` not run on forms (assertions will be inaccurate)
+- DOM inspection not run on forms (assertions will be inaccurate)
 
 **IMPORTANT (note but do not block):**
 
@@ -202,7 +202,7 @@ Print a summary:
 ## Related Skills
 
 - `app-discovery`, page crawl and element capture
-- `dom-inspection`, form validation rule extraction
+- `app-discovery`'s DOM inspection, form validation rule extraction
 - `e2e-test-strategy`, for escalating to full functional test generation
 
 ## Related SOPs

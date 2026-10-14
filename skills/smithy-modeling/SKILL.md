@@ -1,6 +1,6 @@
 ---
 name: smithy-modeling
-description: Use when designing the API for a new service in Smithy, or turning requirements into an API model. Generates service definitions, operations, data structures, validation rules, and errors, with TypeScript, OpenAPI, and AWS SDK code generation. To check an existing model, use smithy-validation.
+description: Use when designing the API for a new service in Smithy, or turning requirements into an API model. Generates service definitions, operations, data structures, validation rules, and errors, with TypeScript, OpenAPI, and AWS SDK code generation. Also reviews an existing model before implementation, for structural, naming, security, and code generation issues, with prioritized findings and specific fixes.
 version: 1.0.0
 tags: [skill, smithy, api-design, type-safety, code-generation, aws]
 ---
@@ -11,13 +11,24 @@ tags: [skill, smithy, api-design, type-safety, code-generation, aws]
 
 Generates type-safe Smithy API models from system design and user story inputs. Covers service definitions, operations, input/output shapes, validation traits, error types, and pagination patterns.
 
+The skill has two modes:
+
+- **Create mode** (this file): design a new model or extend one.
+- **Review mode** (`review.md` in this skill's folder): review an existing model before it goes to implementation, against structure, naming, documentation, type safety, error handling, pagination, security, code generation readiness, performance and file organization, including a breaking change analysis. Read `review.md` and follow it as the full instruction set, with its own quality gate. Run it as the checker after create mode too, preferably in a separate pass that did not write the model.
+
 ## Usage
 
-Use this skill when:
+Use create mode when:
 
 - Designing a new service API before implementation
 - Creating API contracts for client/server code generation
 - Defining data structures and validation rules
+
+Use review mode when:
+
+- Reviewing a Smithy model before handing off to implementation
+- Checking API design for security and type safety issues
+- Validating code generation compatibility
 
 ## Core Concepts
 
@@ -31,7 +42,7 @@ Smithy models generate TypeScript clients, OpenAPI specs, and AWS SDK code. All 
 
 ## Execution
 
-When this skill is activated, use the following as your full instruction set for generating the Smithy model. Apply the Quality Gate at the end before presenting output to the user.
+In create mode, use the following as your full instruction set for generating the Smithy model. Apply the Quality Gate at the end before presenting output to the user.
 
 ---
 

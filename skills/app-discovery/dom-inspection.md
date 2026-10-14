@@ -1,10 +1,3 @@
----
-name: dom-inspection
-version: 1.0.0
-description: 'Use when functional tests for a web form need its field-level rules: validation constraints, error message selectors, and conditional visibility. Extracts them from the browser DOM and the HTML5 Constraint Validation API into a per-field report.'
-tags: [dom, forms, validation, testing, browser, html5, constraint-validation]
----
-
 # DOM Inspection
 
 ## Overview
@@ -16,17 +9,17 @@ Extracts structured metadata from web forms by inspecting the live DOM. Produces
 - **Conditional visibility**: fields that appear or disappear based on other field values
 - **Cross-field business rules**: observable constraints between fields (e.g. date ranges, dependent dropdowns)
 
-**This skill is distinct from accessibility auditing.** It focuses on extracting test oracles for functional test generation, not WCAG compliance. Accessibility concerns (contrast, focus order, screen reader compatibility) belong in a separate skill.
+**DOM inspection is distinct from accessibility auditing.** It focuses on extracting test oracles for functional test generation, not WCAG compliance. Accessibility concerns (contrast, focus order, screen reader compatibility) belong in a separate review.
 
 ## Usage
 
-Use this skill when:
+Use this reference when:
 
 - Generating functional tests that need accurate field-level assertions
 - Discovering validation rules that are not visible from screenshots alone
 - Building a discovery report that captures form business logic for test generation
 
-Load this skill for live DOM inspection during app discovery or for interpreting an existing inspection report when generating specs.
+Read this file for live DOM inspection during app discovery (Phase 5 of the `app-discovery` skill), or for interpreting an existing inspection report when generating specs.
 
 ## Inspection Protocol
 
