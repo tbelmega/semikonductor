@@ -176,6 +176,11 @@ script installs plain skills and an always-on instruction block that every suppo
   `status-reporting` and `risk-management`, with the Asana setup guide
   `docs/guides/asana-integration.md`, and the `security-remediation` skill. They are outside
   Fuse-Konductor's scope and no workflow or skill used them.
+- The `constraints` skill, which claimed to be active in every interaction of the removed
+  agents, and the `git-merge` skill, whose merge commits contradict the linear history that
+  Fuse-Konductor's own branches keep.
+- The `k-code-simplifier` skill, formerly `asdlc-code-simplifier`: general cleanup advice that no
+  workflow, guide or other skill used.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.
