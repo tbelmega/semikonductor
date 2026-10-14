@@ -155,6 +155,10 @@ script installs plain skills and an always-on instruction block that every suppo
   their own; the test coverage guide keeps the coverage procedure and report and drops the
   release-readiness mode, which no workflow used.
 - The `architecture-advisor` skill, now the quick-opinion mode of `trade-off-evaluator`.
+- The `adr-generator`, `program-decision-docs` and `decision-research` skills. `decision-writing`
+  now covers them as modes: research before deciding, ADRs, and program decision documents. It
+  also follows a project's existing decision-record convention when there is one. Checking the
+  factual claims of research and decision evidence moved to `doc-accuracy-analyzer`.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

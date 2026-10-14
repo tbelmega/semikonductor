@@ -80,8 +80,8 @@ Use the checker that matches what you produced. Load its skill and apply its cri
 | Infrastructure as code change             | `infra-validation`                                                                                      |
 | System design or architecture document    | The design review guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/design/review.md`) |
 | Threat model                              | `threat-modeling` quality criteria                                                                      |
-| Technical research or decision evidence   | `decision-research`, to verify claims and surface prior art                                             |
-| User stories                              | The self-check in the user-stories guide (INVEST, complete acceptance criteria), then `decision-research` on claims |
+| Technical research or decision evidence   | `doc-accuracy-analyzer`, to verify claims and surface missing prior art                                 |
+| User stories                              | The self-check in the user-stories guide (INVEST, complete acceptance criteria), then `doc-accuracy-analyzer` on claims |
 | Any other document produced by a skill    | That skill's own quality criteria                                                                       |
 
 A change to a design-bearing artifact needs `design-impact-review` before you make it, not after.

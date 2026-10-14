@@ -1,6 +1,6 @@
 ---
 name: doc-accuracy-analyzer
-description: Use before submitting a design doc for review, after major revisions to a design doc, or when a reviewer flags factual concerns. Extracts verifiable claims, investigates each against primary sources, classifies findings, and produces a structured accuracy report. For AWS service claims only, use aws-service-validator.
+description: Use before submitting a design doc for review, after major revisions to a design doc, when a reviewer flags factual concerns, or to check the claims in any other document, such as a README, research notes, decision evidence or user stories. Extracts verifiable claims, investigates each against primary sources, classifies findings, and produces a structured accuracy report. For AWS service claims only, use aws-service-validator.
 version: 1.0.0
 ---
 
@@ -13,6 +13,7 @@ Systematically verify technical documents by extracting and investigating every 
 - Before submitting a design doc for review
 - After major revisions to a design doc
 - When a reviewer flags factual concerns
+- As the checker for research notes, decision evidence and user stories, after their own rubric passes; there the claims are often about customers, assumptions and the landscape rather than code
 
 ## 6-Step Workflow
 
@@ -24,6 +25,8 @@ Scan the document and extract all verifiable claims by category:
 - **Code claims**: "already implemented", "requires only configuration", "built on top of X"
 - **Infrastructure claims**: service features, regional availability, pricing, limits
 - **Approach claims**: "this is the standard pattern", "AWS recommends", "best practice"
+- **Assumption claims**: "the current architecture can't support X", "customers need X"
+- **Landscape claims**: "no existing solution", "no team has built this"
 
 Be aggressive. "Already built" and "requires only configuration" are the highest-risk claim types.
 
@@ -35,6 +38,7 @@ For each claim, identify the primary source that would confirm or deny it:
 - Source code for implementation claims
 - AWS pricing calculator for cost claims
 - AWS regional service table for availability claims
+- Customer data, research and public sources for assumption and landscape claims
 
 Search the source. Do not accept the document's assertion as evidence.
 
@@ -87,7 +91,25 @@ For each Inaccurate or Overstated finding, provide:
 ### Low Severity Findings
 
 [claim | classification | evidence]
+
+### Missing Context
+
+[Relevant prior art, adjacent work or existing solutions the author may not know about]
+
+### Strengthening Suggestions
+
+[Evidence that supports the document but is not cited, with its source]
+
+### Alternative Perspectives
+
+[Different approaches found in sources that are worth considering, with their source]
+
+### Open Questions
+
+[Claims that could not be verified or refuted and need human input]
 ```
+
+Leave out the last four sections when they are empty.
 
 ## Guidelines
 
