@@ -1,6 +1,6 @@
 ---
 name: humanize-writing
-description: 'Use when the user wants existing prose rewritten to read as if a person wrote it, whatever they call the problem (AI-sounding, robotic, stiff, generic, fluffy): a design document, README, code comment or docstring, user guide, PR or CR description, user story, or business case. Rewrites across 34 AI-tell categories while preserving meaning, coverage, and the author''s voice. To score a design doc''s readiness for review, use design-quality-check.'
+description: 'Use when the user wants existing prose rewritten to read as if a person wrote it, whatever they call the problem (AI-sounding, robotic, stiff, generic, fluffy): a design document, README, code comment or docstring, user guide, PR or CR description, user story, or business case. Rewrites across 34 AI-tell categories while preserving meaning, coverage, and the author''s voice. To score a design doc''s readiness for review, use the design review guide in fuse-flow''s artifact library.'
 version: 1.0.0
 tags: [skill, writing, editing, prose, style, humanize, documentation, readme]
 ---
@@ -186,7 +186,7 @@ Avoiding AI patterns is only half the job. Sterile, voiceless writing is just as
 
 **After:** The SDK also retries failed requests. Each retry waits twice as long as the previous one, up to the request timeout.
 
-This list is authoritative; `design-doc-guidelines`' "Cut the AI Slop" section defers to it rather than keeping a separate one.
+This list is authoritative; the "Cut the AI Slop" section of the design guide in fuse-flow's artifact library defers to it rather than keeping a separate one.
 
 ### 8\. Avoidance of "is"/"are" (Copula Avoidance)
 

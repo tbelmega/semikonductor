@@ -143,6 +143,9 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `plan-review` skill. No workflow reviews an implementation plan with an agent, and the
   `implementation-plan` guide's self-review covers its core checks: spec coverage, ambiguous steps
   and consistency between tasks.
+- The `design-doc-guidelines`, `design-evaluation` and `design-quality-check` skills. The first is
+  now the `design` guide in the artifact library; the other two together are its review guide,
+  one part for writing quality and one for production readiness.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

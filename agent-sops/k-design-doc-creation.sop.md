@@ -38,19 +38,19 @@ Use the `socratic-elicitation` skill (Mode A: Intake) to conduct Socratic requir
 
 ### Phase 2: Draft Generation
 
-Generate the design document using the outside-in structure mandated by `design-doc-guidelines`.
+Generate the design document using the outside-in structure mandated by the design guide (`fuse/flow/library/artifacts/design/guide.md`).
 
 **Constraints:**
 
-- You MUST apply the `design-doc-guidelines` skill before drafting.
+- You MUST apply the design guide before drafting.
 - You MUST follow the outside-in structure: Problem → Requirements → Solution Overview → How It Works → Implementation Details → Implementation Plan.
-- You MUST generate a Mermaid diagram before writing prose for each major section that describes a multi-component interaction, data flow, or sequence of steps (e.g. Solution Overview, How It Works). Every "How It Works" subsection MUST open with a diagram, with no exception, since `design-doc-guidelines`' checklist gates on it unconditionally. Elsewhere, You MAY skip a diagram for a section with no such structure to depict (e.g. a section in Implementation Details listing configuration values or a single API contract); state explicitly when a section has no diagram and why.
+- You MUST generate a Mermaid diagram before writing prose for each major section that describes a multi-component interaction, data flow, or sequence of steps (e.g. Solution Overview, How It Works). Every "How It Works" subsection MUST open with a diagram, with no exception, since the design guide's checklist gates on it unconditionally. Elsewhere, You MAY skip a diagram for a section with no such structure to depict (e.g. a section in Implementation Details listing configuration values or a single API contract); state explicitly when a section has no diagram and why.
 - You MUST run the `adr-generator` skill and generate an inline ADR for every significant design decision. The `adr-generator` skill applies the `decision-writing` ADR format: Context, Decision, Alternatives Considered (table), Consequences. Trade-off scores are added in Phase 3. Do NOT wait for them here.
-- You MUST run the `design-doc-guidelines` checklist as a maker-checker pass after completing the draft.
+- You MUST run the design guide's checklist as a maker-checker pass after completing the draft.
 - You MUST NOT advance to Phase 3 until the maker-checker pass produces zero CRITICAL findings.
 - If the maker-checker pass finds CRITICAL issues, You MUST fix them and re-run before proceeding.
 
-**Expected Output:** Complete draft design document at `output_path` with Mermaid diagrams for each multi-component/flow section, inline ADRs, and a passing `design-doc-guidelines` maker-checker result.
+**Expected Output:** Complete draft design document at `output_path` with Mermaid diagrams for each multi-component/flow section, inline ADRs, and a passing design-guide maker-checker result.
 
 ### Phase 3: Quality Gates
 
@@ -77,7 +77,7 @@ Challenge every major design decision before presenting the doc to the engineer.
 - You MUST apply the `adversarial-design-review` skill to challenge every major architectural decision, trade-off, and AWS service choice, classifying each finding as CRITICAL, IMPORTANT, or MINOR.
 - You MUST run up to 5 adversarial rounds.
 - After round 2: if any finding is classified CRITICAL (architectural), You MUST stop the loop immediately, present the finding to the engineer, and ask whether to redesign or override.
-- You MUST apply corrections from each round and re-run the `design-doc-guidelines` maker-checker before the next round.
+- You MUST apply corrections from each round and re-run the design-guide maker-checker before the next round.
 - You MUST exit the loop early when: 0 CRITICAL findings, 0 IMPORTANT findings, and fewer than 3 MINOR findings.
 - If the exit condition is not met after 5 rounds, You MUST present the remaining issues to the engineer for manual resolution before proceeding to Phase 5.
 - You MUST NOT silently discard findings. Every finding must either be fixed or explicitly noted as "engineer override".
@@ -91,7 +91,7 @@ Produce the final artifact and present it to the engineer.
 **Constraints:**
 
 - You MUST apply all corrections from Phases 3 and 4 before writing the final file.
-- You MUST run the `design-evaluation` skill to compute a confidence score: average of the 10 design-evaluation dimension scores (1-5 each). A section scoring below 3 MUST be flagged for revision.
+- You MUST run Part 2 of the design review guide (`fuse/flow/library/artifacts/design/review.md`) to compute a confidence score: average of its 10 dimension scores (1-5 each). A section scoring below 3 MUST be flagged for revision.
 - You MUST write the final document to `output_path`.
 - You MUST present to the engineer: the output path, the confidence score (overall average + any sections below 3), and a one-line summary of any remaining open issues from Phase 4.
 - You MUST NOT present the full document inline. Reference the file path.
@@ -102,9 +102,9 @@ Produce the final artifact and present it to the engineer.
 
 The document is ready for principal engineer review when all of the following are true:
 
-- `design-doc-guidelines` maker-checker: **0 CRITICAL findings**
+- design-guide maker-checker: **0 CRITICAL findings**
 - `doc-accuracy-analyzer`: **0 INCORRECT findings** (UNVERIFIED is acceptable with callouts)
 - Adversarial review: **0 CRITICAL, 0 IMPORTANT, fewer than 3 MINOR findings**
-- `design-evaluation` confidence score: **≥ 3.0 average** across all sections
+- Design review guide, Part 2, confidence score: **≥ 3.0 average** across all sections
 
 If any condition is not met, the SOP MUST NOT present the doc as ready for principal engineer review. Present remaining issues to the engineer and ask: "Fix these before submission? [y/n]"

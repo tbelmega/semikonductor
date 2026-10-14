@@ -4,7 +4,7 @@
 
 ## Overview
 
-This SOP guides a structured review of all design artifacts before handoff to implementation. It collects system design, threat model, API specs, data models, security policies, and architecture diagrams, then runs a principal-engineer-level evaluation across 10 dimensions using the design-evaluation skill.
+This SOP guides a structured review of all design artifacts before handoff to implementation. It collects system design, threat model, API specs, data models, security policies, and architecture diagrams, then runs a principal-engineer-level evaluation across 10 dimensions using Part 2 of the design review guide (`fuse/flow/library/artifacts/design/review.md`).
 
 Use this SOP after completing all design artifacts and before starting implementation.
 
@@ -72,11 +72,11 @@ Load the content of each discovered artifact for evaluation.
 
 ### 4. Run Design Evaluation
 
-Apply the design-evaluation skill to evaluate all artifacts across 10 dimensions.
+Apply Part 2 of the design review guide (`fuse/flow/library/artifacts/design/review.md`) to evaluate all artifacts across 10 dimensions.
 
 **Constraints:**
 
-- You MUST use the `design-evaluation` skill for this step
+- You MUST use Part 2 of the design review guide for this step
 - You MUST evaluate across all 10 dimensions:
   1. Template adherence and completeness
   2. Scalability and performance

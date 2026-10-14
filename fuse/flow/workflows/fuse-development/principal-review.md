@@ -20,7 +20,8 @@ it is fixed or rejected, patterns fixed everywhere. This guide says what this re
   experiment that would settle it.
 - **Production readiness.** Scalability at the expected load and beyond it, performance,
   security boundaries, failure handling and recovery, operations and monitoring, cost, and how
-  the system is tested and deployed. The `design-evaluation` skill has the full list of
+  the system is tested and deployed. Part 2 of the artifact library's design review guide
+  (`library/artifacts/design/review.md` in fuse-flow) has the full list of
   dimensions. A requirement the design cannot meet, or a single point of failure without a
   mitigation, is a P0.
 - **Simplicity.** Parts, layers or options the requirements do not need are a P2, unless they are

@@ -72,8 +72,8 @@ Menu: the shared guides, templates and review guides for each kind of artifact.
   description. There are three levels: the project's `.konductor/library/`, your
   `~/.konductor/library/`, and the one that ships with fuse-flow. The most specific entry wins as a
   whole.
-- Deep: many shipped guides are links to fuse-konductor skills, for example `design/guide.md` to
-  the `design-doc-guidelines` skill. Entries may be filed in folders below `artifacts/`; an id is
+- Deep: some shipped guides are links to fuse-konductor skills, for example `code/review.md` to
+  the `code-review` skill. Entries may be filed in folders below `artifacts/`; an id is
   found at any depth, and an id filed twice in one library is refused.
 - In Komposer: the Library tab; the G T R badge on an output opens its entry.
 

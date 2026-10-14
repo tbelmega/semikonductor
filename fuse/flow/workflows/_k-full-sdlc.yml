@@ -81,9 +81,9 @@ steps:
         path: .konductor/{slug}/design.md
     gates:
       - agent: >
-          review the design as a principal engineer: first with the design-quality-check skill,
-          then design-evaluation, then adversarial-design-review. A CRITICAL finding is a required
-          fix
+          review the design as a principal engineer: first against its review guide (writing
+          quality, then production readiness), then with the adversarial-design-review skill. A
+          P0, P1 or CRITICAL finding is a required fix
         max_rounds: 2
       - owner-action: approve the reviewed design
         route_back_to: design

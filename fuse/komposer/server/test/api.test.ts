@@ -323,9 +323,9 @@ describe("library", () => {
     const essay = entries.find((e: any) => e.id === "essay");
     expect(essay.files["guide.md"]).toBe("the skill\n");
     expect(essay.links).toEqual({ "guide.md": { path: join(root, "skills", "essay-writing", "SKILL.md"), display: "skills/essay-writing/SKILL.md" } });
-    // The shipped design entry's guide is a Konductor skill.
-    const design = entries.find((e: any) => e.id === "design" && e.level === "package");
-    expect(design.links["guide.md"].display).toBe("skills/design-doc-guidelines/SKILL.md");
+    // The shipped code entry's review guide is a Konductor skill.
+    const code = entries.find((e: any) => e.id === "code" && e.level === "package");
+    expect(code.links["review.md"].display).toBe("skills/code-review/SKILL.md");
   });
 
   test("every entry that ships with fuse-flow has a description", async () => {
@@ -715,7 +715,7 @@ steps:
       expect(out.gates[0].gateGuide).toEqual({ path: gateGuide, display: ".konductor/workflows/rules/review.md", exists: true });
       expect(out.files[gateGuide]).toBe("gate rules\n");
 
-      const text = FLOW.replace("artifact: essay", "artifact: design").replace("        guide: rules/review.md\n", "");
+      const text = FLOW.replace("artifact: essay", "artifact: code").replace("        guide: rules/review.md\n", "");
       const path = write(join(root, ".konductor", "workflows", "reviewed.yml"), text);
       const shipped = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text }) });
       const guide = shipped.gates[0].reviews[0].guide;

@@ -6,7 +6,7 @@ This SOP runs a pre-submission quality gate on a design document before it goes 
 
 Adversarial review uses the `adversarial-design-review` skill.
 
-This SOP uses `design-quality-check` for the slop and quality gate and `argumentation-reference` for fallacy checking. The adversarial loop runs a maximum of 5 rounds and exits when 0 CRITICAL + 0 IMPORTANT + fewer than 3 MINOR findings remain.
+This SOP uses Part 1 of the design review guide (`fuse/flow/library/artifacts/design/review.md`) for the slop and quality gate and `argumentation-reference` for fallacy checking. The adversarial loop runs a maximum of 5 rounds and exits when 0 CRITICAL + 0 IMPORTANT + fewer than 3 MINOR findings remain.
 
 ## Parameters
 
@@ -37,13 +37,13 @@ Resolve `doc_input` to reviewable content.
 
 **Expected Output:** Document loaded, claim list, decision list, section inventory
 
-### 1. Quality Gate (design-quality-check)
+### 1. Quality Gate (design review guide, Part 1)
 
-Run the `design-quality-check` skill on the full document.
+Run Part 1 of the design review guide on the full document.
 
 **Constraints:**
 
-- You MUST apply the `design-quality-check` skill
+- You MUST apply Part 1 of the design review guide
 - You MUST check structural completeness (required outside-in sections present)
 - You MUST run slop detection across all issue types: `filler_phrases`, `hedge_words`, `unsupported_claims`, `passive_voice_overuse`, `circular_reasoning`, `yagni_violation`, `missing_section`
 - You MUST compute the quality score (1–5)
@@ -52,13 +52,13 @@ Run the `design-quality-check` skill on the full document.
 
 **Expected Output:** Quality score, IMPORTANT issues list, MINOR issues list
 
-### 2. Architecture Principles Gate (design-evaluation)
+### 2. Architecture Principles Gate (design review guide, Part 2)
 
-Run the `design-evaluation` skill across 10 production readiness dimensions.
+Run Part 2 of the design review guide across 10 production readiness dimensions.
 
 **Constraints:**
 
-- You MUST apply the `design-evaluation` skill
+- You MUST apply Part 2 of the design review guide
 - You MUST evaluate all 10 dimensions: template adherence, scalability, security, maintainability, resilience, testability, operational readiness, cost optimization, API design quality, data model quality
 - You MUST classify each finding as CRITICAL, IMPORTANT, or MINOR using the same severity definitions as the adversarial review
 - You MUST compute a confidence score per section: average of the dimension scores (1–5 each)
@@ -81,7 +81,7 @@ Run adversarial review of all design decisions, trade-offs, and architectural ch
   - **IMPORTANT:** Weak justification, missing alternative, incomplete trade-off.
   - **MINOR:** Style, clarity, minor omission.
 - **Escalation rule:** If any CRITICAL (architectural) finding is present after round 2, You MUST stop the loop immediately, present the finding to the engineer, and state that a fundamental redesign is needed. Do not continue the loop
-- Evaluate the escalation rule before applying corrections. After each round, You MUST apply corrections to the document and re-run the `design-quality-check` skill to confirm quality score remains ≥ 3
+- Evaluate the escalation rule before applying corrections. After each round, You MUST apply corrections to the document and re-run Part 1 of the design review guide to confirm quality score remains ≥ 3
 - **Exit condition:** 0 CRITICAL + 0 IMPORTANT + fewer than 3 MINOR findings
 - **Loop cap:** Maximum 5 rounds. If exit condition is not met after 5 rounds, You MUST present the remaining findings to the engineer for manual resolution and proceed to Step 4 with the current state
 - You MUST track round history: round number, findings count by severity, corrections applied

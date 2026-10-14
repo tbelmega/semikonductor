@@ -164,7 +164,7 @@ the agent at the guide and template; the engine never copies or edits them.
   without fuse-flow see where it stands. The engine only reminds the agent; its own record is the
   state file.
 - A guide may be a relative symlink to a skill in the clone's `skills/` folder, as in
-  `library/artifacts/design/guide.md`. Do that only for skills that ship with fuse-konductor; a
+  `library/artifacts/code/review.md`. Do that only for skills that ship with fuse-konductor; a
   link to a skill that is not installed is a missing guide, and the agent then has to ask the
   owner.
 
