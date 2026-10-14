@@ -14,7 +14,7 @@ Use this SOP after implementation is complete and before release.
 - **design_file** (optional): Path to system design document (used for security test generation)
 - **output_dir** (optional, default: `test-coverage-review/`): Directory for output files
 - **dry_run** (optional, default: false): If true, show what would be analyzed without generating reports
-- **scope_confirmed** (optional, default: false): Set true when the caller has already authorized E2E planning for whatever gaps the analysis finds. Step 3 then reports the gap summary and proceeds without prompting. This flag also suppresses downstream scope/tool questions in delegated skills (including `security-test-generation`), which report their findings without asking instead of prompting the caller. It does not authorize any skill to change code. A parallel or unattended caller MUST set this. The prompt has no one to answer it.
+- **scope_confirmed** (optional, default: false): Set true when the caller has already authorized E2E planning for whatever gaps the analysis finds. Step 3 then reports the gap summary and proceeds without prompting. This flag also suppresses downstream scope/tool questions in delegated skills, which report their findings without asking instead of prompting the caller. It does not authorize any skill to change code. A parallel or unattended caller MUST set this. The prompt has no one to answer it.
 - **scope_declined** (optional, default: false): Set true when the caller has already asked the engineer whether to plan E2E tests for this analysis and the engineer said no. Step 3 then reports the gap summary and skips Step 4 without asking again. Mutually exclusive with `scope_confirmed`. A caller MUST NOT set both true. Leaving both false is not equivalent to declining: Step 3 has no way to distinguish "not yet asked" from "asked and declined" and will ask again, so a caller that already has the engineer's answer MUST set the matching flag rather than leaving both false.
 
 **Constraints for parameter acquisition:**
@@ -92,22 +92,20 @@ Apply the e2e-test-strategy skill to create a prioritized test plan.
 
 ### 5. Generate Security Test Plan
 
-Apply the security-test-generation skill to create security test coverage.
+Plan the security tests by following the security tests guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/test-coverage/security-tests.md`).
 
 **Constraints:**
 
-- You MUST use the `security-test-generation` skill for this step
-- You MUST pass `output_dir` to the skill as its own `output_dir` so its task list lands with your other outputs rather than at its default `.kiro/specs/security-testing/`, and pass `scope_confirmed` through so it does not stop to ask about tool type, stack, or approach when no engineer is available to answer
+- You MUST follow the security tests guide for this step
 - If `design_file` is provided, you MUST use it for threat context
-- You MUST cover all 7 security domains: authentication, input validation, API security, data protection, session management, error handling, infrastructure
+- You MUST cover all 7 security domains: authentication, input validation, API security, data protection, session management, error handling, infrastructure, and say why a domain does not apply when you skip it
 - You MUST organize tests by layer: frontend, backend, infrastructure
-- The skill writes its own output under `output_dir`: `tasks.md` for Kiro callers, or per-category files plus `security-test-overview.md` and `best-practices-reference.md` for non-Kiro callers (see `skills/security-test-generation/SKILL.md`'s Output section). You MUST NOT expect a separate `security-test-plan.md` file
-- You MUST count the CRITICAL and IMPORTANT findings the skill reports from its own Quality Gate and carry those counts into Step 6's report. A CRITICAL security finding is a coverage gap and MUST reach the same gate as the other CRITICAL gaps this SOP surfaces.
-- If the skill ran in Kiro stub mode, meaning `tasks.md` was written with no `security-test-overview.md`, `best-practices-reference.md`, or `[domain]-[layer].md` file alongside it, there is no real findings count to carry forward: real test content is deferred to a human clicking "Start task" in the Kiro IDE. You MUST record Critical and Important findings in Step 6's report as NOT EVALUATED, not as 0, so the report does not misrepresent an unevaluated pass as a clean one.
+- You MUST write the plan to `output_dir/security-test-plan.md`
+- You MUST count the CRITICAL and IMPORTANT gaps the guide classifies and carry those counts into Step 6's report. A CRITICAL security gap is a coverage gap and MUST reach the same gate as the other CRITICAL gaps this SOP surfaces.
 
 **Expected Output:**
 
-- The skill's own output files under `output_dir` (see above) with security tests by domain and layer
+- `security-test-plan.md` with the security test cases by domain and layer, which of them exist, and the gaps by severity
 
 ### 6. Generate Consolidated Report
 
@@ -140,8 +138,8 @@ Write a summary report combining all three analyses.
   ## Security Test Plan
   - Domains covered: [count]/7
   - Total security tests: [count]
-  - Critical findings: [count, or NOT EVALUATED if the skill ran in Kiro stub mode]
-  - Important findings: [count, or NOT EVALUATED if the skill ran in Kiro stub mode]
+  - Critical gaps: [count, or NOT EVALUATED if Step 5 did not say which tests exist]
+  - Important gaps: [count, or NOT EVALUATED if Step 5 did not say which tests exist]
 
   ## Recommendation
   [READY FOR RELEASE / NOT READY — reason. NOT READY if critical gaps exist in either Coverage Analysis or Security Test Plan, or if Security Test Plan is NOT EVALUATED.]
@@ -155,7 +153,7 @@ Write a summary report combining all three analyses.
 
 **Expected Output:**
 
-- `test-gap-analysis.md`, `e2e-test-strategy.md`, `test-coverage-review-report.md`, plus the security-test-generation skill's own output files (see Step 5), all in `output_dir/`
+- `test-gap-analysis.md`, `e2e-test-strategy.md`, `test-coverage-review-report.md`, `security-test-plan.md`, all in `output_dir/`
 - Summary message with recommendation
 
 ### 7. Present Recommendation
@@ -189,7 +187,7 @@ Test coverage review complete. Reports saved to test-coverage-review/
 Files generated:
 - test-gap-analysis.md
 - e2e-test-strategy.md
-- security test files (see Step 5 — Kiro: `tasks.md`; non-Kiro: per-category files plus `security-test-overview.md`/`best-practices-reference.md`)
+- security-test-plan.md
 - test-coverage-review-report.md
 
 Recommendation: NOT READY FOR RELEASE

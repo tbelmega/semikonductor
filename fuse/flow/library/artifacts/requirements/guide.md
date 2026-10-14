@@ -92,7 +92,23 @@ done, which every system has.
    State the behavior, not a solution; a fixed choice of solution is a constraint.
 5. **Quality requirements.** Only the qualities that matter for this system, each with a measure:
    how fast, how reliable, how secure or private, how accessible, how costly to run, how it is
-   operated. "Fast" is not a requirement; "the preview updates within two seconds" is.
+   operated. "Fast" is not a requirement; "the preview updates within two seconds" is. For a
+   service, the measures usually take these forms:
+   - performance: response time targets as percentiles (p50, p99), separate for reads and writes
+     when they differ, and throughput in requests per second;
+   - availability: an uptime percentage, with the recovery time and the data loss the owner
+     accepts after a failure (RTO and RPO);
+   - security: who may do what, which data must be protected and from whom, the encryption
+     required for data at rest and in transit, and each compliance requirement mapped to its
+     standard, such as SOC 2, PCI DSS or HIPAA. A particular authentication method is a
+     constraint only when the owner, a policy or the existing system fixes it; otherwise the
+     design chooses it;
+   - scalability: the expected range of load and when the system must scale out and back in;
+   - observability: the metrics that must exist, how long logs are kept, and the trace sampling
+     rate;
+   - cost: the monthly budget or the cost per transaction.
+
+   Say how the system behaves when it cannot meet a target, when that matters to the owner.
 6. **Constraints.** Choices that are fixed before design starts, each with where it comes from:
    an owner decision, the existing system, a policy, a platform. For example: runs locally only, or
    must use the team's existing authentication.

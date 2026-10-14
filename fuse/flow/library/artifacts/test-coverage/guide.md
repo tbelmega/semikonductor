@@ -165,3 +165,15 @@ case, error scenario, edge case, non-functional, integration) and the priority.
 
 Every gap still open, with the reason it stays open and who decides.
 ```
+
+## Further sections
+
+A step can ask for more sections in the same report. Each has its own guide next to this one, in
+the same folder:
+
+- **Security tests:** follow `security-tests.md`. Count its critical gaps among this report's
+  critical gaps.
+- **User-facing text:** follow `ui-text.md`.
+
+Add each section before Remaining gaps, under a heading of its own, and list its open gaps under
+Remaining gaps too.

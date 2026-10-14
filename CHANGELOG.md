@@ -186,6 +186,11 @@ script installs plain skills and an always-on instruction block that every suppo
   the end-to-end implementation skill. The second was an abstract filter that needed a platform
   mapping Fuse-Konductor never shipped, so its only caller always skipped it. The third listed
   basic Pandoc commands and had no caller.
+- The `ui-text-validation`, `security-test-generation` and `non-functional-requirements` skills.
+  The first two are now guides next to the test coverage guide in the artifact library,
+  `ui-text.md` and `security-tests.md`, for the report sections the `_k-` workflows' test steps
+  ask for; the security guide is cut from about 740 lines to the plan and its gaps. The third's
+  measurable forms of quality requirements are now part of the requirements guide.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
   replace them.

@@ -106,8 +106,9 @@ steps:
     title: 6. QA
     instruction: >
       Find the test coverage gaps for what was implemented, plan the end-to-end tests (the
-      e2e-test-strategy skill) and the security tests (security-test-generation), and check
-      user-facing text when there is any (ui-text-validation); each is a section of the report.
+      e2e-test-strategy skill) and the security tests, and check user-facing text when there is
+      any; each is a section of the report, and the test coverage guide names the guides for the
+      security tests and the user-facing text.
       This is the last step; findings are reported, not routed back to implementation. Put any gap
       that leaves an acceptance criterion untested at the top, and suggest sending the work back to
       implementation in the hand-over.
