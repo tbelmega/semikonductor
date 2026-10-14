@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "What a new system or a new module of an existing system must do, for whom, and how the owner will judge it done, drafted with the owner and kept so that what needs the owner's attention is always on top."
