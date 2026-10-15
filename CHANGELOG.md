@@ -42,6 +42,17 @@ script installs plain skills and an always-on instruction block that every suppo
     pass on. `status` shows each file once, under the latest step that records it. A produced
     folder that existed before the step, such as a shared research folder, is recorded file by
     file from the files the agent names.
+  - Workflows can work together while each workstream stays one flat list of steps. A workflow
+    declares the documents it expects from outside as `inputs`, and the workflows that may come
+    next as `hands_off_to`. `start --after <slug>` binds the inputs to an earlier workstream's
+    documents, and `start --input <id>=<path>` binds one to a file. The completion block offers
+    each next workflow with its start command, and starts nothing on its own. A `workflow` gate
+    makes a step wait for a child workstream: fuse-flow creates the child with its inputs bound,
+    refuses the step until the child is complete, and lets later steps read the documents the
+    gate lists in `returns`. After a send-back, the next pass gets a fresh child, and the earlier
+    one stays as history. `validate` checks these references across workflow files, including
+    loops of workflows waiting for each other. Komposer shows hand-offs and workflow gates as
+    links to the target workflow, and links each run to the runs it came from or waits for.
   - Workflows are found by name in the project's `.konductor/workflows/`, then
     `~/.konductor/workflows/`, then the shipped ones, at any folder depth, so personal and team
     workflows can sit in their own folders or symlinked repositories.
@@ -67,6 +78,10 @@ script installs plain skills and an always-on instruction block that every suppo
   - `fuse-rapid-prototyping`, a new product idea explored as a runnable prototype: a short
     interview, many small build-and-feedback iterations with no code review loop, and a product
     brief of what to build that `fuse-system-development` can take up.
+  - `fuse-rapid-prototyping`, `fuse-system-development` and `fuse-feature-development` hand off
+    to each other: rapid prototyping to system or feature development, and system development to
+    one feature workstream per entry of its build order, which receives the product brief,
+    requirements, design and build order as inputs.
   - In `workflows/konductor/`: `_k-full-sdlc` and `_k-phase-chain`, Konductor's full lifecycle
     pass and lighter phase chain, and one workflow per remaining Konductor SOP, named after it with
     a `-sop` suffix, such as `k-design-doc-creation-sop` and `k-code-review-workflow-sop`. Duties

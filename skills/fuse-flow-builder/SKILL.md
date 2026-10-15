@@ -130,6 +130,14 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      reports the step blocked and the owner decides. `guide:` names a review guide relative to the
      workflow file. The guide decides what counts as a required fix and when a round passes; the
      cap and the blocked exit still apply.
+   - **`workflow: <name>`.** The step waits for a child workstream that follows another workflow,
+     for a procedure that has its own steps, gates and owner decisions, such as an adversarial
+     review inside a code review. fuse-flow creates the child when the step is handed out and
+     refuses the step until the child is complete. `inputs:` maps the child's input ids to this
+     workflow's artifacts, and `returns:` lists the child documents later steps may consume,
+     renamed where an id would clash, as in `returns: { system-design: design }`. A step has at
+     most one. Use it only when the procedure is worth a workstream of its own; a lighter check
+     belongs in the step's instruction or an agent gate.
    - **`route_back_to`** on any gate names the same or an earlier step the owner may send the work
      back to. It is a suggestion printed for the owner, not automatic control flow.
 7. **`condition`.** Makes the step optional, written as one gate-kind mapping. A `script` or
@@ -138,6 +146,13 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
    skipped step records its reason. Prefer a condition to a second copy of the workflow.
 8. **`optional_produces`.** An artifact the step may write. It is recorded when it exists and
    never refuses `continue`.
+9. **`inputs` and `hands_off_to`,** at the top of the workflow. `inputs` lists documents the
+   workflow expects from an earlier workstream or from the owner, optional unless
+   `required: true`; steps consume them like earlier artifacts, and an input's id must not be one
+   the workflow's own steps write. `hands_off_to` names the workflows that may come next, each
+   with a `when` text; the completion block offers them with `start --after <slug>`, which binds
+   the next workflow's inputs to this workstream's documents. Use them when the source says
+   "then run X" or "this is the input to X", instead of a sentence in the last instruction.
 
 ### The artifact library
 
@@ -261,6 +276,8 @@ judgment call as a deviation and report it at the end.
 | "If this applies", "skip for small changes" | `condition` |
 | A stage that may legitimately produce nothing | An instruction saying when to report `--not-produced` and with which reason |
 | "Go back to stage X" | `route_back_to: X` on the gate where that happens |
+| "Run procedure X here and continue when it is done", when X is a workflow of its own | A `workflow: X` gate, with `inputs` and `returns` |
+| "Then hand over to X", "this is the input to X" | `hands_off_to: X` here, and `inputs` on X |
 | A loop over features or items | One step whose instruction covers every item, or one workstream per item |
 | Parallel branches | Sequential steps, or subagents inside one step |
 | A ledger, scratch state or progress file | A git-ignored file the instruction describes, not an artifact, unless a person reviews it |

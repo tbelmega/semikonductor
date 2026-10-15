@@ -143,12 +143,92 @@ The step fields have these effects:
 - Any gate mapping may have `route_back_to`, as one step identifier or a list. Each target is the
   same step or an earlier step. It suggests routes for the owner's `--back-to` decision and does
   not create automatic control flow. A mapping may also have an informational `description`.
+- `workflow: <name or path>` makes the step wait for a child workstream that follows that
+  workflow. It is described under "Workflows that work together" below.
+
+### Workflows that work together
+
+Every workstream stays one flat list of steps. Workflows relate only by references between
+workstreams: one workstream can be started after another and take its documents, and one step can
+wait for a child workstream. One workflow's steps never run inside another's.
+
+```yaml
+version: 1
+name: code-review
+inputs:
+  - artifact: build-order
+    description: The system's build order, when the change is part of a system.
+  - artifact: requirements
+    required: true
+hands_off_to:
+  - workflow: release
+    when: once the owner has merged the change
+steps:
+  - id: intake
+    instruction: Write the review diff.
+    consumes: [requirements, build-order]
+    produces: { artifact: review-diff, path: "reviews/{slug}.diff" }
+  - id: adversarial
+    instruction: Merge the new findings into the review.
+    gates:
+      - workflow: adversarial-review
+        slug: "{slug}-adversarial"
+        inputs: { given-diff: review-diff }
+        returns: [adversarial-report]
+  - id: summary
+    instruction: Write the verdict.
+    consumes: [adversarial-report]
+```
+
+- `inputs` lists documents the workflow expects from outside. Steps consume an input like an
+  artifact from an earlier step. An input is optional unless it has `required: true`. A step
+  block shows an input that was not bound as not given. A workflow may not declare an input with
+  the id of an artifact one of its own steps writes; name the input differently, such as
+  `given-diff`.
+- `start --after <earlier slug>` binds each input to the earlier workstream's latest recorded
+  document with the same id, or to that workstream's own input of that id. `start --input
+  <id>=<path>` binds one input to a file and wins over `--after`. `start` refuses a required
+  input that stays unbound, and an `--input` the workflow does not declare. An input path that
+  does not exist is reported in the step block, as a missing artifact is.
+- `hands_off_to` is one workflow or a list, each a name or a `{ workflow, when }` mapping. The
+  completion block names each one with its `when` text and the exact `start ... --after <slug>`
+  command. Nothing starts on its own: the agent offers the next workflow to the owner. When one
+  workstream leads to several, such as one feature workstream per entry of a build order, the
+  agent starts each as the owner agrees.
+- A `workflow` gate delegates the step to a child workstream. When the step is handed out,
+  fuse-flow creates the child under `slug`, a template with `{slug}` (the parent's slug) and
+  optionally `{step}`; the default is `{slug}-{step}`. `inputs` maps each child input id to an
+  artifact of this workflow from before the step. The step block tells the agent to run the
+  child to its end, itself or in a subagent, and the owner's decisions in the child are made
+  there. The gate runs before every other gate: `continue` is refused until the child is
+  complete, and the refusal says which step the child is at and in which state. A workstream
+  under the child's slug that follows another workflow, or belongs to another step, never
+  satisfies the gate. The owner cannot accept a blocked delegating step while its child is
+  unfinished; to go on without the child, the owner skips the step.
+- `returns` lists the child's documents that later steps may consume, as a list of ids or a
+  mapping from the id in this workflow to the id in the child, to rename one that would clash,
+  as in `returns: { system-design: design }`. A returned id resolves to the newest child's
+  recorded document. Only the listed ids come back; nothing is copied. When the newest child
+  recorded nothing under the id, there is nothing to read, even if an earlier step wrote a
+  document with the same id.
+- When the owner sends the work back past a delegating step, its next pass gets a fresh child
+  with a pass suffix, such as `review-adversarial-2`, and the earlier child stays as history.
+  The step's state records which child belongs to which pass. Skipping a delegating step removes
+  its child, if nothing happened in it yet.
+- `validate` checks the references against the other workflow files: each hand-off and gate
+  target resolves, a gate's `inputs` name inputs the child declares and give every required one,
+  its `returns` name documents the child has, and no chain of workflow gates leads back to the
+  workflow. A hand-off target that takes none of this workflow's documents is only a warning.
+  At run time, a child whose chain of parents already follows its workflow is refused.
+- `status` and `list` show the workstream a workstream was started after, its parent, the
+  workstreams started after it, and the child a waiting step waits for. Komposer draws hand-offs
+  and workflow gates as links that open the target workflow.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `start <slug> [--workflow <name or path>] [--from <step>]` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. |
+| `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
 | `continue <slug>` | Finish the current step after its artifacts are accounted for and its mechanical gates pass, then print the next step or hand-over block. |
 | `continue <slug> [--updated <file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
@@ -178,7 +258,9 @@ When it is the agent's turn, the step block uses these labels:
 
 - `STEP` gives the step identifier, position and instruction.
 - `CONDITION` explains why an optional step runs or how to skip it.
-- `READ` gives each consumed artifact's path and source step.
+- `DELEGATE` names the child workstream a step with a workflow gate waits for, and how to run it.
+- `READ` gives each consumed artifact's path and source step, input or returning child workstream.
+- `RETURNS` names a document the step's own child returns, once the child is complete.
 - `PRODUCE` gives a required artifact path, identifier, guide and template information.
 - `PRODUCE (optional)` gives an optional artifact in the same form.
 - `UPDATE` gives an artifact path the step changes and reports when the path is missing.
@@ -201,7 +283,9 @@ five lines:
   `none`.
 - `NEXT STEP:` the owner's options, with the recommendation first and its reason.
 
-fuse-flow pre-fills the block for `awaiting owner action`, `blocked` and `workflow complete`. For
+fuse-flow pre-fills the block for `awaiting owner action`, `blocked` and `workflow complete`. On
+`workflow complete`, the lines after the block name the workflows this one hands off to, with
+their start commands, and for a child workstream the parent step that waits for it. For
 `needs input` or `paused`, the agent fills in the lines the step block printed under
 `IF YOU STOP BEFORE THE STEP IS DONE`.
 
@@ -301,7 +385,10 @@ artifact review guides.
 ### Workstream state
 
 `.konductor/workstreams/<slug>.yml` records the workflow reference, each step's state, artifacts,
-reported files and reasons, verification, granted rounds, skip reason and timestamped history.
+reported files and reasons, verification, granted rounds, skip reason and timestamped history. It
+also records the workstream it was started after (`after`), its parent workstream and step
+(`parent`), the inputs bound when it started (`inputs`), and each delegating step's child per
+pass (`children`).
 Only fuse-flow writes it. The directory is gitignored.
 
 ## Rules
@@ -339,7 +426,9 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
 - The engine does not create templates, infer check commands, count review rounds, compare file
   contents, or choose jumps.
 - There are no parallel branches, path-choice constructs, workflow parameters, per-item loops or
-  reusable gate library entries.
+  reusable gate library entries. One workflow never runs inside another; workstreams only refer
+  to each other, and only documents pass between them. The engine does not start one workstream
+  per item of a list.
 
 ## Code
 
@@ -349,6 +438,7 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
 | `src/commands.ts` | Command behavior and output blocks. Start here. |
 | `src/workflow.ts` | Workflow loading and gate descriptions. |
 | `src/workstream.ts` | State-file reading and locked updates. |
+| `src/links.ts` | Hand-offs and delegation: child slugs, documents across workstreams, cycle and cross-file checks. |
 | `src/schemas/workflow.ts` | Workflow schema and cross-step validation. |
 | `src/schemas/step.ts` | Step and artifact schema. |
 | `src/schemas/gate.ts` | Gate and condition schema. |
