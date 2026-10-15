@@ -175,9 +175,8 @@ Point at the files so the user can open them. The stops:
 - **Komposer,** in `fuse/komposer/`, the local editor for workflows.
 - **Installing,** `install.sh` with `INSTALL.md`, and `AGENTS.fuse.md`, the always-on block it
   writes into instruction files.
-- **The rest:** `agent-sops/`, Konductor's SOPs, which `install.sh` does not install; `docs/`, with
-  the glossary, specs and research notes; `tests/`; and `AGENTS.md` with `CONTRIBUTING.md` for
-  contributors.
+- **The rest:** `docs/`, with the glossary, specs and research notes; `tests/`; and `AGENTS.md`
+  with `CONTRIBUTING.md` for contributors.
 
 End the tour with the opening offer, without the tour.
 

@@ -3,7 +3,8 @@
 # above comments enable live schema validation in WebStorm and vscode
 # SPDX-License-Identifier: Apache-2.0
 #
-# A port of the k-full-sdlc SOP (agent-sops/k-full-sdlc.sop.md), steps 0 to 11 in order.
+# A port of the k-full-sdlc SOP (agent-sops/k-full-sdlc.sop.md in aws-solutions/konductor), steps
+# 0 to 11 in order.
 # Skills are named by their name; they ship with fuse-konductor in the clone's skills/ folder.
 # Deliberate deviations from the SOP:
 # - skip_phases: the owner skips or jumps with fuse-flow's --skip and --forward-to.

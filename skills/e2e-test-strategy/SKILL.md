@@ -50,7 +50,7 @@ Analyze test gap analysis output, Phase 1 user stories, Phase 2 architecture des
 
 ## Prerequisites
 
-If a calling SOP supplied paths for any artifact below, or for the output file, You MUST use those values and skip the corresponding prompt. Ask only for what the caller did not supply. A caller that keeps its artifacts under its own output directory already knows where they are.
+If a calling workflow supplied paths for any artifact below, or for the output file, You MUST use those values and skip the corresponding prompt. Ask only for what the caller did not supply. A caller that keeps its artifacts under its own output directory already knows where they are.
 
 Required artifacts:
 
@@ -98,7 +98,7 @@ Follow stages sequentially:
 
 Before starting analysis, gather all required information from the user in a single interaction:
 
-**Ask the user for anything the caller did not already supply. If a calling SOP passed the output path, the gap analysis, the user stories, the system design, the feature plan, the change type, or the release type, use those values and skip the corresponding question. Ask nothing when all of them were supplied. A delegated run may have no human present to answer. Where a caller supplies none of the optional context, treat Feature Plan as absent, Change Type as `enhancement`, and Release Type as `minor` rather than blocking. Both are in-enum, so Stage 1 validation passes and Stage 5 has a defined weight to score against.**
+**Ask the user for anything the caller did not already supply. If a calling workflow passed the output path, the gap analysis, the user stories, the system design, the feature plan, the change type, or the release type, use those values and skip the corresponding question. Ask nothing when all of them were supplied. A delegated run may have no human present to answer. Where a caller supplies none of the optional context, treat Feature Plan as absent, Change Type as `enhancement`, and Release Type as `minor` rather than blocking. Both are in-enum, so Stage 1 validation passes and Stage 5 has a defined weight to score against.**
 
 ```
 To generate your E2E test strategy, I need the following information:

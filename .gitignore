@@ -20,8 +20,8 @@ __pycache__/
 # content.
 .konductor/handoff/
 
-# playwright-mcp --output-dir target (see k-light-ui-testing.sop.md
-# Step 6). Persisted screenshots are run-scratch, not package deliverables.
+# playwright-mcp --output-dir target (see the execute step of
+# fuse/flow/workflows/konductor/k-light-ui-testing-sop.yml). Persisted screenshots are run-scratch, not package deliverables.
 browser-output/
 
 # JetBrains IDE project settings; per-developer, not package content.

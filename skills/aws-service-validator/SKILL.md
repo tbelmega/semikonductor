@@ -11,7 +11,7 @@ Validates AWS service and feature claims in a design document. Produces a struct
 
 ## When to Use
 
-- During `k-design-doc-creation.sop.md` Phase 3 (quality gates), runs automatically
+- The quality gates step of the `k-design-doc-creation-sop` workflow
 - Standalone: engineer says "fact-check my AWS claims" or "check whether X is accurate for us-east-1"
 - After major revisions that touch AWS service choices or feature assertions
 

@@ -27,7 +27,7 @@ Both modes draw on the same underlying discipline: [Socratic questioning](https:
 - Pre-planning analysis detects Collaborative intent at Medium or Low confidence
 - Pre-planning analysis detects Architecture intent at Low confidence
 - Anti-pattern detected: Assumption Cascade or Scope Creep
-- k-design-doc-creation Phase 1 invokes this skill (default path for all new design docs)
+- The elicitation step of the `k-design-doc-creation-sop` workflow
 
 **Question dimensions (generate questions from these areas):**
 

@@ -67,10 +67,13 @@ script installs plain skills and an always-on instruction block that every suppo
   - `fuse-rapid-prototyping`, a new product idea explored as a runnable prototype: a short
     interview, many small build-and-feedback iterations with no code review loop, and a product
     brief of what to build that `fuse-system-development` can take up.
-  - `_k-full-sdlc` and `_k-phase-chain`, Konductor's full lifecycle pass and lighter phase chain,
-    expressed as fuse-flow workflows.
+  - In `workflows/konductor/`: `_k-full-sdlc` and `_k-phase-chain`, Konductor's full lifecycle
+    pass and lighter phase chain, and one workflow per remaining Konductor SOP, named after it with
+    a `-sop` suffix, such as `k-design-doc-creation-sop` and `k-code-review-workflow-sop`. Duties
+    the SOPs took on for the skills they loaded, such as credentials, the owner's confirmation and
+    cleanup around `app-discovery`, are steps and gates of these workflows.
   - Examples: four project-specific workflows, and a native workflow after obra/superpowers.
-  - The fuse-development workflows take acceptance tests from the spec, start every bug fix with a
+  - The workflows in `workflows/fuse/` take acceptance tests from the spec, start every bug fix with a
     failing reproduction, and have the reviewer check the tests against the spec, instead of
     forcing test-first on every change. Specs are saved under date-prefixed paths in
     `docs/specs/`.
@@ -149,7 +152,7 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `workspace-skills` skill. It wrote agent-created skills into `.kiro/skills` and
   `.claude/skills`, which in a project install `install.sh` manages.
 - The `git-workflow` skill. Only the `_k-full-sdlc` implementation step used it; its commit and
-  branch rules are now `fuse/flow/workflows/k-git-workflow.md`, which that step names.
+  branch rules are now `fuse/flow/workflows/konductor/k-git-workflow.md`, which that step names.
 - The `pre-planning-analysis` and `test-coverage-analysis` skills. The `task-doc` and
   `test-coverage` guides in the artifact library, which linked to them, are now short guides of
   their own; the test coverage guide keeps the coverage procedure and report and drops the
@@ -171,7 +174,7 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `sop-state-management`, `progress-tracking` and `requirements-extraction` skills.
   fuse-flow keeps each workstream's state, which the first served for the SOPs; nothing used the
   second; and the requirements guide in the artifact library replaces the third's design handoff
-  files. The `k-full-sdlc` SOP, which relied on two of them, is marked as history.
+  files.
 - The project-management skills `program-planning`, `sprint-planning`, `asana-sprint-planning`,
   `status-reporting` and `risk-management`, with the Asana setup guide
   `docs/guides/asana-integration.md`, and the `security-remediation` skill. They are outside
@@ -192,8 +195,8 @@ script installs plain skills and an always-on instruction block that every suppo
   ask for; the security guide is cut from about 740 lines to the plan and its gaps. The third's
   measurable forms of quality requirements are now part of the requirements guide.
 - The user guide and its Python tooling, and the agent benchmark harness.
-- Installation of the SOPs. The files remain in `agent-sops/` for reference; fuse-flow workflows
-  replace them.
+- The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in
+  `fuse/flow/workflows/konductor/` replace them. The SOP files are in this repository's history and in upstream Konductor.
 
 ### Upgrading from Konductor
 

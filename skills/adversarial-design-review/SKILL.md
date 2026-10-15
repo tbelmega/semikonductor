@@ -15,8 +15,7 @@ Use the argumentation reference (`argumentation-reference.md` in this skill's fo
 
 ## When to Use
 
-- `k-design-doc-creation.sop.md` Phase 4 (adversarial review loop)
-- `k-principal-engineer-design-review.sop.md` Step 3 (adversarial review loop)
+- The adversarial review step of the `k-design-doc-creation-sop` and `k-principal-engineer-design-review-sop` workflows
 - Engineer explicitly requests adversarial review of a design doc
 
 ## Core Concepts

@@ -54,7 +54,7 @@ If a project needs only one browser, `npx playwright install chromium` is enough
 
 _Applies when adding specs to an existing Playwright project. Skip on a fresh/bootstrap project where no specs exist yet. `playwright test --list` exits non-zero with "no tests found" in that state, which is expected, not a setup problem._
 
-Before writing any spec content, run `npx playwright test --list` in the project root. An error here means something in the project setup, not the spec you're about to write, needs fixing first (see Prerequisites, or `tsconfig.json` if it's a compilation error). The `--list` check that actually matters on a fresh project is the one run _after_ specs are written (Verification section, and the SOP's Step 5). That's the point at which a failure means something real.
+Before writing any spec content, run `npx playwright test --list` in the project root. An error here means something in the project setup, not the spec you're about to write, needs fixing first (see Prerequisites, or `tsconfig.json` if it's a compilation error). The `--list` check that actually matters on a fresh project is the one run _after_ specs are written (Verification section, and the validate step of the calling workflow). That's the point at which a failure means something real.
 
 ### Step 2: Set up the authenticated session (`global-setup.ts` + `storageState`)
 

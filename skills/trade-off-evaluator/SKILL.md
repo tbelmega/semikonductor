@@ -117,7 +117,7 @@ Do not use it when the user wants a full system design (use `system-design-patte
 
 ## When to Use
 
-- During `k-design-doc-creation.sop.md` Phase 3: runs automatically for each significant decision
+- The quality gates step of the `k-design-doc-creation-sop` workflow, for each significant decision
 - Standalone: engineer asks to compare options for a specific decision
 - When an ADR's Alternatives table needs scored backing
 
@@ -185,7 +185,7 @@ requirement.
 
 ### Step 5: Write Report
 
-Write the full trade-off report to `docs/design/<name>-tradeoffs.md`. If called during the creation SOP, embed the table in the relevant ADR's Alternatives section.
+Write the full trade-off report to `docs/design/<name>-tradeoffs.md`. If a calling workflow asks for it, embed the table in the relevant ADR's Alternatives section.
 
 ## Pitfalls
 

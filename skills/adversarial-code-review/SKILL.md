@@ -39,7 +39,7 @@ The default. Read the diff and produce findings through the lenses below. Findin
 Generator Mode runs in one of two shapes:
 
 - **Full pass:** one pass applies all three lenses. Use this when the skill is invoked directly on a diff.
-- **Single-lens pass:** the invoker names one lens, and the pass applies only that lens. A review procedure such as `k-adversarial-pull-request-review` runs the three lenses as separate, parallel passes, so that one lens's conclusions do not shape another's. In a single-lens pass, read the other lenses only to recognize that a concern belongs to them, and leave it to their pass. Do not deduplicate against other passes; the review procedure does that.
+- **Single-lens pass:** the invoker names one lens, and the pass applies only that lens. A review workflow such as `k-adversarial-pull-request-review-sop` runs the three lenses as separate, parallel passes, so that one lens's conclusions do not shape another's. In a single-lens pass, read the other lenses only to recognize that a concern belongs to them, and leave it to their pass. Do not deduplicate against other passes; the review procedure does that.
 
 Frame every pass neutrally: review through the lens of security, integrity or contract, and do not assume any specific issue exists. Findings are candidates, not verdicts. Do not soften them for the checker; produce your honest read. The checker's job is to filter, not to nudge.
 
@@ -154,7 +154,7 @@ Before flagging a missing implementation, check whether the codebase already pro
 - Data integrity: extra query where a write's return value could be used; condition expression present but weaker than warranted (e.g. `attribute_exists` where a version match would fit)
 - Schema and contract: enum change that consumers may pattern-match on
 
-Present findings as: CRITICAL → IMPORTANT → SUGGESTION. If invoked directly (not via SOP): Ask: "Fix these issues? [y/n]"
+Present findings as: CRITICAL → IMPORTANT → SUGGESTION. If invoked directly (not by a calling workflow): Ask: "Fix these issues? [y/n]"
 
 ## Output Format
 

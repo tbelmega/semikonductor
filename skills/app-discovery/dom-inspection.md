@@ -97,7 +97,7 @@ Detection order:
 
 1. **Blur-triggered**: Tab through fields without filling them and observe error appearance → `validation_trigger: blur`
 2. **Change-triggered**: Type then clear a field and observe → `validation_trigger: change`
-3. **Submit-triggered**: Only attempt if the calling SOP has **explicitly confirmed** with the user that form submission is safe on this app. If not confirmed, set `validation_trigger: unknown` and skip. → `validation_trigger: submit`
+3. **Submit-triggered**: Only attempt if the calling workflow has **explicitly confirmed** with the user that form submission is safe on this app. If not confirmed, set `validation_trigger: unknown` and skip. → `validation_trigger: submit`
 
 **Default to `validation_trigger: unknown`** when blur/change detection is inconclusive and submission safety has not been confirmed. This is the safe choice for live apps.
 

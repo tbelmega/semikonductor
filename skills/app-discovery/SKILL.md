@@ -11,7 +11,7 @@ tags: [discovery, browser, dom, testing, playwright, app-inspection]
 
 Navigates a deployed web application using browser automation and produces a structured discovery report capturing every page, interactive element, and form validation rule. The report is the shared input artifact for both light UI testing and full functional test generation.
 
-**This skill defines what to discover and how to structure the output.** The SOP that loads this skill handles credentials, user confirmation, and cleanup.
+**This skill defines what to discover and how to structure the output.** The calling workflow handles credentials, user confirmation, and cleanup.
 
 ## Usage
 
