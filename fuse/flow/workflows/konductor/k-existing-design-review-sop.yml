@@ -1,0 +1,98 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-existing-design-review SOP from Konductor
+# (agent-sops/k-existing-design-review.sop.md in aws-solutions/konductor), steps 1 to 6 in order. Skills are named by their
+# name; they ship with fuse-konductor in the clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Steps 1 and 2 (discover, confirm the scope) are one step whose owner gate is the
+#   confirmation. Steps 3 to 6 (read, evaluate, write the report, present the recommendation) are
+#   one step, because they hand nothing on to each other.
+# - The discovered artifact list is written to a file under .konductor/{slug}/, so the scope the
+#   owner confirmed is on record for the review step.
+# - output_file: the report keeps the SOP's default name in the repository root, with the
+#   workstream slug added so two reviews in one repository do not overwrite each other. A project
+#   moves it with an `artifacts:` entry in its policy instead of a parameter, so the agent asks
+#   only for design_dir and dry_run.
+# - dry_run: a condition on the review step, which a dry run skips after the scope is shown.
+# - The SOP's ten dimensions differ from the ten in Part 2 of the design review guide. The
+#   workflow scores the SOP's ten, with Part 2's method and its list of what blocks
+#   implementation.
+# - The troubleshooting fallback of writing the report to /tmp is left out: when the report
+#   cannot be written, the agent reports the step blocked and the owner decides.
+# - The SOP's tool names fs_read and fs_write are left out; the agent reads and writes with its
+#   harness's own tools.
+version: 1
+name: k-existing-design-review-sop
+description: Port of the former k-existing-design-review SOP. Reviews a completed set of design
+  artifacts (system design, threat model, API specs, data models, security policies, diagrams)
+  across ten dimensions before implementation starts, and recommends READY FOR IMPLEMENTATION or
+  NOT READY. Not for writing a new design document; use k-design-doc-creation-sop for that.
+steps:
+  - id: discover
+    title: 1-2. Discover the design artifacts and confirm the scope
+    instruction: >
+      design_dir, the path of the design artifacts directory (such as
+      design-architecture/outputs/), is required; dry_run (default false) is optional. If
+      design_dir is missing, ask for both in a single prompt, using exactly these parameter names.
+      If the directory is not found, check the path relative to the current directory and look for
+      the common ones (design-architecture/outputs/, outputs/, ./) before asking the owner again.
+      Check design_dir for these six artifacts: (1) system-design.md, the system architecture; (2)
+      threat-model.md, the STRIDE analysis and mitigations; (3) smithy-model/ or api-specs/, the API
+      specifications; (4) dynamodb-*.md or data-model.md, the data models; (5) security-policy*.md
+      or iam-policies.md, the security policies; (6) *.drawio.xml or architecture-diagram*, the
+      architecture diagrams. The system design and the threat model are critical; the others are
+      optional. Write the artifact list to the path below: each artifact found with its file path,
+      and each one missing with its severity, critical or optional. Warn when a critical artifact
+      is missing. When the threat model is missing, say that the security and threat coverage
+      dimension will be limited, and suggest generating a threat model first with the
+      threat-modeling skill. When system-design.md is missing, do not go on to the evaluation: tell
+      the owner the system design is required and can be generated first with the
+      system-design-patterns skill, and report this step as blocked. Otherwise show the owner the
+      list of artifacts found and ask "Proceed with review of these artifacts? [y/n]"; do not go on
+      without their explicit confirmation. If dry_run is true, stop here and report "DRY RUN" with
+      what would be reviewed, each artifact found or not found, and that no report was generated
+      (dry_run=true).
+    produces:
+      - artifact: design-artifact-inventory
+        path: .konductor/{slug}/design-artifact-inventory.md
+    gates:
+      - owner-action: answer "Proceed with review of these artifacts? [y/n]"
+  - id: review
+    title: 3-6. Evaluate, report and recommend
+    condition:
+      agent: the owner did not ask for a dry run (dry_run is false or not given)
+    instruction: >
+      Read every artifact in the confirmed list, in this order: system design, threat model, API
+      specs, data models, security policies, diagrams. Note an optional artifact that is missing as
+      "not provided", and go on. Evaluate all of them with Part 2 of the design review guide
+      (fuse/flow/library/artifacts/design/review.md in the fuse-konductor clone): tailor the depth
+      to the project's scope, and treat its list of what blocks implementation as CRITICAL.
+      Evaluate all ten of these dimensions and give each a score from 1 to 5, flagging every
+      dimension below 3 for revision: (1) template adherence and completeness; (2) scalability and
+      performance; (3) security and threat coverage; (4) maintainability and code quality; (5)
+      resilience and fault tolerance; (6) testability; (7) operational readiness; (8) cost
+      optimization; (9) API design quality; (10) data model quality. Classify every finding as
+      CRITICAL (blocks implementation), IMPORTANT (should fix) or SUGGESTION. A design with only
+      IMPORTANT issues is still ready for implementation; when the findings are many, put the
+      CRITICAL ones first. Write the report to the path below, in this structure. Its title is "#
+      Design Review Report", followed by the lines "Date: [current date]" and "Artifacts reviewed:
+      [list]". Then these sections, in order: "## Executive Summary", two or three sentences on the
+      overall readiness and the critical blockers; "## Dimension Scores", a table with the columns
+      dimension, score and key finding; "## Critical Issues (Must Fix Before Implementation)", a
+      numbered list with specific file and section references; "## Important Issues (Should Fix)",
+      a numbered list; "## Suggestions", a numbered list; and "## Recommendation", READY FOR
+      IMPLEMENTATION or NOT READY with the reason. If the report cannot be written, check that its
+      folder exists and is writable, and report the step as blocked if it still fails. Do not print
+      the report in your message; the file is enough. Tell the owner where it is, and state clearly
+      READY FOR IMPLEMENTATION or NOT READY. When it is NOT READY, list the critical issues that
+      must be resolved, offer to help fix them with the architect skill for each artifact (such as
+      system-design-patterns, threat-modeling, smithy-modeling, dynamodb-design or
+      iam-policy-design), and offer to run the review again after the fixes.
+    consumes:
+      - design-artifact-inventory
+    produces:
+      - artifact: design-review-report
+        path: design-review-report-{slug}.md

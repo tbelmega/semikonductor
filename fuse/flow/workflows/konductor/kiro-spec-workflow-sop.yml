@@ -1,0 +1,124 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former kiro-spec-workflow SOP from Konductor
+# (agent-sops/kiro-spec-workflow.sop.md in aws-solutions/konductor), steps 1 to 4 in order, for one feature per workstream.
+# Skills are named by their name; they ship with fuse-konductor in the clone's skills/ folder,
+# except cloudscape-mock-ui, which the SOP already used only when it is available.
+# Deliberate deviations from the SOP:
+# - spec_dir: the workstream slug is feature_name, and the artifact paths are the resolved
+#   default, .kiro/specs/{slug}/. A caller that wants another location moves all three spec
+#   artifacts with `artifacts:` entries in the project's policy, which always win; each step passes
+#   the folder of its printed path to its skill as spec_dir.
+# - The approval and the revise-and-present-again cycles are the owner gate on each step; the
+#   agent counts the cycles.
+# - The kiro skills' own "Fix these issues? [y/n]" question is replaced: the agent fixes every
+#   CRITICAL finding of the skill's quality gate before presenting, and presents the rest with the
+#   draft for the owner's approval.
+# - The traceability summary is written to a file under .konductor/{slug}/, so it stays readable
+#   after the session ends.
+# As in the SOP, design.md gets only the author's self-check: no agent gate was added.
+version: 1
+name: kiro-spec-workflow-sop
+description: Port of the former kiro-spec-workflow SOP. Turns one feature's scoped user stories and
+  the architect's design artifacts into a Kiro IDE spec, requirements.md, design.md and tasks.md,
+  each approved by the owner, then checks that the three trace to each other.
+steps:
+  - id: requirements
+    title: 1. Generate requirements (EARS format)
+    instruction: >
+      The workflow needs four inputs; ask the owner for any the request does not give:
+      feature_name, in kebab-case, which is this workstream's slug; feature_scope_path, the
+      feature-split file with this feature's scoped user stories, key components and
+      dependencies; user_stories_path, the full user stories, written with the user-stories guide
+      (fuse/flow/library/artifacts/user-stories/guide.md in the fuse-konductor clone);
+      design_artifacts_path, the design artifacts directory from the architect phase. The folder of
+      the path below is spec_dir, already resolved; create it. Read the feature scope to find which
+      user stories and components are in scope, and read the user stories, keeping only those the
+      scope maps to this feature. Run the kiro-requirements-generation skill and pass spec_dir to it
+      explicitly as its own spec_dir parameter; never leave it out, and never rely on the skill's
+      default. Write requirements.md with EARS acceptance criteria (WHEN, IF, WHILE ... SHALL). Run
+      the skill's validation and quality gate, fix every CRITICAL finding, and present the rest
+      with the draft. Present requirements.md to the owner for approval. When the owner asks for
+      changes, revise and present it again, for at most 2 cycles. If the owner still asks for
+      changes after the second, stop and ask how to go on: accept the current draft with the open
+      concerns noted, keep revising past the cap, or escalate or abandon. Do not keep looping
+      silently, and do not go on with feedback unresolved.
+    produces:
+      - artifact: kiro-requirements
+        path: .kiro/specs/{slug}/requirements.md
+    gates:
+      - owner-action: approve requirements.md, or ask for changes
+        route_back_to: requirements
+  - id: design
+    title: 2. Generate design (per feature)
+    instruction: >
+      Read requirements.md and the design artifacts in design_artifacts_path. Run the
+      kiro-design-generation skill and pass spec_dir, the folder of the path below, to it
+      explicitly as its own spec_dir parameter; never leave it out, and never rely on the skill's
+      default. Write design.md with all six required sections: Overview, Architecture, Components
+      and Interfaces, Data Models, Error Handling, Testing Strategy. The design addresses every
+      requirement in requirements.md. Fix every CRITICAL finding of the skill's validation and
+      quality gate. Before presenting, run a lightweight self-check over design.md: is every major
+      section consistent with itself and the others, and does the design plausibly satisfy every
+      requirement's acceptance criteria, not only have a heading for it? Fix any clear defect it
+      finds before presenting; do not present a draft you know is broken. For a feature with a user
+      interface, if the cloudscape-mock-ui skill is available, run it with the URL of the high-level
+      design or the product requirements document to generate a Cloudscape mock user interface, and
+      present the mock with design.md, so the owner can validate both before implementation.
+      Present design.md to the owner for approval. When the owner asks for changes, revise and
+      present it again, for at most 2 cycles. If the owner still asks for changes after the second,
+      stop and ask how to go on: accept the current draft with the open concerns noted, keep
+      revising past the cap, or escalate or abandon. Do not keep looping silently, and do not go on
+      with feedback unresolved.
+    consumes:
+      - kiro-requirements
+    produces:
+      - artifact: kiro-design
+        path: .kiro/specs/{slug}/design.md
+    gates:
+      - owner-action: approve design.md, or ask for changes
+        route_back_to: [requirements, design]
+  - id: tasks
+    title: 3. Generate tasks (Kiro format)
+    instruction: >
+      Read requirements.md and design.md. Run the kiro-task-generation skill and pass spec_dir, the
+      folder of the path below, to it explicitly as its own spec_dir parameter; never leave it out,
+      and never rely on the skill's default. Write tasks.md in Kiro IDE format: numbered checkboxes,
+      at most two levels, and requirement references. Every requirement has at least one task. Fix
+      every CRITICAL finding of the skill's quality gate. Before presenting, check that every task
+      maps to a real, actionable implementation step, not a placeholder or a restated requirement,
+      and revise every task that does not. Present tasks.md to the owner for approval. When the
+      owner asks for changes, revise and present it again, for at most 2 cycles. If the owner still
+      asks for changes after the second, stop and ask how to go on: accept the current draft with
+      the open concerns noted, keep revising past the cap, or escalate or abandon. Do not keep
+      looping silently, and do not go on with feedback unresolved.
+    consumes:
+      - kiro-requirements
+      - kiro-design
+    produces:
+      - artifact: kiro-tasks
+        path: .kiro/specs/{slug}/tasks.md
+    gates:
+      - owner-action: approve tasks.md, or ask for changes
+        route_back_to: [requirements, design, tasks]
+  - id: validate
+    title: 4. Validate spec completeness
+    instruction: >
+      Check that the three documents are consistent and complete, in a validation pass of its own:
+      use a separate generic subagent when one is available, and otherwise do not reuse the
+      conclusions of the earlier steps' checks. Check that requirements.md, design.md and tasks.md
+      all exist in spec_dir; that design.md addresses every requirement in requirements.md; and
+      that every requirement has at least one task in tasks.md. Write the traceability summary to
+      the path below, one row per requirement: requirement, design section, task or tasks. End it
+      with the confirmation that the spec is ready for execution, or, when a check fails, with what
+      fails, and suggest to the owner the step to send the work back to.
+    consumes:
+      - kiro-requirements
+      - kiro-design
+      - kiro-tasks
+    produces:
+      - artifact: spec-traceability
+        path: .konductor/{slug}/spec-traceability.md

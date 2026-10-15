@@ -1,0 +1,200 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-design-doc-creation SOP from Konductor
+# (agent-sops/k-design-doc-creation.sop.md in aws-solutions/konductor), phases 1 to 5 in order. Skills are named by their
+# name; they ship with fuse-konductor in the clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Parameters: the workstream slug stands for the slugified topic. output_path and
+#   validation_output_dir keep their defaults under docs/design/; a project moves them with an
+#   `artifacts:` entry in its policy instead of a parameter. elicitation_depth stays something the
+#   owner may name in the request, and is never asked for.
+# - "skip elicitation" and "I have clear requirements": a condition on the elicitation step.
+# - The early-exit signal that ends elicitation without a confirmation is recorded as the owner's
+#   approval of the requirements summary, with the signal as the note.
+# - The design guide's maker-checker pass and the adversarial loop are agent gates, so an
+#   independent reviewer runs them rather than the author alone. The author classifies each
+#   finding; a finding the author rejects is recorded with the reason for the owner to confirm as
+#   an engineer override at the last step.
+# - The SOP sets no cap on the maker-checker pass; here it has 3 rounds, then the owner decides.
+# - The outside-in order also has the design guide's Decision Requested section, after the
+#   Solution Overview, because the guide's checklist requires it.
+# - The deliberation panel's consent is asked once, before the first adversarial round, and passed
+#   to every round, because a reviewer started by the gate cannot ask the owner itself.
+# - The adversarial review summary and the readiness result are written to files under
+#   .konductor/{slug}/, so a later step or session can resume from them.
+# - The quality gate's "Fix these before submission? [y/n]" is the owner gate on the last step.
+version: 1
+name: k-design-doc-creation-sop
+description: Port of the former k-design-doc-creation SOP. A new design document from a topic, user
+  stories or a problem statement, through elicitation, a checked draft, quality gates and an
+  adversarial review, until it is ready for principal engineer review. To review an existing
+  design package, use k-existing-design-review-sop instead.
+steps:
+  - id: elicitation
+    title: 1. Requirements elicitation
+    phase: Requirements
+    condition:
+      agent: the owner did not say "skip elicitation" or "I have clear requirements"
+    instruction: >
+      If the owner has not named the topic (the system, feature or problem to design, as a
+      free-form description, user stories or a problem statement), ask for it once and wait. Do
+      not ask for the output path, the validation report folder or the elicitation depth; use the
+      defaults. Run the socratic-elicitation skill in Mode A (intake) directly: its run is this
+      step's work, not a preparation for it. Ask one question at a time and wait for the answer
+      before asking the next, drawing on the skill's dimensions: business value [PM], technical
+      feasibility and dependencies [SDE], timeline and cross-team coordination [TPM], auth and
+      data protection [Security], observability and failure modes [Ops]. Let each answer decide
+      whether to follow up or move to the next dimension; do not work through a fixed script. Ask
+      at most 10 questions in total, or 5 when the owner asked for quick elicitation and 15 for
+      deep. Do not ask about dimensions the topic already answers clearly. Write the skill's
+      Requirements Summary (Functional Requirements, Constraints, Non-Functional Requirements,
+      Open Items) and present it. An early-exit signal such as "enough" or "proceed" ends the
+      questions at once and counts as the owner's confirmation of the summary; record it as the
+      owner's approval, with the signal as the note.
+    produces:
+      - artifact: requirements-summary
+        path: .konductor/{slug}/requirements-summary.md
+    gates:
+      - owner-action: confirm the requirements summary is complete
+  - id: draft
+    title: 2. Draft generation
+    phase: Design
+    instruction: >
+      Write the design document with the design guide, from the requirements summary, or from the
+      owner's request when elicitation was skipped. If neither names a topic, ask the owner once
+      and wait. Apply the design guide before drafting. Follow the outside-in structure: Problem,
+      Requirements, Solution Overview, Decision Requested (the guide's checklist asks for it), How
+      It Works, Implementation Details, Implementation Plan. Draw a Mermaid diagram before writing
+      the prose of each section that describes a multi-component interaction, a data flow or a
+      sequence of steps, such as the Solution Overview and How It Works. Every How It Works
+      subsection opens with a diagram, without exception. Elsewhere you may leave out a diagram
+      where there is no such structure to show, such as a section listing configuration values or
+      a single API contract; say in that section that it has no diagram, and why. Write an ADR for
+      every significant design decision with the decision-writing skill in its ADR mode: inline
+      under "## Architecture Decision Records" by default, or in the project's own decision-record
+      location when it has one. Use its format: Context, Decision, Alternatives Considered (a
+      table), Consequences. Do not wait for trade-off scores; the next step adds them. Run
+      decision-writing's quality gate on each ADR and fix what it finds, because that skill leaves
+      fixing to the workflow. Then have the draft checked as the gate below says, and do not move
+      on while a CRITICAL finding is open.
+    consumes:
+      - requirements-summary
+    produces:
+      - artifact: design
+        path: docs/design/{slug}.md
+    gates:
+      - agent: >
+          check the draft against the design guide's checklist and this step's outside-in,
+          diagram and ADR rules (the maker-checker pass). A CRITICAL finding is a required fix
+        guide: guides/k-design-doc-creation-sop-checklist-review.md
+        max_rounds: 3
+  - id: quality-gates
+    title: 3. Quality gates
+    phase: Design
+    instruction: >
+      Run the automated quality gates on the draft. Do not ask the owner for input during this
+      step. (1) Run the doc-accuracy-analyzer skill to check every technical claim against the
+      codebase, and flag each claim it finds inaccurate (INCORRECT) or unverifiable (UNVERIFIED)
+      in the draft with an inline "> ⚠️" callout. Do not hold the document back for UNVERIFIED
+      claims; mark them and go on. (2) Run the aws-service-validator skill on every AWS service and
+      feature claim: confirm or deny each with the aws-mcp tools aws___search_documentation and
+      aws___read_documentation, and call aws___get_regional_availability for every regional
+      availability claim. Classify each claim CONFIRMED, UNVERIFIED or INCORRECT, flag INCORRECT
+      claims with "> ⚠️ INCORRECT: <correction>" and UNVERIFIED claims with "> ⚠️ UNVERIFIED: <what
+      was searched>", and write the full validation report to the AWS validation path below; when
+      the draft makes no AWS claim, the report says so. When the aws-mcp tools are missing, do as
+      the skill says: tell the owner, and classify every claim UNVERIFIED with that reason. Do not
+      hold the document back for UNVERIFIED AWS claims. (3) Run the trade-off-evaluator skill for
+      every significant decision with more than one option: score each option 1 to 5 on cost,
+      latency, complexity, scalability and operability, embed the scored table in that ADR's
+      Alternatives section, and write the full report to the trade-off path below. When no
+      decision has more than one option, report the trade-off report as not produced with that
+      reason. (4) With decision-writing's ADR mode, check that every ADR from the draft step sits
+      under "## Architecture Decision Records", or is linked from the design document when the
+      project keeps its records elsewhere. Do not write those ADRs again; only enrich them, and
+      leave the scores to (3). Then tell the owner: N AWS claims checked (N confirmed, N
+      unverified, N incorrect), N trade-off matrices produced, N ADRs generated.
+    consumes:
+      - design
+    updates:
+      - artifact: design
+        path: docs/design/{slug}.md
+    produces:
+      - artifact: aws-validation
+        path: docs/design/{slug}-aws-validation.md
+      - artifact: trade-offs
+        path: docs/design/{slug}-tradeoffs.md
+  - id: adversarial-review
+    title: 4. Adversarial review loop
+    phase: Review
+    instruction: >
+      Have every major architectural decision, trade-off and AWS service choice challenged as the
+      gate below says. Before the first round, ask the owner once whether to convene the
+      deliberation panel, as the adversarial-design-review skill's Deliberation Panel Confirmation
+      Gate describes (roughly 2 to 3 minutes, scaling with the number of derived axes), and pass
+      the answer to every round's reviewer as consent_confirmed; without an explicit opt-in the
+      reviewer works single-voice. After each round, apply the corrections, then check the
+      document against the draft step's maker-checker rules again and fix every CRITICAL finding
+      before the next round. Do not discard any finding silently: each is fixed, or recorded with
+      your reason as rejected, for the owner to confirm as an engineer override. The guide gives
+      the exit condition and when to stop the loop for the owner. Write the adversarial review
+      summary: the panel decision, for each round its findings by severity and the corrections
+      applied, the findings marked for engineer override, and the issues still open.
+    consumes:
+      - design
+      - requirements-summary
+      - aws-validation
+      - trade-offs
+    updates:
+      - artifact: design
+        path: docs/design/{slug}.md
+    produces:
+      - artifact: adversarial-review
+        path: .konductor/{slug}/adversarial-review.md
+    gates:
+      - agent: >
+          challenge every major architectural decision, trade-off and AWS service choice in the
+          design with the adversarial-design-review skill, classifying each finding CRITICAL
+          (architectural), CRITICAL (factual), IMPORTANT or MINOR
+        guide: guides/k-design-doc-creation-sop-adversarial-review.md
+        max_rounds: 5
+        route_back_to: draft
+  - id: final-output
+    title: 5. Final output
+    phase: Review
+    instruction: >
+      Apply every correction from the quality gates and the adversarial review before writing the
+      final version of the design document: an INCORRECT claim is corrected, not only flagged.
+      Check the final version against the draft step's maker-checker rules once more. Compute the
+      confidence score with Part 2 of the design review guide
+      (fuse/flow/library/artifacts/design/review.md in the fuse-konductor clone): the average of
+      its ten dimension scores, 1 to 5 each, and flag every dimension below 3 for revision. Write
+      the readiness result: each condition of the quality gate with its result, the confidence
+      score and the dimensions below 3, the findings marked for engineer override, and the open
+      issues from the adversarial review. The document is ready for principal engineer review only
+      when all of these hold: the design guide's checklist has 0 CRITICAL findings;
+      doc-accuracy-analyzer has 0 INCORRECT findings (UNVERIFIED with a callout is acceptable);
+      the adversarial review has 0 CRITICAL, 0 IMPORTANT and fewer than 3 MINOR findings; the
+      confidence score averages 3.0 or more. Do not present the document inline. Tell the owner
+      its path, the confidence score with any dimension below 3, and one line on the issues still
+      open. If any condition is not met, do not present the document as ready for principal
+      engineer review: present the remaining issues and ask "Fix these before submission? [y/n]".
+    consumes:
+      - design
+      - aws-validation
+      - trade-offs
+      - adversarial-review
+    updates:
+      - artifact: design
+        path: docs/design/{slug}.md
+    produces:
+      - artifact: design-readiness
+        path: .konductor/{slug}/design-readiness.md
+    gates:
+      - owner-action: >
+          accept the design as ready for principal engineer review, confirm the engineer
+          overrides, or answer "Fix these before submission?" for the remaining issues
+        route_back_to: [draft, quality-gates, adversarial-review]

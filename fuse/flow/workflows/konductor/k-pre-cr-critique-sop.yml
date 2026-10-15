@@ -1,0 +1,146 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-pre-cr-critique SOP from Konductor (agent-sops/k-pre-cr-critique.sop.md in aws-solutions/konductor),
+# steps 1 to 6 in order. It loads no skills.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters, so the gather step takes critique_scope,
+#   mode and focus_areas from the owner's request, with the SOP's defaults.
+# - output_dir and the critique-NNN.md numbering are replaced by the critique artifact under
+#   .konductor/{slug}/, one critique per workstream; a project's policy can move it. The
+#   incremental findings file for large diffs sits next to it.
+# - Steps 1 and 2 are one step, and steps 4 to 6 are one step, because each group hands on one
+#   document. The gathered diff is saved as the review-diff artifact, so the critique reads a
+#   stable copy of changes that may still be uncommitted.
+# - An empty diff stops the workstream as blocked; the owner decides what happens next.
+# - Interactive mode asks the owner about each finding inside the resolve step, not through an
+#   owner gate, because in auto mode the SOP lets the agent decide without the owner.
+# - The SOP's troubleshooting advice appears where it applies: in the gather step for an empty
+#   diff, and in the critique step for findings outside the diff and for large diffs.
+# - Read-only is an instruction in every step, not a mechanical gate: a critique of uncommitted
+#   changes has no clean tree to compare against.
+version: 1
+name: k-pre-cr-critique-sop
+description: Port of the former k-pre-cr-critique SOP. A fast, read-only critique of local changes
+  before a pull request, across six dimensions, with a fix, won't fix or defer decision on each
+  finding, chosen by the agent or walked through with the owner.
+steps:
+  - id: gather
+    title: 1 and 2. Resolve parameters and gather the changes
+    phase: Scope
+    instruction: |
+      Settle what to critique and collect it. This workflow is strictly read-only: change no
+      source file, create no commit, and run no build or test; write only this workflow's own
+      files under .konductor/.
+
+      The parameters, taken from the owner's request. Do not ask for any of them; use the
+      defaults. critique_scope is one of: uncommitted, the default (`git diff` and `git diff
+      --cached`, combined); last N (`git diff HEAD~N`); branch1...branch2 (`git diff
+      branch1...branch2`); or file and directory paths, read directly. mode is auto, the default,
+      where you choose each finding's resolution, or interactive, where the owner does. focus_areas
+      is an optional list of concerns, such as error handling, security or concurrency, whose
+      findings come first. Unless critique_scope is paths, check that this is a git repository.
+      Detect the project's language and framework from package.json, Cargo.toml, go.mod or
+      pyproject.toml.
+
+      Gather the changes as the scope says. Leave out binary files, lock files (package-lock.json,
+      yarn.lock), build artifacts (dist/, build/, cdk.out/) and .js.map files. Write the diff to the
+      review-diff artifact; for a paths scope report it as not produced, with the reason
+      "critique_scope is paths", and list the paths in the critique scope. When the owner gave a
+      scope, it must resolve to actual changes. If the diff is empty, tell the owner there is
+      nothing to critique, suggest checking `git stash list` and `git status` for stashed or
+      untracked changes, and that untracked files can be critiqued by naming their paths as the
+      scope, then report this step blocked with the reason "the diff is empty; nothing to
+      critique".
+
+      Write the critique scope: the scope as resolved and the commands used, the mode, the focus
+      areas, the detected language and framework, the changed files with the file count and the
+      approximate lines changed, and what was left out.
+    produces:
+      - artifact: review-diff
+        path: .konductor/{slug}/review.diff
+      - artifact: critique-scope
+        path: .konductor/{slug}/critique-scope.md
+
+  - id: critique
+    title: 3. Perform the critique
+    phase: Critique
+    instruction: |
+      Critique the changes exhaustively. Stay read-only: change no source file, create no commit,
+      and do not run builds or tests to validate findings; testing is judged by reading only.
+
+      Cover all six dimensions, even when focus areas are given: Correctness (logic, edge cases,
+      bugs, null handling, race conditions, integration), Performance (complexity, memory, N+1
+      queries, scalability), Security (vulnerabilities, input validation, injection, exposed
+      secrets, authorization gaps), Maintainability (clarity, naming, documentation, duplication,
+      complexity), Architecture (patterns, separation of concerns, coupling, backwards
+      compatibility) and Testing (whether tests exist and cover the changed code). Always flag
+      production-critical issues: resource leaks, race conditions, missing error handling, input
+      validation vulnerabilities, performance bottlenecks and security vulnerabilities.
+
+      Give each finding a severity, Critical (bugs, vulnerabilities, data loss risks), Important
+      (significant quality issues, missing error handling, performance problems) or Minor (style,
+      naming, minor improvements), and one dimension tag. Each finding has the file path, the
+      relevant code snippet from the diff, the problem, and a suggested resolution. Critique the
+      changed code: a finding about code outside the diff does not belong here. Include no praise,
+      positive observations or "looks good" remarks; only actionable problems. Do not flag
+      style-only issues a linter catches, such as formatting, trailing whitespace or import order,
+      unless they point to a deeper problem. Put findings in the focus areas first.
+
+      When the diff is over 500 lines, save the findings after each file or group of files to
+      .konductor/<slug>/critique-findings.tmp.md, where <slug> is this workstream's slug, so they
+      survive a full context.
+
+      Write the critique with the sections Critical Issues, Important Issues and Minor Issues. In
+      each, write every finding as an issue numbered C1, I1 or M1 onwards, with its title and
+      dimension, file, problem, code snippet and suggested resolution, and a Decision line left as
+      "pending". The resolve step adds the header, the executive summary and the decisions, in the
+      structure it gives.
+    consumes:
+      - critique-scope
+      - review-diff
+    produces:
+      - artifact: critique
+        path: .konductor/{slug}/critique.md
+
+  - id: resolve
+    title: 4 to 6. Resolve issues, finalize and present
+    phase: Critique
+    instruction: |
+      Decide each finding, finish the document and present it. Stay read-only: change no source
+      file, apply no fix, create no commit, and run no build or test.
+
+      In auto mode, choose fix, won't fix or defer for each finding, with a one-sentence rationale.
+      A Critical finding is fix unless you document why not. In interactive mode, first show the
+      owner a summary: the counts by severity and one line for each Critical finding. Then go
+      through the findings, Critical first, then Important, then Minor, present each one, and ask
+      the owner to choose fix, won't fix or defer. Accept the owner's decision without argument and
+      record it.
+
+      Finish the critique in exactly this structure. The title line is `# Code Critique — <task
+      name or scope description>`, followed by the lines `Date: <current date>`, `Scope:
+      <critique_scope description>`, `Files Critiqued: <count>` and `Mode: <auto or interactive>`.
+      Then `## Executive Summary`: a two to three sentence assessment of what was changed, the
+      overall quality and the key risks, followed by a table with the columns Severity and Count
+      and one row each for Critical, Important and Minor. Then the sections `## Critical Issues`,
+      `## Important Issues` and `## Minor Issues`, in that order. Each issue is a heading `### Issue
+      C1: <title> [<dimension>]`, numbered I1 onwards for Important and M1 onwards for Minor,
+      followed, each as its own paragraph, by `**File:** <path in backticks>`, `**Problem:**
+      <description>`, the relevant code snippet in a fenced code block, `**Suggested Resolution:**
+      <description>` and `**Decision:** <fix, won't fix or defer> — <rationale>`. A severity with
+      no findings keeps its heading, with "No issues found." beneath it.
+
+      Delete .konductor/<slug>/critique-findings.tmp.md if it exists. Then present the result
+      without printing the critique: its path, the counts by severity, one line for each Critical
+      finding, and the overall assessment, "No critical issues" or "N critical issues require
+      attention before submission". When a finding is marked fix, remind the owner that this
+      critique is read-only and the fixes are theirs to apply. Do not offer to apply fixes, run
+      builds or create commits.
+    consumes:
+      - critique-scope
+      - review-diff
+    updates:
+      - artifact: critique
+        path: .konductor/{slug}/critique.md

@@ -1,0 +1,50 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-comprehensive-search SOP from Konductor, its steps 1 to 3 in one step.
+# Deliberate deviations from the SOP:
+# - One step: the search plan and the raw results are internal to the search, and only the
+#   summary is handed on.
+# - The summary is always written to the step's artifact, not only when it exceeds about 100
+#   lines, so the result outlives the session; the chat hand-over stays short. The SOP's
+#   .konductor/handoff/<search-name>.md becomes the step's path under .konductor/{slug}/.
+# - The search tools are named as examples, and the web tools by what they do, so the workflow
+#   does not depend on one harness's tool names.
+version: 1
+name: k-comprehensive-search-sop
+description: Port of the former k-comprehensive-search SOP, a thorough search of the codebase, external
+  documentation or both for one target, summarized with file paths, line numbers and short
+  snippets.
+steps:
+  - id: search
+    title: 1-3. Search
+    instruction: >
+      Search as thoroughly as the target deserves. The search target is required; ask for it if the
+      request does not give it. The scope is codebase, documentation or both, by default both, and
+      the codebase search root is the project root, by default the current directory.
+      First make a search plan: the primary term and its variations (other naming conventions,
+      abbreviations, related terms; never a single pattern when variations are likely), the
+      execution mode and the tools. When both scopes apply, run the codebase and the documentation
+      searches in parallel generic subagents if the session has them, and otherwise one after the
+      other yourself. Each subagent task states the task, the expected outcome, the tools, the
+      constraints below and the context it needs.
+      Codebase search: search from the root, with tools such as rg for text patterns (rg -l to list
+      matching files, rg -C 5 for context), find for file discovery and ast-grep for structural
+      patterns. Search every pattern and variation, include test files, and give the file path and
+      line number of each match. Documentation search: search the topic, prefer official sources,
+      and include relevant examples.
+      Keep every result small: file paths with snippets of 3 to 5 lines, never whole files or
+      complete source code; at most 20 matches per search pattern, with the total count when there
+      are more.
+      Write the summary under "## Search Results Summary", with the codebase findings (including
+      your own direct tool results) under "### From generic code-search subagent (Codebase)", the
+      documentation sources, examples and best practices under "### From generic documentation
+      subagent (Documentation)", and the most important results under "### Key Findings". Leave out
+      the section of a scope that was not searched. Deduplicate results across sources and
+      summarize; do not paste raw tool output. In the hand-over, give the summary's path and the key
+      findings, and keep what you print to about 100 lines.
+    produces:
+      - artifact: search-results
+        path: .konductor/{slug}/search-results.md

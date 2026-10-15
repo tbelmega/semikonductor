@@ -1,0 +1,137 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-test-coverage-review SOP from Konductor
+# (agent-sops/k-test-coverage-review.sop.md in aws-solutions/konductor), steps 1 to 7 in order. Skills are named by their
+# name; they ship with fuse-konductor in the clone's skills/ folder. The gap analysis uses the
+# library's test-coverage guide; the security test plan follows security-tests.md next to it.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters. The inventory step asks the owner for what
+#   is missing and records source_dir, test_dir, stories_file and design_file in the inventory,
+#   which later steps read.
+# - output_dir: the reports are artifacts under .konductor/{slug}/; a project's policy moves them.
+# - dry_run: the SOP's parameter says no reports are generated and its example stops after Step 1,
+#   while its Step 3 stops after the gap analysis. The workflow follows the parameter and the
+#   example: a dry run ends after the inventory, with the workstream paused.
+# - Step 3's question is the owner-action condition of the e2e-strategy step. scope_confirmed and
+#   scope_declined are the owner's answer given in advance, so the agent does not ask again.
+# - Gap severities: the test-coverage guide's classification is used, as the SOP requires that
+#   guide; its critical gaps are reported as CRITICAL and its warnings as IMPORTANT. Where the
+#   SOP's one-line examples differ (it puts untested error paths under IMPORTANT), the guide wins.
+# - The security test plan is its own file, as the SOP says, not a section of the gap analysis as
+#   the guide's "Further sections" suggests.
+# - Step 7 is the report step's closing message; the workflow-complete hand-over carries the
+#   owner's next options, so no owner gate was added.
+version: 1
+name: k-test-coverage-review-sop
+description: Port of the former k-test-coverage-review SOP. After implementation and before
+  release, finds the test coverage gaps, plans end-to-end tests when the owner wants them, plans
+  the security tests, and recommends READY FOR RELEASE or NOT READY in one consolidated report.
+steps:
+  - id: inventory
+    title: Parameters and Step 1. Discover source and test files
+    phase: Analysis
+    instruction: >
+      Collect the parameters: source_dir and test_dir (required), and optionally stories_file (user
+      stories or acceptance criteria) and design_file (the system design, used for the security
+      plan). Ask for every missing required parameter in a single message, by these exact names;
+      ask nothing when both are given. Do not go on if source_dir or test_dir does not exist.
+      Scan source_dir for implementation files (.ts, .tsx, .js, .jsx, .py) and test_dir for test
+      files (.test.ts, .spec.ts, .test.tsx, .test.py). Record the parameters, the number of source
+      files, the number of test files, the test-to-source ratio, and the source files with no
+      corresponding test file. This workflow never changes code.
+      If the owner asked for a dry run, show what would be analyzed (the counts and the ratio),
+      say that no reports are generated, and stop here with the workstream paused instead of
+      continuing.
+    produces:
+      - artifact: test-file-inventory
+        path: .konductor/{slug}/test-file-inventory.md
+
+  - id: gap-analysis
+    title: Step 2. Run test coverage analysis, and Step 3. Confirm scope
+    phase: Analysis
+    instruction: >
+      Analyze the coverage as the test-coverage guide says, using the recorded source_dir,
+      test_dir, stories_file and design_file instead of searching for them, and write it to the
+      path below. Cover unit, integration and end-to-end tests. When a stories_file was given, map
+      the tests to its acceptance criteria. Report the guide's critical gaps as CRITICAL (core
+      user journeys untested among them) and its warnings as IMPORTANT. Close no gaps: record
+      every one. Then show the owner the total number of gaps by severity.
+    consumes:
+      - test-file-inventory
+    produces:
+      - artifact: test-coverage
+        path: .konductor/{slug}/test-gap-analysis.md
+
+  - id: e2e-strategy
+    title: Step 4. Plan E2E test strategy
+    phase: Planning
+    condition:
+      owner-action: >-
+        decide whether to plan end-to-end tests for these gaps, unless they already said so when
+        starting
+    instruction: >
+      When the owner already authorized end-to-end planning (scope_confirmed), do the step without
+      asking; when they already declined it (scope_declined), skip it without asking.
+      Plan the end-to-end tests with the e2e-test-strategy skill, from the gap analysis. Give the
+      skill the gap analysis's path, the stories_file and design_file when they were given, and
+      the path below as its output file, so it does not ask for them; it treats a missing feature
+      plan as absent and applies its defaults for change type and release type. Classify the tests
+      P0 (critical path), P1 (core features), P2 (edge cases) and P3 (nice to have), and recommend
+      sequential, parallel or hybrid execution. When the skill's quality gate finds issues, list
+      them in the strategy and leave the fixing to the owner when they authorized the planning in
+      advance; otherwise ask them whether to fix them. Change no code.
+    consumes:
+      - test-file-inventory
+      - test-coverage
+    produces:
+      - artifact: e2e-test-strategy
+        path: .konductor/{slug}/e2e-test-strategy.md
+
+  - id: security-plan
+    title: Step 5. Generate security test plan
+    phase: Planning
+    instruction: >
+      Plan the security tests by following security-tests.md, the guide next to the test-coverage
+      guide in the artifact library, and write the plan to the path below. When a design_file was
+      given, use it for threat context. Cover all seven domains: authentication and authorization,
+      input validation, API security, data protection, session management, error handling and
+      infrastructure, and say why a domain does not apply when you skip one. Organize the tests by
+      layer: frontend, backend, infrastructure. Say for each test whether it exists. Count the
+      CRITICAL and IMPORTANT gaps the guide classifies; a CRITICAL security gap counts as a
+      coverage gap and reaches the same recommendation as the other critical gaps. A plan that
+      does not say which tests exist is not evaluated.
+    consumes:
+      - test-file-inventory
+      - test-coverage
+    produces:
+      - artifact: security-test-plan
+        path: .konductor/{slug}/security-test-plan.md
+
+  - id: report
+    title: Step 6. Generate consolidated report, and Step 7. Present recommendation
+    phase: Report
+    instruction: >
+      Write the consolidated report with this structure: "# Test Coverage Review Report" and the
+      date; Executive Summary (two or three sentences on test readiness and the critical gaps);
+      Coverage Analysis (source files, test files, test-to-source ratio, critical gaps, important
+      gaps); E2E Test Strategy (P0 tests, P1 tests, execution strategy, or that the owner declined
+      the planning); Security Test Plan (domains covered out of 7, total security tests, critical
+      gaps and important gaps, each NOT EVALUATED when the plan did not say which tests exist);
+      Recommendation (READY FOR RELEASE or NOT READY, with the reason); Next Steps (what to
+      implement first, in priority order). The recommendation is NOT READY when there is a critical
+      gap in the coverage analysis or the security test plan, or when the security test plan is
+      NOT EVALUATED.
+      Do not print the report. Tell the owner where the reports are and state the recommendation
+      plainly; when it is NOT READY, list the critical gaps that must be addressed. Offer to write
+      the missing tests, and to run the review again after they are added.
+    consumes:
+      - test-file-inventory
+      - test-coverage
+      - e2e-test-strategy
+      - security-test-plan
+    produces:
+      - artifact: test-coverage-review-report
+        path: .konductor/{slug}/test-coverage-review-report.md

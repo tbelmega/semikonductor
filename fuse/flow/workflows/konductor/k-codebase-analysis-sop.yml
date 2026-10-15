@@ -1,0 +1,94 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-codebase-analysis SOP from Konductor, its steps 1 to 10 in one step.
+# Deliberate deviations from the SOP:
+# - One step: every SOP step appends to the same report, and nothing is handed on before it is
+#   complete.
+# - output_file: the report goes to the step's path, which project policy can move.
+# - A codebase path that does not exist or holds no source files: the agent reports the step
+#   blocked, and the owner decides.
+# - focus_areas selects sections of the one report, not fuse-flow steps.
+# - The Troubleshooting section is reduced to the rules that change what the agent does.
+# - The report's artifact id is codebase-assessment, not _k-full-sdlc's codebase-analysis, because
+#   the two documents have different purposes.
+version: 1
+name: k-codebase-analysis-sop
+description: Port of the former k-codebase-analysis SOP, a static deep-dive report on a codebase's
+  architecture, SOLID adherence, design patterns, dependencies, code quality, security,
+  performance and technical debt, with Mermaid diagrams and prioritized recommendations.
+steps:
+  - id: analysis
+    title: 1-10. Codebase analysis
+    instruction: >
+      Write a deep-dive assessment of the codebase as a reference document. This is static
+      analysis only: do not modify source files, run code or execute tests. Take the parameters
+      from the request and never ask for them: the codebase path, by default the current
+      directory, and the focus areas, a comma-separated selection of architecture, solid,
+      patterns, dependencies, security, performance, testing and debt, or all, the default.
+      Resolve the codebase path to an absolute path, check that it exists and contains source
+      files, and validate each focus area against that set. If the path does not exist or holds no
+      source files, report the step blocked with the reason.
+      Create the report at once with the lines "# Codebase Analysis: <project name>",
+      "Date: <current date>" and "Scope: <focus areas>", and append each section as you finish it,
+      so the work survives a context reset. Never traverse node_modules, .git, build, dist, target
+      or other generated directories. With all, write every section below; with other focus
+      areas, write only the sections they select, named in brackets. Each section is a level-two
+      heading with the name given here.
+      (1) Codebase Map [all]: the top-level directory structure, the primary languages by file
+      extension count, frameworks and libraries from the dependency manifests, entry points such
+      as main files, handlers and command line entry points, the build system, and a Mermaid
+      diagram of the high-level module structure.
+      (2) Architecture Overview [architecture]: the architectural style, the layer boundaries, the
+      component boundaries and how components communicate, whether dependencies flow inward toward
+      the domain logic, a Mermaid dependency graph of the components, and file paths for each layer
+      and component.
+      (3) SOLID Principles Evaluation [solid]: rate each of the five principles ✅ Good,
+      ⚠️ Needs Improvement or ❌ Violated, with at least one code example and its file path, and a
+      brief recommendation unless it is ✅. For functional or procedural code, apply the principles
+      to modules, functions, extension points and module boundaries, and say where a principle
+      applies less.
+      (4) Design Patterns Identified [patterns]: creational (Factory, Builder, Singleton, Abstract
+      Factory), structural (Adapter, Decorator, Facade, Proxy, Composite) and behavioral (Strategy,
+      Observer, Command, Template Method, Chain of Responsibility) patterns, and the architectural
+      patterns Repository, Service Layer, MVC or MVVM, Event Sourcing, CQRS and Middleware
+      Pipeline. For each, give its name and category, its file paths, and whether it is implemented
+      correctly or is partial or an anti-pattern. Report only patterns that are clearly present,
+      and give your confidence where one is ambiguous.
+      (5) Dependencies & Integrations [dependencies]: external dependencies with versions, internal
+      module dependencies, API contracts (REST endpoints, GraphQL schemas, gRPC definitions, Smithy
+      models) and integration points such as databases, queues, caches and external services. Flag
+      outdated or deprecated dependencies where versions are known, circular dependencies between
+      internal modules, and missing or undocumented API contracts, and add a Mermaid integration
+      diagram. When no dependency manifest is found, say so, and look for non-standard ones such as
+      a Makefile, BUILD or WORKSPACE.
+      (6) Code Quality Assessment [testing]: error handling (errors caught, logged and propagated
+      correctly; bare catch blocks), logging (consistency, appropriate levels, sensitive data
+      excluded) and the testing strategy (the kinds of tests, the test-to-source ratio). Rate each
+      area ✅ Good, ⚠️ Needs Improvement or ❌ Critical Issue, give file paths for every finding,
+      and give recommendations.
+      (7) Security & Performance [security, performance]: input validation, authentication and
+      authorization, and hardcoded secrets; N+1 queries, unbounded loops, missing pagination and
+      missing caching. Rate and cite as in the code quality section.
+      (8) Technical Debt [debt]: TODO, FIXME, HACK and XXX comments with their locations, dead code
+      such as unused exports and unreachable branches, duplicated logic, missing abstractions,
+      configuration drift such as hardcoded values that should be configurable, and outdated
+      patterns such as deprecated APIs. Rate each item CRITICAL (actively causing bugs, blocking
+      features or creating a security risk), IMPORTANT (slowing development or adding maintenance
+      burden) or SUGGESTION (cosmetic or a minor inconsistency), with file paths.
+      Cite only code you actually found; never fabricate an example. Keep the Mermaid diagrams
+      renderable: group related components into subgraphs and show top-level module relationships
+      rather than single files, with graph TD for hierarchies and graph LR for flows. If the
+      codebase is too large for one pass, analyse a few focus areas at a time and keep appending
+      to the report.
+      Finish the report in this order: the header lines, an Executive Summary of three to five
+      sentences on overall health, the biggest strengths and the most critical issues, the
+      sections above, and Recommendations as a prioritized list: P0, fix immediately (security
+      issues, critical bugs, blocking debt); P1, fix this quarter (architectural improvements,
+      medium debt); P2, fix when convenient (cosmetic, low-severity debt). In the hand-over, give
+      the report's path and the top three recommendations, and do not print the report.
+    produces:
+      - artifact: codebase-assessment
+        path: .konductor/{slug}/codebase-analysis.md

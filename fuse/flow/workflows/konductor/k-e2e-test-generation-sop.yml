@@ -1,0 +1,321 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-e2e-test-generation SOP from Konductor (agent-sops/k-e2e-test-generation.sop.md),
+# steps 1 to 7 in order. Skills are named by their name; they ship with fuse-konductor in the
+# clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters. The parameters step asks the owner for what
+#   is missing and records the answers in test-run-parameters, which later steps read instead of
+#   the SOP's literals carried between passes. The file never holds the username or the password.
+# - scope_confirmed: there is no unattended caller. An owner who authorized generation in advance
+#   has given the gate's answer, and the agent records it with --owner-approved --note quoting it.
+# - The owner gate on the parameters step is new. app-discovery leaves credentials, the user's
+#   confirmation and cleanup to its caller, and dom-inspection submits a form only when the caller
+#   confirmed that submission is safe; the SOP never asked, so this gate asks.
+# - "Stop" on a failure: the agent deletes an agent-created credentials file and reports the step
+#   blocked; the owner decides. Declining at the scope gate is --forward-to summary, which cleans
+#   up and reports, as the SOP's decline branch does.
+# - Credential cleanup is verified by a script gate on the summary step, which every path that
+#   does not stop early reaches. It reads .konductor/<slug>/test-run-parameters.md, so a project
+#   policy must not move the test-run-parameters artifact.
+# - Steps 4A to 6 are conditional on output_mode and project_mode, judged by the agent from the
+#   recorded parameters.
+# - prompts_dir: the unit-test-prompts artifact path, tests/page/ by default; a project's policy
+#   moves it.
+# - The e2e-test-strategy skill requires an output file, so steps 4A and 4B-iv give it one, the
+#   optional e2e-test-strategy artifact; the SOP named none.
+# - Step 6's push "as part of k-full-sdlc" is dropped: fuse-flow's _k-full-sdlc does not call this
+#   workflow, so the standalone rule (push only after the owner agrees) always applies.
+# - Step 6's notes for the summary go into test-commit-record, so the summary step can be resumed.
+# - project_dir and prompts_dir are written into test-run-parameters by the conditional steps
+#   without an `updates` entry: an `updates` on a step that may be skipped would make later steps
+#   read the parameters from the skipped step.
+# - The SOP's Quality Gate lists are self-checks in the steps they concern; no independent review
+#   was added.
+version: 1
+name: k-e2e-test-generation-sop
+description: Port of the former k-e2e-test-generation SOP. Discovers a deployed web app in the
+  browser, then writes unit test prompts or Cypress or Playwright functional tests from what it
+  found, validates them, commits them and reports.
+steps:
+  - id: parameters
+    title: Parameters and Step 1. Load credentials
+    phase: Setup
+    instruction: >
+      Collect the parameters: url (unless a credentials file supplies it as test_url), output_mode
+      (unit-prompts, cypress or playwright), project_mode (bootstrap or add-to-existing, only for
+      cypress and playwright), project_dir (only for add-to-existing), and optionally username and
+      password or a credentials_file, a .properties file with test_url, user_name and password.
+      Ask for every missing required parameter in a single message; ask nothing when all are given.
+      Also ask, in the same message, whether discovery may submit forms on this app, because a
+      submission can create records or trigger workflows; the default is no.
+      Normalize the credentials into one credentials file. When a credentials_file is given, read
+      it; an explicit parameter wins over the file's value. Stop with an error when url is still
+      unset, or when exactly one of username and password is set ("Incomplete credentials: both
+      username and password are required."). When only username and password are given, create the
+      file in a shell pass: make a unique path in the system temp directory ending in .properties
+      (BSD mktemp has no --suffix, so create a bare file with mktemp, derive <bare>.properties from
+      it and remove the bare file), create it owner-only with install -m 0600 /dev/null <path>, then
+      write test_url, user_name and password with the file-writing tool, never a shell heredoc, and
+      note that you created it. With no credentials at all, the app is public and the credentials
+      file is empty.
+      Never log or display the password, and never pass it to a subagent or write it into any
+      artifact; later passes get the credentials file's path. A missing or malformed file is an
+      error: stop.
+      Record the parameters at the top of test-run-parameters, one key=value line each at the start
+      of a line: url, output_mode, project_mode (empty for unit-prompts), project_dir (empty until
+      known), prompts_dir (empty until known), credentials_file (the path, or empty),
+      agent_created_credentials_file (true or false; never change it later, the final gate reads
+      it), form_submission_confirmed (true only when the owner said yes) and scope_confirmed (true
+      when the owner already authorized generation for whatever pages discovery finds). Never the
+      username or the password.
+      Whenever this or any later step stops early, delete the credentials file first if you created
+      it, then report the step blocked with the reason.
+    produces:
+      - artifact: test-run-parameters
+        path: .konductor/{slug}/test-run-parameters.md
+    gates:
+      - owner-action: >-
+          confirm the application and account to test, and whether discovery may submit forms on it
+        description: >-
+          app-discovery leaves credentials and the user's confirmation to its caller, and its DOM
+          inspection submits a form only when the caller confirmed it is safe.
+
+  - id: discovery
+    title: Step 2. Discover the application, and Step 3. Confirm discovery scope
+    phase: Discovery
+    instruction: >
+      Run discovery in a separate subagent when the runtime offers one, otherwise as a separate
+      browser pass that reuses no conclusions from other passes. Give it the url, the credentials
+      file's path and form_submission_confirmed, never the password. It applies the app-discovery
+      skill fully, including its dom-inspection.md: authenticate when the credentials file is not
+      empty, detect the UI framework and include ui_framework in the report, crawl up to 50 pages
+      or 30 minutes, capture every interactive element, and inspect every form. It tries
+      submit-triggered validation only when form_submission_confirmed is true; otherwise the
+      trigger stays unknown. It stays inside the app's domain, except the identity provider's
+      redirects while signing in, and never logs the password. When the report is written it
+      signs out of the app if it signed in, then closes only the browser session it opened.
+      If navigation fails or authentication is rejected (wrong credentials, a multi-factor or
+      CAPTCHA wall, an unreachable app), discovery stops; delete the credentials file in a shell
+      pass if you created it, and report the step blocked.
+      Check the report against app-discovery's quality gate: ui_framework set, every form
+      inspected, no password anywhere. Then present the owner a summary: the number of pages and
+      flows found, each page's name and URL, and the failed paths. Unless the owner already
+      authorized generation (scope_confirmed), ask "Proceed with test generation for these N
+      pages?" and do not go on without their yes. If they decline, suggest --forward-to summary,
+      which deletes the credentials file and reports the discovery summary.
+    consumes:
+      - test-run-parameters
+    produces:
+      - artifact: discovery-report
+        path: .konductor/{slug}/discovery-report.md
+    gates:
+      - owner-action: >-
+          confirm test generation for the discovered pages, or end the run with --forward-to summary
+        route_back_to: discovery
+
+  - id: unit-prompts
+    title: Step 4A. Generate unit test prompts
+    phase: Generation
+    condition:
+      agent: the run parameters say output_mode=unit-prompts
+    instruction: >
+      Write one markdown prompt file per discovered page into the prompts folder, each with the
+      sections Objective, Pre-requisite, Steps and Expected Outcome, using the selectors and exact
+      texts from the discovery report. Use the e2e-test-strategy skill to decide which scenarios
+      each page needs, and give it everything so it asks nothing: the discovery report in place of
+      the gap analysis, no user stories, design or feature plan unless the owner named them, change
+      type enhancement and release type minor unless the owner said otherwise, and the
+      e2e-test-strategy path below as its output file. When its quality gate finds issues, ask the
+      owner whether to fix them unless they authorized generation in advance; then list them in
+      the strategy without asking. Never write the password into a prompt file. Record the prompts
+      folder's absolute path as prompts_dir in the run parameters.
+      If this step fails, delete the credentials file if you created it, and report the step
+      blocked.
+    consumes:
+      - test-run-parameters
+      - discovery-report
+    produces:
+      - artifact: unit-test-prompts
+        path: tests/page/
+    optional_produces:
+      - artifact: e2e-test-strategy
+        path: .konductor/{slug}/e2e-test-strategy.md
+
+  - id: analyze-project
+    title: Step 4B-i. Analyze the existing project
+    phase: Generation
+    condition:
+      agent: the run parameters say project_mode=add-to-existing
+    instruction: >
+      Read project_dir and record its test structure, configuration files, naming conventions,
+      selector patterns and file layout, for the spec steps to follow. If this step fails, delete
+      the credentials file if you created it, and report the step blocked.
+    consumes:
+      - test-run-parameters
+    produces:
+      - artifact: existing-project-analysis
+        path: .konductor/{slug}/existing-project-analysis.md
+
+  - id: bootstrap
+    title: Step 4B-ii. Bootstrap the project
+    phase: Generation
+    condition:
+      agent: the run parameters say project_mode=bootstrap
+    instruction: >
+      Scaffold a new Cypress or Playwright project, as output_mode says, in a new folder the owner
+      named or one you choose. For Playwright, add @types/node as a devDependency and give
+      tsconfig.json "lib" ["ES2020", "DOM"], "strict" true, "module" "ESNext", "moduleResolution"
+      "bundler" and "esModuleInterop" true; create fixtures/auth before global-setup.ts runs; and add
+      fixtures/auth/ to .gitignore, because it holds session tokens. For Cypress, create
+      cypress/tsconfig.json with {"compilerOptions": {"types": ["cypress"]}}. Then run npx tsc
+      --noEmit in the project and do not go on until it compiles clean; npm install passing is not
+      the check. Record the scaffold root as project_dir in the run parameters; a missing
+      project_dir is worth noting in the summary. If this step fails, delete the credentials file
+      if you created it, and report the step blocked.
+    consumes:
+      - test-run-parameters
+    updates:
+      - artifact: code
+        path: .
+
+  - id: cypress-specs
+    title: Step 4B-iii. Generate Cypress specs
+    phase: Generation
+    condition:
+      agent: the run parameters say output_mode=cypress
+    instruction: >
+      Write Cypress specs in project_dir, one or more per discovered page, with cy.visit() and
+      cy.get(), data-testid selectors rather than brittle CSS, and credentials only from
+      Cypress.env('USERNAME') and Cypress.env('PASSWORD') (Cypress strips the CYPRESS_ prefix of
+      injected variables). When the app signs in, add a cy.login() command to
+      cypress/support/commands.ts that wraps cy.session('user', ...): visit /login, type the
+      username and the password (with log false) into the login page's ":visible" fields, click
+      submit and assert the URL no longer includes /login; its validate() visits / and asserts the
+      same; after cy.session, cy.visit('/'), because cy.session resets the browser to about:blank.
+      Use the exact login selectors from the discovery report, not placeholders. Call cy.login() in
+      beforeEach() of specs that need a session; specs that test the login page itself do not, and
+      visit it signed out. When ui_framework is cloudscape, scope selectors as Cloudscape needs:
+      table row radios found inside the table and clicked with force true; tiles through the label
+      text's radio input with force true; selects in two steps, the trigger then the option inside
+      the open [role="listbox"]; modal buttons inside [role="dialog"] footer; form fields by
+      placeholder rather than label. In an existing project follow the existing project analysis.
+      If this step fails, delete the credentials file if you created it, and report the step
+      blocked.
+    consumes:
+      - test-run-parameters
+      - discovery-report
+      - existing-project-analysis
+    updates:
+      - artifact: code
+        path: .
+
+  - id: playwright-specs
+    title: Step 4B-iv. Generate Playwright specs
+    phase: Generation
+    condition:
+      agent: the run parameters say output_mode=playwright
+    instruction: >
+      Write Playwright specs in project_dir following the playwright-test-implementation skill:
+      its selector fallback chain, its global-setup.ts and storageState pattern, its Cloudscape
+      locators when ui_framework is cloudscape, and its storageState opt-out for specs that test
+      the login flow. Use the e2e-test-strategy skill to decide which journeys to cover, giving it
+      the discovery report in place of the gap analysis, no user stories, design or feature plan
+      unless the owner named them, change type enhancement and release type minor unless the owner
+      said otherwise, and the e2e-test-strategy path below as its output file, so it asks nothing;
+      when its quality gate finds issues, ask the owner whether to fix them unless they authorized
+      generation in advance, and then list them in the strategy. Use page.goto(),
+      page.getByTestId() and credentials only from process.env.TEST_USERNAME and
+      process.env.TEST_PASSWORD. Replace the skill's placeholder login selectors with the exact
+      selectors and texts from the discovery report. In an existing project follow the existing
+      project analysis, and create fixtures/auth and add fixtures/auth/ to .gitignore if either is
+      missing. Playwright itself is the owner's to install: if it is missing, tell them how, as
+      the skill says. Apply the skill's quality gate to the specs you wrote and fix its findings.
+      If this step fails, delete the credentials file if you created it, and report the step
+      blocked.
+    consumes:
+      - test-run-parameters
+      - discovery-report
+      - existing-project-analysis
+    optional_produces:
+      - artifact: e2e-test-strategy
+        path: .konductor/{slug}/e2e-test-strategy.md
+    updates:
+      - artifact: code
+        path: .
+
+  - id: validate
+    title: Step 5. Validate generated tests
+    phase: Verification
+    instruction: >
+      For unit-prompts, check that the prompts folder exists and holds at least one .md file. For
+      cypress and playwright, run npx tsc --noEmit in project_dir, then npx playwright test --list
+      for Playwright or npx cypress verify for Cypress. Then, when the credentials file is not
+      empty, scan project_dir (or the prompts folder for unit-prompts) for the plaintext password
+      before deleting anything: read the password from the credentials file inside the shell
+      command without printing it, search with grep -rlF, excluding node_modules and .git, and
+      print only the names of matching files. An empty password is a warning and skips the scan. A
+      missing scan folder is an error, since the scan cannot run, and a match is critical: in
+      either case delete the credentials file if you created it and report the step blocked,
+      naming the matching files. Also check that no generated file hard-codes the username or the
+      password. Then delete the credentials file if you created it. If any validation command
+      fails, delete it as well and report the step blocked.
+    consumes:
+      - test-run-parameters
+      - unit-test-prompts
+
+  - id: commit
+    title: Step 6. Commit generated tests
+    phase: Delivery
+    condition:
+      agent: the run parameters say output_mode=cypress or output_mode=playwright
+    instruction: >
+      Check that project_dir is inside a git working tree; if not, record that the tests were not
+      committed because there is no repository, and do not create one. List the files this run
+      created or changed: the specs, the support files (such as cypress/support/commands.ts or
+      global-setup.ts), the scaffold's configuration and package files after a bootstrap, and
+      .gitignore when it was edited. With nothing listed there is nothing to commit. Otherwise
+      stage only those files by path and commit only those paths on the current branch, never git
+      add -A or git add ., because the tree may hold the owner's own changes and fixtures/auth/
+      session state. The message is "test: bootstrap <Cypress|Playwright> functional tests" after a
+      bootstrap and "test: add <Cypress|Playwright> functional tests" otherwise. Report the commit
+      and ask the owner whether to push the branch; push only after they agree. Never push the
+      repository's default branch: right before any push, read it from the "ref: refs/heads/<branch>"
+      line of git ls-remote --symref origin HEAD, not from the cached origin/HEAD; if the current
+      branch is the default branch, or the default cannot be resolved, do not push and record as
+      IMPORTANT that the commit is local only and why. A failed push leaves the commit in place;
+      record it as IMPORTANT. Record the commit, its files, the branch, the push result and every
+      note in the commit record. If the commit itself fails, report the step blocked.
+    consumes:
+      - test-run-parameters
+    produces:
+      - artifact: test-commit-record
+        path: .konductor/{slug}/test-commit-record.md
+
+  - id: summary
+    title: Step 7. Output summary report
+    phase: Delivery
+    instruction: >
+      If the credentials file was created by this run and still exists, as after declining at the
+      scope gate, delete it now. Print the summary for the owner: a table of page URL, test file and
+      status (pass or fail) for every page, the pages for which no test was generated, the notes
+      from the commit record, and how to run the tests locally. Also list the generated tests or
+      prompts that submit a form whose validation trigger the discovery report gives as unknown:
+      DOM inspection could not confirm that submitting it is safe, so they need the owner's
+      confirmation before anyone runs them against the live app. After a declined scope, print the
+      discovery summary instead and say that no tests were generated.
+    consumes:
+      - test-run-parameters
+      - discovery-report
+      - unit-test-prompts
+      - test-commit-record
+    gates:
+      - script: >-
+          f=".konductor/$FUSE_FLOW_SLUG/test-run-parameters.md"; test -f "$f" && { ! grep -qx
+          'agent_created_credentials_file=true' "$f" || test ! -e "$(sed -n 's/^credentials_file=//p' "$f")"; }
+        description: >-
+          A credentials file this run created must be gone, so the plaintext password does not stay
+          on disk.

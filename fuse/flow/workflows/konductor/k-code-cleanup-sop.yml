@@ -1,0 +1,105 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-code-cleanup SOP from Konductor (agent-sops/k-code-cleanup.sop.md in aws-solutions/konductor),
+# steps 1 to 5 in order.
+# Skills are named by their name; they ship with fuse-konductor in the clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters, so the identify step collects source_dir
+#   from the owner. output_file becomes the cleanup-report artifact under .konductor/{slug}/,
+#   which a project's policy can move.
+# - branch: the cleanup changes files in this checkout, and a workstream stays in one checkout,
+#   so the branch is the one checked out. When the owner names another branch, the agent asks
+#   them to start the workstream in a checkout of that branch instead of switching.
+# - The diff is the merge-base form, default...HEAD, so it shows what the branch changed. When
+#   the remote's default branch does not resolve, main is used if it exists; otherwise the agent
+#   asks the owner.
+# - Steps 1 and 2 are one step, and steps 4 and 5 are one step, because each pair hands on one
+#   document.
+# - The cleanup step has `check: default`, which the SOP does not have. It gives the rule that
+#   the cleanup changes no behavior something that can fail.
+# - The review skills are told to report every finding and leave fixing to the owner
+#   (scope_confirmed), because the SOP reports their findings and does not fix them.
+# - The SOP does not commit, so neither does this workflow; the cleanup stays in the working tree
+#   for the owner.
+version: 1
+name: k-code-cleanup-sop
+description: Port of the former k-code-cleanup SOP. Removes AI-generated slop from a branch's
+  changes before a pull request, without changing behavior, then reviews the cleaned code and
+  reports what was removed, what was kept and what the review found.
+steps:
+  - id: identify
+    title: 1 and 2. Get changed files and identify AI slop
+    phase: Find
+    instruction: |
+      Find the slop in what this branch changed. This step changes no file other than this
+      workflow's own artifacts.
+
+      source_dir is required; ask the owner for it when it is missing. The branch is the one
+      checked out; if the owner names another branch, ask them to start this workstream in a
+      checkout of that branch, and do not switch. Find the repository's default branch with `git
+      symbolic-ref --short refs/remotes/origin/HEAD` and strip the `origin/` prefix; when that does
+      not resolve, use main if it exists, and otherwise ask the owner. Run `git diff
+      <default>...HEAD` and keep the diff hunks of the files within source_dir only. Skip binary
+      files, lock files and build artifacts.
+
+      Scan the changed lines for AI-generated slop. Flag: comments that restate the code,
+      defensive checks that duplicate validation that already exists, `as any` casts, style that
+      is inconsistent with the surrounding code, and over-abstraction, such as wrappers that add
+      no value. Do not flag TODO comments, error handling or catch blocks, or comments that explain
+      why, such as a business rationale. Flag nothing whose removal would change logic or
+      behavior.
+
+      Write the slop findings: the default branch and the diff command, the changed files, then
+      per file each finding with its line and its category. List as well what you looked at and
+      deliberately kept, such as TODO comments, error handling and comments explaining why, with
+      file and line, for the report's Preserved Items.
+    produces:
+      - artifact: slop-findings
+        path: .konductor/{slug}/slop-findings.md
+
+  - id: cleanup
+    title: 3. Apply cleanup
+    phase: Clean
+    instruction: |
+      Remove or fix the slop findings, and make no other change. Keep every intentional comment,
+      all logging and all error handling. Do not change control flow, return values or function
+      signatures. When a finding cannot be fixed without changing behavior, leave it, and mark it
+      in the slop findings as kept with the reason. Do not commit; leave the cleanup in the working
+      tree. In the slop findings, record each change as a before and after diff, under its finding.
+    consumes:
+      - slop-findings
+    updates:
+      - artifact: code
+        path: .
+      - artifact: slop-findings
+        path: .konductor/{slug}/slop-findings.md
+    gates:
+      - check: default
+
+  - id: review-and-report
+    title: 4 and 5. Run review skills and present the summary
+    phase: Report
+    instruction: |
+      Review the cleaned code and write the cleanup report. This step changes no file other than
+      the report.
+
+      Run the backend-review skill in review mode on the cleaned .ts and .js service and handler
+      files, and the frontend-review skill in review mode on the cleaned .tsx and .jsx files and
+      the .ts files in component, page or hook paths. Skip file types that no skill matches, and
+      say which were skipped. Tell each skill that the scope is confirmed: it reports every finding
+      and leaves fixing to the owner, and it does not ask whether to fix them.
+
+      Write the cleanup report with the sections Removed Items, Preserved Items and Review
+      Findings. Removed Items states the count of items removed per category and lists each with
+      file and line; Preserved Items lists what was deliberately kept, with the reason; Review
+      Findings includes every CRITICAL and IMPORTANT finding from the review skills, with file and
+      line. Present a short summary: the report's path, the counts removed per category, and the
+      CRITICAL and IMPORTANT review findings. Do not fix the review findings.
+    consumes:
+      - slop-findings
+    produces:
+      - artifact: cleanup-report
+        path: .konductor/{slug}/cleanup-report.md

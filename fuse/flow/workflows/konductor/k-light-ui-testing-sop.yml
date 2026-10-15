@@ -1,0 +1,191 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-light-ui-testing SOP from Konductor (agent-sops/k-light-ui-testing.sop.md in aws-solutions/konductor),
+# steps 1 to 7 in order. Skills are named by their name; they ship with fuse-konductor in the
+# clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters. The parameters step asks the owner for what
+#   is missing and records the answers in test-run-parameters, which later steps read instead of
+#   the SOP's literals carried between passes. The file never holds the username or the password.
+# - scope_confirmed: there is no unattended caller. An owner who authorized generating and running
+#   in advance has given the answers to the scope gate and the run condition; the agent records
+#   the gate's answer with --owner-approved --note quoting it.
+# - The owner gate on the parameters step is new. app-discovery leaves credentials, the user's
+#   confirmation and cleanup to its caller, and dom-inspection submits a form only when the caller
+#   confirmed that submission is safe; the SOP never asked, so this gate asks.
+# - Step 5's run question is the owner-action condition of the execute step: run all, a
+#   selection, or none, which skips it.
+# - "Stop" on a failure: the agent deletes an agent-created credentials file and reports the step
+#   blocked; the owner decides. Declining at the scope gate is --forward-to report, which cleans
+#   up, as the SOP's decline branch does.
+# - Credential cleanup is verified by a script gate on the report step, which every path that
+#   does not stop early reaches. It reads .konductor/<slug>/test-run-parameters.md, so a project
+#   policy must not move the test-run-parameters artifact.
+# - output_dir: the ui-test-prompts artifact path, tests/page/ by default; a project's policy
+#   moves it.
+# - Step 6's results are written to ui-test-results, so the report can be resumed.
+# - Prompts that submit a form whose validation trigger is unknown are flagged and named in the
+#   run question, as dom-inspection's safety note asks; the SOP did not say so.
+# - The SOP's Quality Gate lists are self-checks in the steps they concern; no independent review
+#   was added.
+version: 1
+name: k-light-ui-testing-sop
+description: Port of the former k-light-ui-testing SOP. Discovers a deployed web page in the
+  browser, writes markdown test prompts for the features the owner names, runs the ones the owner
+  chooses live in the browser, and reports pass or fail per prompt.
+steps:
+  - id: parameters
+    title: Parameters and Step 1. Load credentials
+    phase: Setup
+    instruction: >
+      Collect the parameters: url (unless a credentials file supplies it as test_url), features (a
+      free-text description of the features and flows to test), and optionally username and
+      password or a credentials_file, a .properties file with test_url, user_name and password. Ask
+      for every missing required parameter in a single message; ask nothing when all are given.
+      Also ask, in the same message, whether discovery may submit forms on this app, because a
+      submission can create records or trigger workflows; the default is no.
+      Normalize the credentials into one credentials file. When a credentials_file is given, read
+      it; an explicit parameter wins over the file's value. Stop with an error when url is still
+      unset, or when exactly one of username and password is set ("Both username and password are
+      required together; only one was provided."). When only username and password are given,
+      create the file: a unique path from mktemp in the system temp directory, made owner-only with
+      install -m 0600 /dev/null <path>, then test_url, user_name and password written with the
+      file-writing tool, never a shell heredoc; note that you created it. With no credentials at
+      all, the page is public and the credentials file is empty.
+      Never log or display the password, and never pass it to a subagent or write it into any
+      artifact; later passes get the credentials file's path. A missing or malformed file is an
+      error: stop.
+      Record the parameters at the top of test-run-parameters, one key=value line each at the start
+      of a line: url, credentials_file (the path, or empty), agent_created_credentials_file (true or
+      false; never change it later, the final gate reads it), form_submission_confirmed (true only
+      when the owner said yes) and scope_confirmed (true when the owner already authorized
+      generating and running prompts for whatever discovery finds). Below them, the features as
+      the owner gave them. Never the username or the password.
+      Whenever this or any later step stops early, delete the credentials file first if you created
+      it, then report the step blocked with the reason.
+    produces:
+      - artifact: test-run-parameters
+        path: .konductor/{slug}/test-run-parameters.md
+    gates:
+      - owner-action: >-
+          confirm the page and account to test, and whether discovery may submit forms on it
+        description: >-
+          app-discovery leaves credentials and the user's confirmation to its caller, and its DOM
+          inspection submits a form only when the caller confirmed it is safe.
+
+  - id: discovery
+    title: Step 2. Discover the page, and Step 3. Confirm discovery scope
+    phase: Discovery
+    instruction: >
+      Run discovery in a separate subagent when the runtime offers one, otherwise as a separate
+      browser pass that reuses no conclusions from other passes. Give it the url, the features, the
+      credentials file's path and form_submission_confirmed, never the password. It applies the
+      app-discovery skill, including its dom-inspection.md, with these overrides: discover only the
+      url and pages reachable from it within two links, and stop after 10 pages or 15 minutes,
+      whichever comes first. It authenticates when the credentials file is not empty, detects the
+      UI framework, captures every interactive element and inspects every form. It tries
+      submit-triggered validation only when form_submission_confirmed is true; otherwise the
+      trigger stays unknown. It stays inside the app's domain and never logs the password. When
+      the report is written it signs out of the app if it signed in, then closes only the browser
+      session it opened.
+      If discovery fails, delete the credentials file if you created it, and report the step
+      blocked.
+      Check the report against app-discovery's quality gate: ui_framework set, every form
+      inspected (without it the prompts' assertions are inaccurate), no password anywhere. Then
+      present the owner a summary: the pages found and the UI framework, the interactive elements
+      and forms, the validation rules (required fields, patterns, error messages) and the failed
+      paths. Unless the owner already authorized generation (scope_confirmed), ask "Proceed with
+      test prompt generation for these features?" and do not go on without their yes. If they
+      decline, suggest --forward-to report, which deletes the credentials file.
+    consumes:
+      - test-run-parameters
+    produces:
+      - artifact: discovery-report
+        path: .konductor/{slug}/discovery-report.md
+    gates:
+      - owner-action: >-
+          confirm test prompt generation for these features, or end the run with --forward-to report
+        route_back_to: discovery
+
+  - id: write-prompts
+    title: Step 4. Write test prompts
+    phase: Prompts
+    instruction: >
+      Write the prompts as a separate test-writing pass, from the discovery report. Write one
+      markdown file per feature or flow in the features, named <feature-slug>.test-prompt.md, each
+      with the sections Objective (the feature tested), Pre-requisites (authentication state, data
+      setup), Steps (the exact interactions, with selectors from the discovery report), Expected
+      Outcome (specific assertions, including the validation error messages DOM inspection
+      captured) and DOM Context (the relevant selectors, validation rules and error texts). Use
+      the DOM inspection output to make assertions exact: exact error messages, exact field
+      constraints, exact conditional visibility triggers. A prompt without its DOM Context gets
+      only generic assertions; note any such prompt in the hand-over. Mark each prompt that submits
+      a form whose validation trigger is unknown. Never write the password into a prompt file.
+      If this step fails, delete the credentials file if you created it, and report the step
+      blocked.
+    consumes:
+      - test-run-parameters
+      - discovery-report
+    produces:
+      - artifact: ui-test-prompts
+        path: tests/page/
+
+  - id: execute
+    title: Step 5. Review prompts, and Step 6. Execute test prompts
+    phase: Execution
+    condition:
+      owner-action: >-
+        review the written prompt files and choose to run all of them, a selection, or none
+    instruction: >
+      With the condition's question, list the prompt files written, and name the ones that submit
+      a form whose validation trigger is unknown: their submission may change data in the live
+      app, so the owner's choice must cover each of them explicitly. When the owner already
+      authorized running in advance (scope_confirmed), list the files and run all of them. When the
+      owner chooses none, skip the step and leave the prompts for manual review.
+      Run the chosen prompts in a separate subagent when the runtime offers one, otherwise as a
+      separate browser pass that reuses no conclusions from the prompt-writing pass; give it the
+      prompt files and the credentials file's path, never the password. When the credentials file
+      is not empty it signs in once and reuses the session for every prompt. For each prompt it
+      follows the Steps, takes a screenshot after each step, and checks the Expected Outcome with
+      DOM queries and the screenshots. Evidence is the saved screenshot's path when the browser
+      tool saves screenshots (for example playwright-mcp with an output directory configured: use
+      the path the tool reports, or the configured directory and the file name used), and
+      otherwise a short description of what the screenshot shows, never an invented path. It
+      changes no application data beyond what each test needs, and never logs the password. A
+      failing prompt is recorded as FAIL, with the reason and the evidence, and the run goes on to
+      the next prompt. When all have run it signs out if it signed in, and closes only its own
+      browser session before reporting. If the browser session itself fails, delete the
+      credentials file if you created it, and report the step blocked.
+      Record per prompt the file, the feature, PASS or FAIL and the evidence, and for each FAIL the
+      step that failed, the expected outcome and the actual outcome.
+    consumes:
+      - test-run-parameters
+      - ui-test-prompts
+    produces:
+      - artifact: ui-test-results
+        path: .konductor/{slug}/ui-test-results.md
+
+  - id: report
+    title: Step 7. Report results
+    phase: Report
+    instruction: >
+      Print the results for the owner as a table of prompt file, feature, result (pass or fail) and
+      evidence (the screenshot path or description), and for each FAIL the step that failed, the
+      expected outcome and the actual outcome. When the prompts were not run, say so and where they
+      are for manual review; after a declined scope, say that no prompts were written. Delete the
+      credentials file if this run created it. Next steps: fix the failing features and run the
+      prompts again, or move to full Cypress or Playwright spec generation once the page is stable.
+    consumes:
+      - test-run-parameters
+      - ui-test-prompts
+      - ui-test-results
+    gates:
+      - script: >-
+          f=".konductor/$FUSE_FLOW_SLUG/test-run-parameters.md"; test -f "$f" && { ! grep -qx
+          'agent_created_credentials_file=true' "$f" || test ! -e "$(sed -n 's/^credentials_file=//p' "$f")"; }
+        description: >-
+          A credentials file this run created must be gone, so the plaintext password does not stay
+          on disk.

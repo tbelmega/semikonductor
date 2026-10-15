@@ -1,0 +1,94 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-context-gathering SOP from Konductor: its steps 1 to 4 in the analysis
+# step, the additional analysis its step 3 requires in a conditional step, and its step 5 in the
+# hand-over step. Skills are named by their name; they ship with fuse-konductor in the clone's
+# skills/ folder.
+# Deliberate deviations from the SOP:
+# - The analysis summary, with the answered questions and the complexity assessment, is always
+#   written to the step's artifact, not only when it exceeds about 100 lines, so the later steps
+#   and the planning workstream can read it. The SOP's .konductor/handoff/<analysis-name>.md
+#   becomes the step's path under .konductor/{slug}/.
+# - The additional analysis the complexity assessment requires runs inside this workflow, in the
+#   additional-analysis step, instead of being handed off to the skill after the SOP ends. It
+#   writes its own document, so the hand-over step reads the summary and, when the step ran, the
+#   additional analysis.
+# - A fresh k-context-gathering pass for debugging after failed fixes is done inside the
+#   additional-analysis step, because fuse-flow has no loops.
+# - The hand-over to the plan SOP names the k-plan-sop workflow, which runs as its own workstream.
+version: 1
+name: k-context-gathering-sop
+description: Port of the former k-context-gathering SOP, pre-implementation analysis of a target in
+  the code and its documentation, with a complexity check that triggers any further analysis,
+  ending in a hand-over to planning.
+steps:
+  - id: analysis
+    title: 1-4. Gather context and synthesize
+    instruction: >
+      Analyse the target before anyone implements against it. The target (a feature area, a part of
+      the codebase, a system component or a bug) is required; ask for it if the request does not
+      give it. Take the analysis questions and the scope (directories, services or components) from
+      the request when it gives them.
+      (1) Gather context with codebase and external documentation searches. Run them in parallel
+      generic subagents if the session has them, and otherwise one after the other yourself; give a
+      subagent only the target, the scope and the search questions, and have it return capped
+      findings, not raw file contents. Search the codebase directly with grep or rg for text and
+      ast-grep for structure, within the scope when one is given, and never skip test files.
+      (2) Answer at least these questions, plus every question the request gave: how does the
+      existing system work, what patterns are currently used, what dependencies are involved, what
+      are the integration points, and what tests exist. Add more as needed. Do not synthesize while
+      a question is unanswered; gather more context instead.
+      (3) Check every complexity indicator, never skipping the check: an architecture decision is
+      required, or the change coordinates three or more components (run system-design-patterns);
+      this is debugging after two or more failed fix attempts (gather context again, focused on the
+      root cause); the change has security implications (run the applicable security review or the
+      threat-modeling skill); or it is a simple implementation with clear patterns (proceed). End
+      with a clear recommendation: "Proceed", or "Run <skill or analysis> because <reason>" for
+      each indicator that holds.
+      (4) Write the summary: "## Analysis Summary" with the sections Current State (how the system
+      works now), Patterns Identified (coding patterns, naming conventions, file organization),
+      Dependencies (libraries, integration points), Constraints (technical limitations,
+      requirements to follow) and Recommended Approach; then the numbered analysis questions with
+      their answers, and the complexity assessment with each indicator and the recommendation.
+      Synthesize into actionable insights; no raw tool output.
+    produces:
+      - artifact: analysis-summary
+        path: .konductor/{slug}/analysis-summary.md
+  - id: additional-analysis
+    title: Additional analysis
+    instruction: >
+      Run the further analysis the complexity assessment requires, for every indicator that holds,
+      before any implementation: the system-design-patterns skill for an architecture decision or
+      coordination across three or more components; a fresh pass of context gathering focused on
+      the root cause, as in the analysis step, for debugging after two or more failed fix attempts;
+      the applicable security review or the threat-modeling skill for security implications. Give
+      each the specific questions the assessment raised. Write the additional analysis document:
+      for each indicator, what was run, the paths of the documents it wrote, and its findings; every
+      CRITICAL or IMPORTANT finding with what was done about it, and every finding left unfixed as a
+      constraint on the implementation; and, last, the recommended approach as revised by these
+      findings.
+    condition:
+      agent: the complexity assessment in the analysis summary recommends running a skill or further
+        analysis for at least one indicator
+    consumes:
+      - analysis-summary
+    produces:
+      - artifact: additional-analysis
+        path: .konductor/{slug}/additional-analysis.md
+  - id: handoff
+    title: 5. Hand over to planning
+    instruction: >
+      Confirm from the analysis summary that every analysis question has an answer, and from the
+      additional analysis document that every further analysis the complexity assessment required
+      has been done. If either is not so, report the step blocked and name what is missing;
+      implementation must not start. Otherwise hand over to planning: the implementation plan is
+      the next piece of work, written with the k-plan-sop workflow as its own workstream, with
+      these documents as its input; it defines the success criteria before any code is written. In
+      the hand-over, give the documents' paths and the recommended approach, as revised by the
+      additional analysis when there was one.
+    consumes:
+      - analysis-summary
+      - additional-analysis

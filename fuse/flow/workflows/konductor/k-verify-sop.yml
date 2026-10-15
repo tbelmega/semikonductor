@@ -1,0 +1,75 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-verify SOP from Konductor, its steps 1 to 7 in one step.
+# Deliberate deviations from the SOP:
+# - One step: every SOP step feeds the same evidence report, and each check must pass before the
+#   next, so there is no hand-over in between. The CDK checks are a conditional part of the
+#   instruction rather than a conditional step, because their results go into the same report.
+# - The SOP's "from the plan SOP" success criteria come from a plan written with the k-plan-sop
+#   workflow, which runs as its own workstream.
+# - A check: default gate is added, so the engine itself refuses to finish while the project's
+#   check fails. The SOP's build, test and lint detection stays in the instruction, for the
+#   per-package evidence.
+# - A checklist item that still fails after the agent fixed what it could: the agent reports the
+#   step blocked instead of declaring the task complete, and the owner decides.
+version: 1
+name: k-verify-sop
+description: Port of the former k-verify SOP, evidence that a finished change works, from the build,
+  the tests, lint, CDK checks where they apply and a manual check against the success criteria,
+  collected in one report.
+steps:
+  - id: verify
+    title: 1-7. Verify
+    instruction: >
+      Verify the change and collect the evidence. The source directory is required; ask for it if
+      the request does not give it. The build system is npm, cargo, go, python, gradle or maven,
+      detected from the project files unless the request names it. Prefer the project's wrapper or
+      the tool its lockfile indicates in every command: ./gradlew over gradle when gradlew exists,
+      pnpm or yarn over npm when pnpm-lock.yaml or yarn.lock exists. If the session has no shell
+      tool, report no command-dependent check as passed: record each as NOT RUN with the reason
+      "no shell tool in this session" and give the owner the exact commands; a generic subagent
+      that has a shell tool may run them instead.
+      (1) Pre-check, before any build: the success criteria are defined, taken from the request or
+      from the Success Criteria section of this task's plan written with the k-plan-sop workflow;
+      if they are not, ask the owner to define them or extract them from the task context. Every
+      TODO comment this implementation introduced is resolved, or deferred with a tracked
+      follow-up. Do not build until both hold.
+      (2) Build: package.json, npm run build; Cargo.toml, cargo build; go.mod, go build ./...;
+      pyproject.toml or setup.py, python -m build; build.gradle.kts or build.gradle, gradle build;
+      pom.xml, mvn compile. When the source directory holds several packages, build each one.
+      Record each command, exit code and status, and an aggregate status. Fix a failed build, in
+      any package, before running tests.
+      (3) Tests: npm test, cargo test, go test ./..., pytest, gradle test or mvn test, and also any
+      separate integration test command or CI job. Run every package's tests and every distinct
+      test suite of a package. Record pass and fail counts per package or suite and an aggregate
+      total. Fix failing tests before going on.
+      (4) Lint, when the project has a lint configuration or tool: npm run lint, cargo clippy,
+      golangci-lint run or ruff check .; for Gradle and Maven, read the build configuration for the
+      configured lint plugin (for example Checkstyle, Spotless or Detekt) before choosing the
+      command. Record error and warning counts. Warnings are acceptable; fix every lint error
+      before going on. Without lint, record lint as Skipped.
+      (5) CDK, only when the project contains CDK infrastructure code: run cdk ls, cdk diff and cdk
+      synth in that order, record each output and status, and flag every unexpected stack change.
+      (6) Manual verification, never skipped, because automated tests alone are not enough:
+      exercise the actual change (the feature slice or the fix) against the success criteria, and
+      record what you tested, the steps you took, what you observed and the status. Never declare
+      success when the observed behavior differs from the expected behavior.
+      Write the evidence report under "## Verification Evidence": a section each for Build, Tests,
+      Lint, CDK when it applies, and Manual Verification, each with the command run, the exit code
+      or result, the relevant output and the status (✓ or ✗; Skipped for lint without a linter);
+      then the Final Checklist (all success criteria met, build passes, tests pass, lint passes,
+      manual verification complete, no regressions, documentation updated if applicable) and the
+      Final Status. A Skipped item is not a failure. If any checklist item fails, the Final Status
+      says so, and you report the step blocked with the failing items instead of declaring the task
+      complete.
+    produces:
+      - artifact: verification-evidence
+        path: .konductor/{slug}/verification-evidence.md
+    updates:
+      - artifact: code
+        path: .
+    gates:
+      - check: default

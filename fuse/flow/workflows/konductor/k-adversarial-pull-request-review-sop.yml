@@ -1,0 +1,188 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-adversarial-pull-request-review SOP from Konductor
+# (agent-sops/k-adversarial-pull-request-review.sop.md in aws-solutions/konductor), steps 0 to 6 in order.
+# Skills are named by their name; they ship with fuse-konductor in the clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters, so the intake step collects diff_input and
+#   pr_url from the owner. output_file becomes the adversarial-review-report artifact under
+#   .konductor/{slug}/, which a project's policy can move.
+# - diff_input may also be a git range the owner names, such as main...HEAD; the agent then runs
+#   that one git diff command to get the content and records it. Diff output the owner supplies
+#   is still used as it is, without running git.
+# - The ingested diff is saved as the review-diff artifact, so every generator pass and the
+#   checker read the same text, and a fresh agent can resume from it.
+# - Steps 0.5 and 5, the documented no-ops for historical filtering, have no steps of their own.
+#   Their notes are written by the intake step and the verdict step, and the report's
+#   "Historical filtering" line points to the review context instead of to Step 0.5.
+# - Steps 2 and 3 are separate steps, and so is the checker, so that each hands on a findings
+#   document and the checker starts from that document rather than from the passes' reasoning.
+# - An empty diff stops the workstream as blocked; the owner decides what happens next.
+# - The SOP has no owner gate and no review of its own report; neither does this workflow.
+version: 1
+name: k-adversarial-pull-request-review-sop
+description: Port of the former k-adversarial-pull-request-review SOP. An adversarial second-pass
+  review of a diff, after standard review, through three independent lens passes (security, data
+  integrity, schema and contract), a reuse pass and an independent checker, ending in a verdict
+  report. Read-only.
+steps:
+  - id: intake
+    title: 0 and 1. Context ramp-up and diff ingestion
+    phase: Intake
+    instruction: |
+      Resolve the changes to review and gather the context the review needs. This review is
+      read-only: change no file other than this workflow's own artifacts, and run no build or test.
+
+      The input. You need diff_input: git diff output, file paths to read directly, or raw pull
+      request diff content. The owner may instead name a git range; then run that one git diff
+      command to get the content and record the command. When diff_input is missing, ask the owner
+      for it, even when they gave a pull request URL. Never fetch or derive the diff from a pull
+      request URL. Use git diff output and raw diff content as they are, without running git. For
+      file paths, check that every file exists and read each one. Do not ask where to write the
+      report. Leave out binary files, lock files, build artifacts and .js.map files. Write the
+      resulting diff to the review-diff artifact. When diff_input is file paths, report review-diff
+      as not produced, with the reason "diff_input is file paths", and list the paths in the review
+      context instead. If the resolved diff is empty, tell the owner, and report this step blocked
+      with the reason "the resolved diff is empty; nothing to review".
+
+      The context. Before any review, gather the context for codebase-aware findings, within
+      these limits: the pull request description and at most three linked issues, at most three
+      design docs referenced directly, and a targeted search of the codebase for the patterns the
+      changed files touch: error-mapping layers, transaction helpers, validation middleware and
+      pagination utilities. Search the diff and its commit messages for linked issues, design docs
+      and referenced documentation, and read them. When the owner gave a pull request URL, you may
+      read the pull request's own description through a generic web fetch to find linked issues
+      and docs. Read each source once and do not follow links further. When a linked document
+      cannot be read, note it and go on.
+
+      Write the review context: the input form and how the diff was obtained, the file count and
+      approximate lines changed, what was left out, the paths when diff_input is file paths, the
+      linked documents read and those that could not be read, and the patterns found, each with
+      file and line. Add this line: "Historical filtering: unavailable. No tool reads a pull
+      request's prior review threads, so prior review state was not checked; this does not mean
+      there were no prior revisions."
+    produces:
+      - artifact: review-diff
+        path: .konductor/{slug}/review.diff
+      - artifact: review-context
+        path: .konductor/{slug}/review-context.md
+
+  - id: lens-passes
+    title: 2. Parallel review passes
+    phase: Generate
+    instruction: |
+      Run three generator passes, each a single-lens pass of the adversarial-code-review skill in
+      Generator Mode that names exactly one lens: the security lens, the data integrity lens, and
+      the schema and contract lens. When the harness offers generic subagents, run each pass in its
+      own fresh subagent and launch the three in parallel; this is isolated mode. Otherwise run them
+      as separate passes one after another, starting each without the other passes' conclusions;
+      this is single-context mode, in which separate passes reduce shared bias but do not remove
+      it.
+
+      Give each pass the review diff, or the files listed in the review context, and the review
+      context, and nothing else. Frame each pass neutrally, as "review through the lens of X",
+      never as "check if X is weak". Share no findings between the passes, and wait for all three
+      to return.
+
+      Write the candidate findings: first the line "Isolation: isolated" or "Isolation:
+      single-context (generator and checker independence reduced)", then the three lists
+      concatenated as returned, each finding tagged with its pass origin (security, integrity or
+      schema) and carrying its severity, file and line, problem and fix. Do not add, edit, merge or
+      drop findings yourself. Change no other file and run no build or test.
+    consumes:
+      - review-diff
+      - review-context
+    produces:
+      - artifact: candidate-findings
+        path: .konductor/{slug}/candidate-findings.md
+
+  - id: reuse-pass
+    title: 3. Reuse pass
+    phase: Generate
+    instruction: |
+      Run the generator role once more, as a fresh and independent pass, to find reuse that no
+      single pass surfaced. Frame it as: "review through the lens of cross-pattern reuse: identify
+      any existing utility, pattern, or helper that the diff reimplements or bypasses, or that would
+      resolve two or more of the findings below". Give it the review diff, the review context and
+      the three lists in the candidate findings. When the harness offers generic subagents, run it
+      in a separate subagent. Otherwise run it as a separate pass, and do not let its reasoning
+      carry over into the checker step. It does not repeat the three lens passes' own checks.
+
+      Append its findings to the candidate findings, each tagged with pass origin reuse. A reuse
+      finding that flags inline reimplementation or bypass of an existing shared utility,
+      transaction or batch helper, validation middleware, error-mapping layer or pagination token
+      utility is IMPORTANT. Any other reuse finding takes its severity from the Quality Gate entries
+      of the adversarial-code-review lens closest to the concern it raises. Reuse findings are
+      ordinary candidates, with no exemption from the checker. When the pass finds nothing, record
+      that in the candidate findings. Change no other file and run no build or test.
+    consumes:
+      - review-diff
+      - review-context
+      - candidate-findings
+    updates:
+      - artifact: candidate-findings
+        path: .konductor/{slug}/candidate-findings.md
+
+  - id: checker
+    title: 4. Checker phase
+    phase: Check
+    instruction: |
+      Filter the candidate findings with the adversarial-code-review skill in Validator Mode. The
+      checker must not have authored any candidate finding and must not have run a generator pass
+      in this review. When the harness offers generic subagents, run it in a fresh subagent that
+      receives only the review diff, the review context and the candidate findings. Otherwise run
+      it as a separate pass, started without the generator passes' conclusions or reasoning beyond
+      the findings they returned, and take on the validator persona explicitly. The checker judges
+      each finding on its own terms; the review context lets it check a reuse finding against the
+      utility or pattern it cites, under the same rules as every other finding.
+
+      The checker tags each finding KEEP or REJECT, with a one-line reason for each REJECT, and
+      proposes no new finding: it is a filter, not a reviewer. Drop every REJECT finding. Write the
+      filtered findings: the KEEP findings unchanged, with their pass origin, then the rejection log
+      with each rejected finding and its reason, and carry over the isolation line. Change no other
+      file and run no build or test.
+    consumes:
+      - review-diff
+      - review-context
+      - candidate-findings
+    produces:
+      - artifact: filtered-findings
+        path: .konductor/{slug}/filtered-findings.md
+
+  - id: verdict
+    title: 5 and 6. Historical filter and verdict
+    phase: Report
+    instruction: |
+      Historical filtering is unavailable, so pass the checker's findings through unchanged, and
+      say in the report that it was unavailable, not that nothing matched.
+
+      Deduplicate findings that name the same file and line and the same root cause, keeping only
+      the highest severity. Count the findings by severity. The verdict is REQUEST CHANGES when any
+      CRITICAL finding survives; APPROVE WITH COMMENTS when there is no CRITICAL finding and at
+      least one IMPORTANT finding; APPROVE otherwise. A surviving CRITICAL finding always blocks
+      approval.
+
+      Write the report with the title `# Adversarial Pull Request Review Report`, then these
+      lines in this order: `Date: <date>`, `Verdict: <APPROVE, APPROVE WITH COMMENTS or REQUEST
+      CHANGES>`, `Findings: <N> CRITICAL, <N> IMPORTANT, <N> SUGGESTION`, `Filtered by checker:
+      <N>`, `Isolation: <isolated, or single-context (generator and checker independence
+      reduced)>` and `Historical filtering: unavailable (see the review context)`. Then four
+      sections in this order: `## Critical Findings`, `## Important Findings`, `## Suggestions`
+      and `## Filter Log`. Put every surviving finding in exactly one severity section, and the
+      checker's rejections in the filter log. No finding is tagged as regressed or carried over, because no prior review
+      state was loaded.
+
+      Do not print the report in your message; give its path. Show the verdict, the isolation mode,
+      the counts by severity, the number the checker rejected, and one line for each CRITICAL
+      finding. In single-context mode present the verdict as advisory: an APPROVE then does not
+      stand in for an independent review. Do not offer to fix the findings. Change no other file
+      and run no build or test.
+    consumes:
+      - review-context
+      - filtered-findings
+    produces:
+      - artifact: adversarial-review-report
+        path: .konductor/{slug}/adversarial-review-report.md

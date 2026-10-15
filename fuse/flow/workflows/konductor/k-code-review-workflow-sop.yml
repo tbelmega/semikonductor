@@ -1,0 +1,178 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-code-review-workflow SOP from Konductor
+# (agent-sops/k-code-review-workflow.sop.md in aws-solutions/konductor), steps 1 to 7 in order.
+# Skills are named by their name; they ship with fuse-konductor in the clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Parameters: fuse-flow has no workflow parameters, so the discover step collects source_dir,
+#   review_type, cr_url and base_branch from the owner. output_file becomes the
+#   code-review-report artifact under .konductor/{slug}/, which a project's policy can move.
+# - Steps 1 and 2 are one step, and so are steps 3 and 4, because each pair hands on one
+#   document. The diff is saved as the review-diff artifact, so every later step and the
+#   adversarial review read the same text.
+# - The review skills are told to report every finding and leave fixing to the caller
+#   (scope_confirmed), because the SOP only reports and never fixes.
+# - infra-validation will not start without the infrastructure type, the location and the target
+#   environment, and the SOP passes none of them. The discover step records the type and location
+#   from the categorized files and asks the owner for the environment when there are infra files.
+# - Step 6 calls the k-adversarial-pull-request-review SOP. fuse-flow cannot call one workflow
+#   from another, so the adversarial step runs its port, k-adversarial-pull-request-review-sop, as
+#   a second workstream, <slug>-adversarial, in the same checkout, and reads that workstream's
+#   report. "Available" means fuse-flow lists that workflow.
+# - The SOP names the verdicts READY FOR REVIEW and NEEDS FIXES without a rule. Here a surviving
+#   CRITICAL or IMPORTANT issue means NEEDS FIXES, since both skills' gates class IMPORTANT as
+#   "should fix".
+# - The SOP has no owner gate and no review of its own report; neither does this workflow.
+version: 1
+name: k-code-review-workflow-sop
+description: Port of the former k-code-review-workflow SOP. A multi-skill review of the changed
+  backend, frontend and infrastructure files, a false-positive critique, an adversarial second
+  pass, and one prioritized report with a verdict. Reports only; it does not fix.
+steps:
+  - id: discover
+    title: 1 and 2. Discover and categorize changed files
+    phase: Scope
+    instruction: |
+      Find the files to review and sort them into categories. This step changes no file other than
+      this workflow's own artifacts.
+
+      The parameters. source_dir is required; ask the owner for it when it is missing. review_type
+      is backend, frontend, infra or all, and defaults to all. Note a code review URL (cr_url) when
+      the owner gives one. When the owner gives no base_branch, resolve the remote's default branch:
+      run `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` and strip the `origin/`
+      prefix; when that returns nothing, run `git ls-remote --symref origin HEAD` and take the branch
+      from its `ref: refs/heads/<branch>` line; when neither gives a branch, use main. Do not try
+      main first: a stale main must not win over the repository's real trunk.
+
+      The diff. Run `git diff <base>...HEAD` (three dots, the merge-base form) within source_dir and
+      keep the full diff with its hunks; the changed files are those in it. Leave out
+      node_modules/, build/, dist/, cdk.out/, lock files and .js.map files. Write the diff to the
+      review-diff artifact. When source_dir is not in a git repository (`git rev-parse
+      --is-inside-work-tree` fails or prints false), list every file under source_dir recursively
+      with the same exclusions and treat each as changed; report review-diff as not produced, with
+      the reason "not a git repository; every file under source_dir is treated as changed". When the
+      git diff command itself fails because its target is not a ref, say so explicitly rather than
+      falling back silently, and ask the owner for base_branch. Only when nobody can answer, in an
+      unattended run, use the recursive listing instead, and record that the diff target was
+      unresolved and every file under source_dir was treated as changed, so the report can say so.
+
+      The categories. Backend: .ts and .js files in paths matching **/handler*, **/service*,
+      **/repository*, **/lambda*, **/util* or **/middleware*. Frontend: .tsx and .jsx files, and .ts
+      files in **/component*, **/page* or **/hook*. Infra: .ts files in **/cdk*, **/stack*,
+      **/construct* or **/infra*. A file that matches several categories goes to the first of
+      infra, frontend, backend. Everything else is uncategorized. When review_type is not all, keep
+      only the files of that category.
+
+      When there are infra files, the infrastructure review needs the target environment
+      (development, staging or production). Ask the owner for it unless they already said, and ask
+      at the same time for any compliance requirements.
+
+      Write the review scope: the parameters as resolved and how base was found, the diff command
+      or the fallback used and why, the file lists per category including uncategorized, the counts
+      per category, and for infra files the infrastructure type (CDK TypeScript, from the .ts
+      files), their location and the environment.
+    produces:
+      - artifact: review-diff
+        path: .konductor/{slug}/review.diff
+      - artifact: review-scope
+        path: .konductor/{slug}/review-scope.md
+
+  - id: category-reviews
+    title: 3 and 4. Run the review skills and consolidate
+    phase: Review
+    instruction: |
+      Review each category with its skill, then merge the findings into one list. This step
+      changes no file other than this workflow's own artifacts.
+
+      Run the backend-review skill in review mode on the backend files, the frontend-review skill
+      in review mode on the frontend files, and the infra-validation skill on the infra files,
+      giving it the infrastructure type, the location and the environment from the review scope.
+      Skip a category that has no files or that review_type excludes, and say so. Tell each skill
+      that the scope is confirmed: it reports every finding and leaves fixing to the caller, and
+      it does not ask whether to fix them.
+
+      Merge all findings into one list sorted CRITICAL, then IMPORTANT, then SUGGESTION, using each
+      skill's own Quality Gate classes. Remove a finding that several skills report, keeping one.
+      Give every finding its file path and line, the skill that raised it, the problem, why it
+      matters and the fix the skill proposed. Write the list as the review findings.
+    consumes:
+      - review-scope
+      - review-diff
+    produces:
+      - artifact: review-findings
+        path: .konductor/{slug}/review-findings.md
+
+  - id: critique
+    title: 5. Critique findings
+    phase: Review
+    instruction: |
+      Check every finding to remove false positives; when in doubt, reject, because false
+      positives erode trust in the review. Reject a finding that praises correct code, speculates
+      about code that cannot be seen, flags a style-only issue, repeats what a linter run in this
+      workflow already reported, or gives a vague suggestion without a concrete fix. Reject a
+      finding whose quoted code does not match the actual diff. Keep only findings that state the
+      problem, why it matters and a concrete fix. Sort the survivors again, CRITICAL, then
+      IMPORTANT, then SUGGESTION. Move each rejected finding to a rejection log at the end of the
+      review findings, with its reason. Change no other file.
+    consumes:
+      - review-scope
+      - review-diff
+    updates:
+      - artifact: review-findings
+        path: .konductor/{slug}/review-findings.md
+
+  - id: adversarial-review
+    title: 6. Adversarial review
+    phase: Review
+    condition:
+      agent: >
+        review_type is not frontend, and `fuse-flow list` shows the workflow
+        k-adversarial-pull-request-review-sop. Otherwise skip this step and give that reason
+    instruction: |
+      Run the adversarial review to find gaps the standard review missed. Run it as its own
+      workstream, <slug>-adversarial, where <slug> is this workstream's slug: `fuse-flow start
+      <slug>-adversarial --workflow k-adversarial-pull-request-review-sop`, followed to the end.
+      When the harness offers generic subagents, have a fresh subagent run that workstream;
+      otherwise run it yourself as a separate pass that does not reuse this review's conclusions.
+      Give it the same diff as this review, the review diff, as its diff input; when this review
+      used the recursive listing, give it the listed files as file paths. When the owner gave a
+      code review URL, give it as the adversarial review's pull request URL, which is the name that
+      workflow uses.
+
+      Apply the critique step's false-positive rules to the adversarial report's findings. Merge
+      each new CRITICAL or IMPORTANT finding that survives into the review findings, marked as
+      coming from the adversarial review, and do not report again a finding the list already has.
+      Change no other file.
+    consumes:
+      - review-scope
+      - review-diff
+    produces:
+      - artifact: adversarial-review-report
+        path: .konductor/{slug}-adversarial/adversarial-review-report.md
+    updates:
+      - artifact: review-findings
+        path: .konductor/{slug}/review-findings.md
+
+  - id: report
+    title: 7. Generate the review report
+    phase: Report
+    instruction: |
+      Write the review report from the review findings, without the rejection log. Give it the
+      title `# Code Review Report`, then the lines `Date: <current date>` and `Files reviewed:
+      <count by category>`. Then the section `## Summary` with the line `CRITICAL: N | IMPORTANT: N
+      | SUGGESTION: N` and the verdict, then `## Critical Issues`, `## Important Issues` and `##
+      Suggestions`, each a numbered list of its findings with file:line references. The verdict is
+      NEEDS FIXES when a CRITICAL or IMPORTANT issue remains, and READY FOR REVIEW otherwise. When the review scope records that the diff target was
+      unresolved, say in the report that every file under source_dir was treated as changed. Do
+      not print the report in your message; give its path, the verdict and the counts. Do not
+      offer to fix the issues.
+    consumes:
+      - review-scope
+      - review-findings
+      - adversarial-review-report
+    produces:
+      - artifact: code-review-report
+        path: .konductor/{slug}/code-review-report.md

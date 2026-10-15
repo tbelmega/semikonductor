@@ -1,0 +1,153 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-principal-engineer-design-review SOP from Konductor
+# (agent-sops/k-principal-engineer-design-review.sop.md in aws-solutions/konductor), steps 0 to 4 in order. Skills are named
+# by their name; they ship with fuse-konductor in the clone's skills/ folder.
+# Deliberate deviations from the SOP:
+# - Step 0 may not modify files. Its claim, decision and section lists are still written to a
+#   gitignored file under .konductor/{slug}/, so the later steps can resume from them; the design
+#   document, the code and the build stay untouched. A document given inline or in the
+#   conversation is saved there too, as the file the later steps correct.
+# - Each gate's results (the quality score, the dimension scores, the round history) are written
+#   to files under .konductor/{slug}/ for the same reason, and the report is built from them.
+# - output_file: the report goes to docs/design/, named by the workstream slug, rather than next to
+#   the input document; a project moves it with an `artifacts:` entry in its policy instead of a
+#   parameter.
+# - A quality score below 3 stops the workflow by reporting the step blocked; the owner revises
+#   the document and sends the work back to the quality gate.
+# - The SOP's ten dimensions differ from the ten in Part 2 of the design review guide. The
+#   workflow scores the SOP's ten, with Part 2's method.
+# - The adversarial loop is an agent gate, so an independent reviewer runs each round rather than
+#   the author alone; the author classifies each finding and records a rejected one with the
+#   reason. The round-2 escalation and the 5-round cap report the step blocked; the owner's
+#   approval as is then lets the report record the verdict.
+version: 1
+name: k-principal-engineer-design-review-sop
+description: Port of the former k-principal-engineer-design-review SOP. A pre-submission quality
+  gate on a design document before a principal engineer reviews it, with slop detection, an
+  architecture principles evaluation and an adversarial review loop of up to five rounds, ending
+  in a verdict of PE-READY, REVISIONS NEEDED or FUNDAMENTAL REDESIGN REQUIRED.
+steps:
+  - id: load
+    title: 0. Load the document
+    instruction: >
+      doc_input, the design document to review, is required: a file path (such as
+      docs/design/order-processing.md), inline markdown, or a document already in the
+      conversation. If the owner has not given it, ask for it before anything else. Do not ask for
+      the report path; the default below applies. When doc_input is a file path, check that the
+      file exists before going on. When it is inline or in the conversation, save it unchanged to
+      .konductor/<the workstream slug>/design-input.md, which is the file the later steps correct.
+      Report the document's title, section count and approximate word count. Extract every
+      verifiable claim (AWS service assertions, performance numbers, cost estimates) and every
+      design decision, for the later steps. Do not modify the design document or any other file
+      except this step's own output, and do not run builds or tests. Write the document's path,
+      title, section inventory, word count, claim list and decision list to the path below.
+    produces:
+      - artifact: design-claims
+        path: .konductor/{slug}/design-claims.md
+  - id: quality-gate
+    title: 1. Quality gate (design review guide, Part 1)
+    instruction: >
+      Apply Part 1 of the design review guide (fuse/flow/library/artifacts/design/review.md in the
+      fuse-konductor clone) to the whole document. Check structural completeness: the required
+      outside-in sections are present. Run slop detection for every issue type: filler_phrases,
+      hedge_words, unsupported_claims, passive_voice_overuse, circular_reasoning, yagni_violation,
+      missing_section. Compute the quality score from 1 to 5. Write the score, the IMPORTANT issues
+      (the guide's P2 findings) and the MINOR issues (its P3 findings) to the path below. If the
+      score is below 3, stop: present the issues to the owner, ask for a revision of the document,
+      and report this step as blocked. Do not go on to the next step until the score is 3 or more;
+      after the owner's revision, the owner sends the work back to this step and you score the
+      revised document again.
+    consumes:
+      - design-claims
+    produces:
+      - artifact: design-quality-score
+        path: .konductor/{slug}/design-quality-score.md
+  - id: principles-gate
+    title: 2. Architecture principles gate (design review guide, Part 2)
+    instruction: >
+      Apply Part 2 of the design review guide, with its method of tailoring the depth to the
+      project's scope and its list of what blocks implementation. Evaluate all ten of these
+      dimensions, 1 to 5 each: template adherence, scalability, security, maintainability,
+      resilience, testability, operational readiness, cost optimization, API design quality, data
+      model quality. Classify every finding as CRITICAL (architectural), CRITICAL (factual),
+      IMPORTANT or MINOR, with the same definitions the adversarial review uses: CRITICAL
+      (architectural) is a wrong architecture choice, a missing security boundary or a fundamental
+      scalability flaw; CRITICAL (factual) is an incorrect technical claim or wrong service
+      behavior; IMPORTANT is a weak justification, a missing alternative or an incomplete
+      trade-off; MINOR is style, clarity or a minor omission. Compute a confidence score for each section of the document: the
+      average of the dimension scores, 1 to 5 each, that apply to it. Flag every section averaging
+      below 3 for adversarial focus in the next step. Write the dimension scores, the per-section
+      confidence scores and the classified findings to the path below.
+    consumes:
+      - design-claims
+      - design-quality-score
+    produces:
+      - artifact: architecture-principles-review
+        path: .konductor/{slug}/architecture-principles-review.md
+  - id: adversarial-review
+    title: 3. Adversarial review loop (max 5 rounds)
+    instruction: >
+      Have every design decision, trade-off and architectural choice challenged as the gate below
+      says, with extra focus on the sections the previous step flagged. Before the first round,
+      settle the deliberation panel's consent_confirmed once: either get the owner's explicit
+      opt-in as the adversarial-design-review skill's Deliberation Panel Confirmation Gate
+      describes, or go ahead single-voice without the panel. Pass that same value to every round's
+      reviewer; do not ask again or settle it again per round. Check the escalation rule in the
+      guide before applying a round's corrections. After each round, apply the corrections to the
+      document, then apply Part 1 of the design review guide again to confirm the quality score is
+      still 3 or more, and fix the writing first if it is not. Keep the round history: the round
+      number, the finding counts by severity, and the corrections applied, plus each finding you
+      rejected and why. When the loop ends, whether it passed, escalated or reached the cap, write
+      the history and the remaining findings to the path below.
+    consumes:
+      - design-claims
+      - design-quality-score
+      - architecture-principles-review
+    updates:
+      - artifact: design
+        path: .
+    produces:
+      - artifact: adversarial-review
+        path: .konductor/{slug}/adversarial-review.md
+    gates:
+      - agent: >
+          challenge every design decision, trade-off and architectural choice with the
+          adversarial-design-review skill, run fallacy checking on every decision justification,
+          and classify each finding CRITICAL (architectural), CRITICAL (factual), IMPORTANT or
+          MINOR
+        guide: guides/k-principal-engineer-design-review-sop-adversarial-review.md
+        max_rounds: 5
+  - id: output
+    title: 4. Output
+    instruction: >
+      Write the report to the path below, in this structure. Its title is "# PE Review Report",
+      followed by four lines: "Date: {date}", "Document: {doc title and path}", "Verdict: {PE-READY |
+      REVISIONS NEEDED | FUNDAMENTAL REDESIGN REQUIRED}" and "Rounds: {N} adversarial rounds
+      completed". Then these sections, in order: "## Quality Score", holding "{N}/5 — {summary}";
+      "## Confidence Scores by Section", a table with the columns Section, Score and Notes; "##
+      Adversarial Review History", a table with the columns Round, CRITICAL, IMPORTANT, MINOR and
+      Corrections Applied; "## Remaining Findings", with the subsections "### Critical", "###
+      Important" and "### Minor"; and "## Verdict", which says for PE-READY that the document is
+      ready for PE submission, for REVISIONS NEEDED what must be fixed, and for FUNDAMENTAL
+      REDESIGN REQUIRED what the architectural issue is. Assign the verdict by these rules. 0
+      CRITICAL, 0 IMPORTANT and fewer than 3 MINOR: PE-READY. 0 CRITICAL, 0 IMPORTANT and 3 or more
+      MINOR after 5 rounds: REVISIONS NEEDED. 0 CRITICAL and 1 or more IMPORTANT remaining after 5
+      rounds: REVISIONS NEEDED. Any CRITICAL (factual) remaining after 5 rounds: REVISIONS NEEDED,
+      because a wrong technical claim can be corrected by revision. Any CRITICAL (architectural) at
+      the round-2 escalation or later: FUNDAMENTAL REDESIGN REQUIRED. PE-READY also requires a
+      quality score of 3 or more, and a CRITICAL finding that remains after the loop always makes
+      the verdict REVISIONS NEEDED or FUNDAMENTAL REDESIGN REQUIRED. Do not print the report in
+      your message; give its path. Tell the owner the verdict, the finding counts by severity, and
+      one line on each remaining CRITICAL finding.
+    consumes:
+      - design-claims
+      - design-quality-score
+      - architecture-principles-review
+      - adversarial-review
+    produces:
+      - artifact: pe-review-report
+        path: docs/design/{slug}-principal-engineer-review.md

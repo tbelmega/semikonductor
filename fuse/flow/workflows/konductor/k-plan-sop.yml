@@ -1,0 +1,59 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+# above comments enable live schema validation in WebStorm and vscode
+# SPDX-License-Identifier: Apache-2.0
+#
+# A port of the former k-plan SOP from Konductor, its steps 1 to 6 in one step.
+# Deliberate deviations from the SOP:
+# - One step: each SOP step adds a section to the same plan, and nothing is handed on before the
+#   plan is complete.
+# - The SOP's outputs, which it only returned in chat, are sections of one written plan, so a later
+#   workstream (k-verify-sop) can read the success criteria.
+# - The plan's Verification phase names the k-verify-sop workflow instead of the verify SOP.
+# - The plan's artifact id is work-plan, not the library's implementation-plan, whose guide and
+#   template describe a different plan.
+# - The task format rules about marking tasks complete apply when the plan is executed, which is
+#   outside this workflow; the plan states them for whoever executes it.
+version: 1
+name: k-plan-sop
+description: Port of the former k-plan SOP, a work breakdown for one objective with success criteria,
+  prioritized and estimated tasks, dependencies, the skill each task needs, a buffered effort
+  baseline and a phased execution plan.
+steps:
+  - id: plan
+    title: 1-6. Plan
+    instruction: >
+      Write the plan for the objective. The objective is required; ask for it if the request does
+      not give it. Take the scope (directories, services or components) and the constraints
+      (deadlines, technology restrictions, team availability) from the request when it gives them.
+      Write these sections in this order, each finished before the next.
+      (1) Success Criteria, before any task: Functional (specific behaviors that must work),
+      Observable (what can be measured or seen) and Pass/Fail (binary yes or no criteria), as a
+      JSON object with the keys functional, observable and pass_fail. Every criterion is specific
+      and testable; nothing vague such as "works well".
+      (2) TODOs: specific, actionable tasks, each one action rather than several unrelated ones,
+      each with an effort estimate, grouped under High, Medium and Low Priority as checkboxes, such
+      as "- [ ] Task 1 (effort: 1h) - <specific action>". Nothing vague such as "set up stuff".
+      (3) Task Dependencies: every blocking dependency between tasks and the tasks that can run in
+      parallel, with no circular dependency, and every external dependency flagged, such as waiting
+      on another team or on infrastructure provisioning.
+      (4) Skills and Capabilities: a table of task, skill or capability, and reason, naming the
+      skill or capability every task needs. Make sure each named skill is available to the task
+      that needs it, and group related tasks that use the same one to reduce context switching.
+      (5) Timeline Estimate: a table of phase (Research, Implementation, Testing, Documentation,
+      and Review/Rework whenever the execution plan includes a review or adversarial loop), tasks,
+      effort and skill or capability. Sum the phases into the Serial Effort Sum. Add the
+      Estimation-Uncertainty Buffer: 20% for well-understood work, which is the floor for all
+      work, or 40% for novel, complex, unfamiliar or otherwise uncertain work, with the reason.
+      Report the buffered total as "Total Estimated Effort (baseline)", the authoritative estimate.
+      Derive the calendar timeline separately, accounting for parallel tracks where the
+      dependencies allow; that does not change the effort sum.
+      (6) Execution Plan: phases ordered by the dependencies, with parallel tasks marked as such,
+      a Verification phase that writes the tests, verifies the work with the k-verify-sop workflow
+      against these success criteria and collects the evidence, and a Documentation phase when the
+      work changes anything user-facing. State the rules for executing the plan: mark each task
+      complete immediately after finishing it, and verify every requirement before declaring the
+      work done.
+    produces:
+      - artifact: work-plan
+        path: .konductor/{slug}/plan.md
