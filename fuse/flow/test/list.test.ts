@@ -19,7 +19,7 @@ test("with nothing started, list says so and shows the shipped workflows with th
   expect(out).toContain(`this project, ${join(repo.root, ".konductor/workflows")}: none\n`);
   expect(out).toContain(`yours, ${join(repo.root, "home/.konductor/workflows")}: none\n`);
   expect(out).toContain(`shipped with fuse-flow, ${join(FLOW_DIR, "workflows")}:\n`);
-  expect(out).toContain("  fuse-feature-development (fuse-development/fuse-feature-development.yml)\n      One feature in an existing codebase:");
+  expect(out).toContain("  fuse-feature-development (fuse/fuse-feature-development.yml)\n      One feature in an existing codebase:");
 });
 
 test("list shows each workstream with its workflow and current step, and a complete one as complete", () => {
@@ -40,7 +40,7 @@ test("a name in an earlier location wins, and the later one is listed with how t
   const out = repo.ok("list");
   expect(out).toContain("  fuse-feature-development (team/fuse-feature-development.yml)\n      Our own feature flow.\n");
   expect(out).toContain(
-    "  fuse-feature-development (fuse-development/fuse-feature-development.yml) (start it by its path; the name starts the one in this project)\n",
+    "  fuse-feature-development (fuse/fuse-feature-development.yml) (start it by its path; the name starts the one in this project)\n",
   );
 });
 
@@ -79,10 +79,10 @@ test("a name that resolves to an invalid or ambiguous earlier file blocks the la
 
   const out = repo.ok("list");
   expect(out).toContain(
-    "  fuse-feature-development (fuse-development/fuse-feature-development.yml) (start it by its path; the name starts the one in this project)\n",
+    "  fuse-feature-development (fuse/fuse-feature-development.yml) (start it by its path; the name starts the one in this project)\n",
   );
   expect(out).toContain(
-    "  fuse-system-development (fuse-development/fuse-system-development.yml) (start it by its path; the name is ambiguous in yours)\n",
+    "  fuse-system-development (fuse/fuse-system-development.yml) (start it by its path; the name is ambiguous in yours)\n",
   );
   // And start agrees: the name reaches the invalid file, or is refused as ambiguous.
   expect(repo.refused("start", "one", "--workflow", "fuse-feature-development")).toContain("is not a valid workflow");

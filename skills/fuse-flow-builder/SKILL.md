@@ -36,7 +36,7 @@ Use this skill in one of three modes. The principles in section 4 apply to all o
   description. The artifact library is in `<clone>/fuse/flow/library/artifacts/`, with a one-line
   description of each entry in its `entry.yml`. `examples/superpowers/superpowers.yml` is the
   most complete example of a native workflow, and keeps its own review guide in its folder.
-  `_k-full-sdlc.yml` shows a long workflow whose guides link to skills shipped in the clone.
+  `konductor/_k-full-sdlc.yml` shows a long workflow whose guides link to skills shipped in the clone.
 - **Komposer,** the local editor that shows a workflow as a diagram, is in `<clone>/fuse/komposer`;
   its `README.md` says how to start it.
 - **Choose where the workflow lives.** fuse-flow looks a name up in these locations, at any depth

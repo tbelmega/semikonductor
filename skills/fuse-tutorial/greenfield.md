@@ -1,6 +1,6 @@
 # Greenfield project: Pacman Enterprise Edition
 
-The user builds a small new system from nothing, to learn how the two `fuse-development` workflows
+The user builds a small new system from nothing, to learn how the two `fuse` workflows
 work together: `fuse-system-development` plans the whole system, and `fuse-feature-development`
 then builds each feature in its build order. The user is the owner throughout; you are both the
 coach and the agent doing the work.

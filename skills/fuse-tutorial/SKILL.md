@@ -186,10 +186,11 @@ End the tour with the opening offer, without the tour.
 1. **Komposer.** Build and open it on the playground: read `komposer.md` next to this file and
    follow its first part.
 2. **The official workflows.** fuse-konductor ships a number of ready-made workflows, in the
-   fuse-flow section of Komposer's list. Name the `fuse-development` workflows and the `_k-`
-   workflows with one line each, from each file's `description` in `<clone>/fuse/flow/workflows/`,
-   and suggest the user clicks one to see its steps as a diagram. Offer the full list, with the
-   examples, as the deeper part. Where workflows can live is a deeper part too: three places, which
+   fuse-flow section of Komposer's list. Name the workflows in the `fuse/` folder with one line
+   each, from each file's `description` in `<clone>/fuse/flow/workflows/fuse/`, and suggest the
+   user clicks one to see its steps as a diagram. Offer the full list as the deeper part:
+   Konductor's workflows in the `konductor/` folder, and the examples. Where workflows can live is
+   a deeper part too: three places, which
    are the three sections of the list: **Project** (the project's `.konductor/workflows/`, shared
    through the project's git), **Personal** (`~/.konductor/workflows/`, only for them) and
    **fuse-flow** (the official ones in the clone).

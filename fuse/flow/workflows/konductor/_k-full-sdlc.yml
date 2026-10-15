@@ -1,5 +1,5 @@
-# $schema: ./schemas/workflow.schema.json
-# yaml-language-server: $schema=./schemas/workflow.schema.json
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
 # above comments enable live schema validation in WebStorm and vscode
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -124,7 +124,7 @@ steps:
       is not. Implement each feature from its tasks.md on its own branch, with unit and integration
       tests. On a greenfield project build the scaffold first, from the design. Run the project's
       check on each feature and commit the feature on its branch, following
-      fuse/flow/workflows/k-git-workflow.md in the fuse-konductor clone, before
+      fuse/flow/workflows/konductor/k-git-workflow.md in the fuse-konductor clone, before
       starting the next. Record each feature's branch, commit and check result in the
       implementation report.
     produces:

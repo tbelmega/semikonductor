@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Which folders of a list are open, kept in localStorage per list. A folder
-// the user never toggled uses the default: open when its name starts with
-// "_k-" or "fuse-", closed otherwise. Only toggled folders are stored, so a
-// browser with no stored state shows the default for every folder.
+// the user never toggled uses the default: open for the "fuse" folder, which
+// holds the primary workflows, closed otherwise. Only toggled folders are
+// stored, so a browser with no stored state shows the default for every folder.
 
 import { useState } from "react";
 
-const openByDefault = (name: string) => name.startsWith("_k-") || name.startsWith("fuse-");
+const openByDefault = (name: string) => name === "fuse";
 
 function load(storageKey: string): Record<string, boolean> {
   try {

@@ -11,7 +11,7 @@ Example format:
 
 **SOPs / Workflows:**
 - `k-plan`: added a dependency check step — catches cycles before estimation
-- `fuse/flow/workflows/_k-phase-chain.yml`: renamed skill reference `bar` → `baz` — avoids a naming collision
+- `fuse/flow/workflows/konductor/_k-phase-chain.yml`: renamed skill reference `bar` → `baz` — avoids a naming collision
 
 **CLI / Docs / Other:**
 - Updated `README.md` — documents the new install option

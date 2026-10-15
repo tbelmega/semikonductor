@@ -171,7 +171,7 @@ describe("dropping a library entry between steps", () => {
   });
 
   test("every shipped entry dropped into _k-full-sdlc gives a workflow with no problems", () => {
-    const full = readFileSync(join(FLOW, "workflows", "_k-full-sdlc.yml"), "utf8");
+    const full = readFileSync(join(FLOW, "workflows", "konductor", "_k-full-sdlc.yml"), "utf8");
     for (const id of Object.keys(SHIPPED)) {
       const out = applyAll(full, insertArtifactStepEdits(full, 0, id, `.konductor/{slug}/${id}-new.md`, describeShipped));
       const parsed = parseWorkflowText(out);
