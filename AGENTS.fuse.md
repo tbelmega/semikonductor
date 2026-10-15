@@ -20,6 +20,10 @@ location.
   new X" or "let's migrate X to Y" count. When unsure whether the work is large enough, load the
   skill anyway: it decides, and says so when no workflow is needed. The user decides. If they
   decline, do not suggest it again for that work.
+- If the user asks for one document, analysis or other artifact outside a running workstream,
+  such as "write a threat model" or "draft an ADR", load the `fuse-workstream` skill: it looks
+  for the artifact in the fuse library and offers a workflow that produces it, the library's
+  guide on its own, or a small custom workflow.
 - Otherwise, do not bring it up.
 
 ## While a workstream runs

@@ -1,6 +1,6 @@
 ---
 name: fuse-workstream
-description: Use when the user asks to work with fuse, fuse-konductor or a fuse-flow workflow, wants to start a new feature, system, migration or other substantial piece of work, or wants to continue work that may already be in progress, even if they name no workflow. Finds a workstream to resume, or recommends a workflow for new work and starts it once the user agrees, then runs it step by step with fuse-flow. Also turns fuse debug mode on or off, which ends every reply with a report of what fuse did.
+description: Use when the user asks to work with fuse, fuse-konductor or a fuse-flow workflow, wants to start a new feature, system, migration or other substantial piece of work, or wants to continue work that may already be in progress, even if they name no workflow. Also use when, outside a running workstream, the user asks for one document, analysis or other artifact, such as "write a threat model", "draft an ADR" or "plan the E2E tests". Finds a workstream to resume, or recommends a workflow for new work and starts it once the user agrees, then runs it step by step with fuse-flow. For a single artifact, offers a workflow that produces it, the library's guide for it on its own, or a small custom workflow. Also turns fuse debug mode on or off, which ends every reply with a report of what fuse did.
 version: 1.0.0
 tags: [skill, fuse-flow, workflow, workstream]
 ---
@@ -37,6 +37,8 @@ every workflow a new workstream can follow, with its description.
   naming each by what it is about.
 - **A workstream that is complete is not resumed.** If the user wants to change that work, it is a
   new workstream.
+- **The user asks for one document or analysis,** such as a threat model, a decision record or a
+  test plan, and it is not part of a running workstream: follow section 6.
 - **Otherwise the work is new:** pick a workflow (section 2) and start it (section 3).
 
 ## 2. Pick a workflow
@@ -120,3 +122,35 @@ second review mechanism, commit rules or a testing policy.
   the owner's projects. fuse-flow then prints it in every step block. Save it to your harness's
   memory too, and offer to add it to the project's `AGENTS.md` or the owner's global instruction
   file, outside any block another tool manages.
+
+## 6. A request for one artifact
+
+When the user asks for one document, analysis or other artifact outside a running workstream,
+such as "write a threat model" or "draft an ADR for this", the fuse library may already define
+it: what it is, a guide to writing it, often a template, and sometimes a review guide.
+
+1. **Look for it in the library.** Each folder under `library/artifacts/` is one artifact, with
+   an `entry.yml` that describes it. Look in the project's `.konductor/library/`, then
+   `~/.konductor/library/`, then `<clone>/fuse/flow/library/`; the first one that has the
+   artifact wins. Match the request against the descriptions, not only the folder names. If
+   nothing fits, do the work as you would without fuse, and do not bring fuse up.
+2. **Find the workflows that produce it.** Search the workflows `fuse-flow list` shows for the
+   artifact's id in their `produces` or `optional_produces`. Their files are in the project's
+   `.konductor/workflows/`, `~/.konductor/workflows/` and `<clone>/fuse/flow/workflows/`.
+3. **Offer the user up to three ways, in one short message,** with your recommendation first and
+   its reason in a sentence:
+   - **Start a workflow that produces it.** Name at most three, the ones that fit the request
+     and the project best, and describe each by what it does, as section 2 says. Leave out
+     workflows whose other steps the request clearly does not need.
+   - **Write it now with the library's guide.** Follow the artifact's `guide.md` and
+     `template.md`, and review the result against its `review.md` if it has one. This is the
+     lightest way and fits a one-off the user wants now.
+   - **Build a small workflow for it.** Fits when the user will want this artifact again, or
+     wants steps around it that no workflow has. Load `fuse-flow-builder` and walk the user
+     through it: suggest the few steps that fit, such as an interview before the draft or an
+     independent review after it, and show the workflow as a diagram in Komposer, as that
+     skill describes; if you can take a screenshot of the page, show it. Start the workstream
+     once the user agrees.
+4. **Keep it light.** The user asked for a document, not a process. Do not explain fuse-flow, and
+   do not ask more than the choice. If the user declines all three, write the artifact with the
+   guide or without fuse, as they prefer, and do not offer again for this request.
