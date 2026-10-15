@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Left lane: the workflow list grouped Project / Personal / fuse-flow, with
 // folder rows that open and close (kept in localStorage), search, and the +
-// button. While searching, every match is shown.
+// button. While searching, every match is shown. The workflow files that runs
+// of other projects follow are not listed here; they open from their run.
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
@@ -34,12 +35,15 @@ export function WorkflowList({
   onOpen,
   workstreams,
   onNew,
+  footer,
 }: {
   workflows: OpenWorkflow[];
   currentKey: string | null;
   onOpen: (key: string) => void;
   workstreams: WorkstreamSummary[];
   onNew: () => void;
+  // Shown below the list: the projects section.
+  footer?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
@@ -148,6 +152,7 @@ export function WorkflowList({
         })}
         {groups.length === 0 && <div className="lane-empty">No match.</div>}
       </div>
+      {footer}
     </div>
   );
 }

@@ -41,6 +41,13 @@ export function dateTime(value?: string): string {
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-export function runOption(run: WorkstreamSummary): string {
-  return `${run.slug} · ${RUN_STATE[runState(run.summary?.status)].label}`;
+// A project's folder name, as the projects list shows it.
+export function projectName(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+// A run in the runs menu; a run of another project names that project.
+export function runOption(run: WorkstreamSummary, root?: string): string {
+  const where = root && run.project !== root ? ` · ${projectName(run.project)}` : "";
+  return `${run.slug} · ${RUN_STATE[runState(run.summary?.status)].label}${where}`;
 }

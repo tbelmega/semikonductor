@@ -10,6 +10,10 @@ import { parseWorkflowText, type WorkflowIssue } from "../../flow/src/parse.ts";
 
 export type LocationId = "project" | "personal" | "fuse-flow";
 
+// Where a listed workflow file is: one of the three locations, or "run" for
+// the file a run of another project follows, which is shown read-only.
+export type WorkflowLocation = LocationId | "run";
+
 export interface SessionLocation {
   id: LocationId;
   label: string;
@@ -23,7 +27,9 @@ export interface Session {
 
 // One workflow file as the server lists it.
 export interface WorkflowFile {
-  location: LocationId;
+  location: WorkflowLocation;
+  // For a "run" file: the project it belongs to.
+  project?: string;
   dir: string;
   file: string;
   path: string;

@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, FileCode, Settings2, X } from "lucide-react";
-import { api, ApiError, suggestPath, type LibraryEntry, type ReviewGuides, type WorkstreamSummary } from "./api.ts";
+import {
+  api,
+  ApiError,
+  runKey,
+  suggestPath,
+  type LibraryEntry,
+  type ProjectSummary,
+  type ReviewGuides,
+  type WorkstreamSummary,
+} from "./api.ts";
 import { applyEdit, type Edit, type OutputMode } from "./model/yamlEdit.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
@@ -18,9 +27,10 @@ import {
 } from "./workflowView.ts";
 import { problemsByStep, problemsForText } from "./validate.ts";
 import { WorkflowList } from "./WorkflowList.tsx";
+import { ProjectList } from "./ProjectList.tsx";
 import { Flow } from "./Flow.tsx";
 import { Inspector, type InspectorTab } from "./Inspector.tsx";
-import { dateTime, duration, RUN_STATE, runDuration, runOption, runState } from "./runView.ts";
+import { dateTime, duration, projectName, RUN_STATE, runDuration, runOption, runState } from "./runView.ts";
 
 type SaveModal = { type: "save"; asNew: boolean; location: LocationId; folder: string; name: string; error?: string };
 type NewModal = { type: "new"; location: LocationId; folder: string; name: string; error?: string };
@@ -32,6 +42,7 @@ export function App() {
   const [workflows, setWorkflows] = useState<OpenWorkflow[]>([]);
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
   const [workstreams, setWorkstreams] = useState<WorkstreamSummary[]>([]);
+  const [projects, setProjects] = useState<{ projects: ProjectSummary[]; error?: string }>({ projects: [] });
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [tab, setTab] = useState<InspectorTab>("step");
@@ -43,7 +54,8 @@ export function App() {
     setDrawerOpen(true);
   };
   const [compareRequest, setCompareRequest] = useState(0);
-  const [runSlug, setRunSlug] = useState<string | null>(null);
+  // The open run, by its runKey.
+  const [openRunKey, setOpenRunKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(false);
   const [showDescriptions, setShowDescriptions] = useState(true);
@@ -62,14 +74,22 @@ export function App() {
   const replaceWorkflow = (key: string, next: OpenWorkflow) =>
     setWorkflows((all) => all.map((w) => (workflowKey(w) === key ? next : w)));
   const reloadData = async () => {
-    const [s, w, l, ws] = await Promise.all([api.session(), api.workflows(), api.library(), api.workstreams()]);
+    const [s, w, l, ws, p] = await Promise.all([
+      api.session(),
+      api.workflows(),
+      api.library(),
+      api.workstreams(),
+      api.projects(),
+    ]);
     const opened = w.workflows.map((file) => openWorkflow(file));
+    const first = opened.find((x) => x.location !== "run");
     setSession(s);
     setWorkflows(opened);
     setLibrary(l.entries);
     setWorkstreams(ws.workstreams);
+    setProjects(p);
     setCurrentKey((key) =>
-      key && opened.some((x) => workflowKey(x) === key) ? key : opened[0] ? workflowKey(opened[0]) : null,
+      key && opened.some((x) => workflowKey(x) === key) ? key : first ? workflowKey(first) : null,
     );
   };
   useEffect(() => {
@@ -92,11 +112,21 @@ export function App() {
   const dirty = !!workflow && workflow.openText !== workflow.text;
   const disk = currentKey ? diskVersions[currentKey] : undefined;
   const runsForWorkflow = workflow ? workstreams.filter((item) => item.workflowPath === workflow.path) : [];
-  const run = runSlug ? runsForWorkflow.find((item) => item.slug === runSlug) : undefined;
+  const run = openRunKey ? runsForWorkflow.find((item) => runKey(item) === openRunKey) : undefined;
+  // The workflow file a run of another project follows: shown only with that
+  // run, and never edited or saved.
+  const readOnly = workflow?.location === "run";
+  const localWorkflows = useMemo(() => workflows.filter((w) => w.location !== "run"), [workflows]);
+
+  // A read-only workflow whose run is gone (closed, or no longer listed)
+  // gives way to the first workflow of the three locations.
+  useEffect(() => {
+    if (readOnly && !run && localWorkflows[0]) openWorkflowKey(workflowKey(localWorkflows[0]));
+  }, [readOnly, run, localWorkflows]);
 
   // Working copies are the crash-safe form of every edit; equal text removes it.
   useEffect(() => {
-    if (!workflow) return;
+    if (!workflow || readOnly) return;
     const timer = window.setTimeout(() => {
       const op =
         workflow.openText === workflow.text
@@ -105,14 +135,14 @@ export function App() {
       op.catch((e) => showToast(e instanceof Error ? e.message : String(e)));
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [workflow?.path, workflow?.openText, workflow?.text]);
+  }, [workflow?.path, workflow?.openText, workflow?.text, readOnly]);
 
   // The review guides the engine gives the open text's agent gates. Asked
   // again shortly after each edit; a failed request leaves the last answer.
   const [guides, setGuides] = useState<{ path: string; result: ReviewGuides } | null>(null);
   const reviewGuides = guides && guides.path === workflow?.path ? guides.result : null;
   useEffect(() => {
-    if (!workflow) return;
+    if (!workflow || readOnly) return;
     let current = true;
     const timer = window.setTimeout(() => {
       api
@@ -124,11 +154,11 @@ export function App() {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [workflow?.path, workflow?.openText]);
+  }, [workflow?.path, workflow?.openText, readOnly]);
 
   // Watch the open original. Clean files reload silently; dirty files retain their text and get the conflict banner.
   useEffect(() => {
-    if (!workflow?.onDisk) return;
+    if (!workflow?.onDisk || readOnly) return;
     const source = new EventSource(api.watchUrl(workflow.path));
     source.addEventListener("change", async (event) => {
       const change = JSON.parse((event as MessageEvent).data) as { hash: string | null };
@@ -149,11 +179,11 @@ export function App() {
         }));
     });
     return () => source.close();
-  }, [workflow?.path, workflow?.hash, workflow?.openText, workflow?.text, workflow?.onDisk]);
+  }, [workflow?.path, workflow?.hash, workflow?.openText, workflow?.text, workflow?.onDisk, readOnly]);
 
   // Applies one edit, or several in order as one change: either all apply or none.
   const apply = (edits: Edit | Edit[]) => {
-    if (!workflow || !currentKey) return;
+    if (!workflow || !currentKey || readOnly) return;
     const list = Array.isArray(edits) ? edits : [edits];
     try {
       let nextText = workflow.openText;
@@ -215,7 +245,7 @@ export function App() {
     setTab("step");
     setDrawerOpen(false);
     setCompareRequest(0);
-    setRunSlug(null);
+    setOpenRunKey(null);
     setProblemsOpen(false);
   };
 
@@ -232,20 +262,34 @@ export function App() {
     showToast(`Discarded changes to ${workflow.file}`);
   };
 
-  const openRun = (slug: string) => {
-    setRunSlug(slug);
+  const openRun = (key: string) => {
+    setOpenRunKey(key);
     showTab("run");
     setProblemsOpen(false);
   };
+  // A run from the projects list: open the workflow file it follows with it.
+  const openRunOfAnyWorkflow = (item: WorkstreamSummary) => {
+    const target = item.workflowPath ? workflows.find((w) => w.path === item.workflowPath) : undefined;
+    if (!target) {
+      showToast(`The workflow of ${item.slug}, ${item.workflow}, is not found in ${item.project}`);
+      return;
+    }
+    if (workflowKey(target) !== currentKey) {
+      setCurrentKey(workflowKey(target));
+      setSelectedIndex(0);
+      setCompareRequest(0);
+    }
+    openRun(runKey(item));
+  };
   const closeRun = () => {
-    setRunSlug(null);
+    setOpenRunKey(null);
     setCompareRequest(0);
     setTab("step");
   };
   const openWorkflowStep = (key: string, stepIndex: number) => {
     setCurrentKey(key);
     setSelectedIndex(stepIndex);
-    setRunSlug(null);
+    setOpenRunKey(null);
     setCompareRequest(0);
     showTab("step");
   };
@@ -284,7 +328,7 @@ export function App() {
     setModal({
       type: "save",
       asNew: !workflow.onDisk,
-      location: workflow.location,
+      location: workflow.location === "run" ? "project" : workflow.location,
       folder: workflow.dir,
       name: workflow.file.replace(/\.ya?ml$/, ""),
     });
@@ -403,6 +447,17 @@ export function App() {
         onOpen={openWorkflowKey}
         workstreams={workstreams}
         onNew={createNew}
+        footer={
+          <ProjectList
+            projects={projects.projects}
+            error={projects.error}
+            workstreams={workstreams}
+            currentRun={run ? runKey(run) : null}
+            onOpenRun={openRunOfAnyWorkflow}
+            onChanged={() => reloadData().catch((e) => showToast(e instanceof Error ? e.message : String(e)))}
+            onMessage={showToast}
+          />
+        }
       />
       <div className="center">
         <div className="center-header">
@@ -491,18 +546,18 @@ export function App() {
           </button>
           <select
             className="runs-select"
-            value={runSlug ?? ""}
+            value={run ? runKey(run) : ""}
             onChange={(event) => (event.target.value ? openRun(event.target.value) : closeRun())}
           >
             <option value="">{runsForWorkflow.length ? `Runs · ${runsForWorkflow.length}` : "No runs"}</option>
             {runsForWorkflow.map((item) => (
-              <option key={item.slug} value={item.slug}>
-                {runOption(item)}
+              <option key={runKey(item)} value={runKey(item)}>
+                {runOption(item, session.root)}
               </option>
             ))}
           </select>
         </div>
-        {run && <RunBanner run={run} onClose={closeRun} />}
+        {run && <RunBanner run={run} root={session.root} onClose={closeRun} />}
         <Flow
           steps={steps}
           selectedIndex={drawerOpen ? selectedIndex : -1}
@@ -554,12 +609,13 @@ export function App() {
         problems={problems.filter((p) => p.stepIndex === selectedIndex)}
         library={library}
         workstreams={workstreams}
+        root={session.root}
         diffBase={disk?.text ?? workflow.text}
         compareRequest={compareRequest}
         onEdit={apply}
         onAddArtifact={addArtifact}
         reviewGuides={reviewGuides}
-        allWorkflows={workflows}
+        allWorkflows={localWorkflows}
         run={run}
         onOpenRun={openRun}
         onOpenWorkflowStep={openWorkflowStep}
@@ -582,7 +638,7 @@ export function App() {
   );
 }
 
-function RunBanner({ run, onClose }: { run: WorkstreamSummary; onClose: () => void }) {
+function RunBanner({ run, root, onClose }: { run: WorkstreamSummary; root: string; onClose: () => void }) {
   const info = RUN_STATE[runState(run.summary?.status)];
   return (
     <div className="run-banner">
@@ -591,6 +647,7 @@ function RunBanner({ run, onClose }: { run: WorkstreamSummary; onClose: () => vo
         <span className={`run-state-pill ${info.className}`}>{info.label}</span>
         <span>
           started {dateTime(run.summary?.started)} · {duration(runDuration(run))}
+          {run.project !== root && <span title={run.project}> · in {projectName(run.project)}</span>}
         </span>
         <button onClick={onClose}>Close run</button>
       </div>

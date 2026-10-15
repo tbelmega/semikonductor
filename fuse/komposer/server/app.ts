@@ -1,25 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // Komposer's local server: the JSON API the app uses to read and write the
-// workflow files, the library and the workstreams of one project, and the
+// workflow files and the library of one project, to show the workstreams of
+// that project and of every project in ~/.konductor/projects.yml, and the
 // built app itself. Every location rule comes from fuse-flow's own code.
 //
 // The server writes files, so it guards itself: it listens on 127.0.0.1 only,
 // wants the token it was started with on every API request, refuses a foreign
 // Host header (DNS rebinding), and writes only .yml files inside the three
-// workflow locations and its own working-copy folder. It reads a review guide
+// workflow locations, its own working-copy folder and the projects list. The
+// workflow file a run of another project follows is read, never written. It
+// reads a review guide
 // that a workflow names only when the guide's real path, with symlinks
 // resolved, lies inside the project, the three libraries or the three
 // workflow locations, or is a file of a shipped package-library entry; any other guide is
 // reported as outside those locations, without its content.
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { summarizeRun, runEvents } from "../../flow/src/history.ts";
 import { parseWorkflowText } from "../../flow/src/parse.ts";
 import { display, libraryEntry, listLibrary, loadProject, reviewGuideSource } from "../../flow/src/policy.ts";
-import { findRepoRoot, libraryDirs, workflowDirs, workflowFilesBelow } from "../../flow/src/project.ts";
-import { listWorkstreams } from "../../flow/src/workstream.ts";
+import { findRepoRoot, isDirectory, libraryDirs, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
+import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
+import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
 
 export interface ServerOptions {
   root: string;
@@ -54,7 +59,49 @@ class HttpError extends Error {
 const FILE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const FOLDER_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 
+// How far below the folder given to "add projects" Komposer looks for runs,
+// and how many folders it reads at most, so a home directory stays quick.
+const SCAN_DEPTH = 4;
+const SCAN_FOLDERS = 20_000;
+
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+
+// Whether a project has at least one workstream state file.
+const hasRuns = (project: string) =>
+  isDirectory(workstreamsDir(project)) && readdirSync(workstreamsDir(project)).some((n) => n.endsWith(".yml"));
+
+// Every project at or below `dir` that has runs: a folder holding
+// .konductor/workstreams/*.yml. Folders inside .konductor, .git and
+// node_modules are not searched; worktrees below a project are.
+function findProjects(dir: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const walk = (folder: string, depth: number) => {
+    let real: string;
+    try {
+      real = realpathSync(folder);
+    } catch {
+      return;
+    }
+    if (seen.has(real) || seen.size >= SCAN_FOLDERS) return;
+    seen.add(real);
+    if (hasRuns(real)) found.push(real);
+    if (depth === SCAN_DEPTH) return;
+    let names: string[];
+    try {
+      names = readdirSync(real).sort();
+    } catch {
+      return; // not readable
+    }
+    for (const name of names) {
+      if (name === ".konductor" || name === ".git" || name === "node_modules") continue;
+      const path = join(real, name);
+      if (isDirectory(path)) walk(path, depth + 1);
+    }
+  };
+  walk(dir, 0);
+  return found;
+}
 
 export function startServer(options: ServerOptions): KomposerServer {
   const { root, token } = options;
@@ -78,6 +125,35 @@ export function startServer(options: ServerOptions): KomposerServer {
   };
 
   const workingCopyPath = (location: Location, rel: string) => join(editorDir, location.id, rel);
+  const inLocation = (path: string) => locations.some((l) => path.startsWith(l.path + sep));
+
+  // The projects whose runs are shown: this one first, then the registered
+  // ones. A broken projects file leaves this project alone, with the reason.
+  const projects = (): { paths: string[]; error?: string } => {
+    try {
+      return { paths: [...new Set([root, ...readProjects()])] };
+    } catch (e) {
+      return { paths: [root], error: (e as Error).message };
+    }
+  };
+
+  const runs = (): (WorkstreamListing & { project: string })[] =>
+    projects()
+      .paths.filter(isDirectory)
+      .flatMap((project) => listWorkstreams(project).map((w) => ({ ...w, project })));
+
+  // The workflow files runs follow that lie outside the three locations, such
+  // as another project's own workflows: listed read-only, so its runs can be shown.
+  const runWorkflows = () => {
+    const out = new Map<string, Record<string, unknown>>();
+    for (const run of runs()) {
+      const path = run.workflowPath;
+      if (!path || out.has(path) || inLocation(path) || !/\.ya?ml$/.test(path)) continue;
+      const text = readFileSync(path, "utf8");
+      out.set(path, { location: "run", project: run.project, dir: "", file: basename(path), path, onDisk: true, text, hash: sha(text) });
+    }
+    return [...out.values()];
+  };
 
   const listWorkflows = () => {
     const out: Record<string, unknown>[] = [];
@@ -118,7 +194,7 @@ export function startServer(options: ServerOptions): KomposerServer {
         });
       }
     }
-    return out;
+    return [...out, ...runWorkflows()];
   };
 
   const updateOriginal = (body: any) => {
@@ -280,14 +356,15 @@ export function startServer(options: ServerOptions): KomposerServer {
   };
 
   const workstreams = () => ({
-    workstreams: listWorkstreams(root).map((w) => {
-      if (!w.workstream) return { slug: w.slug, error: w.error };
+    workstreams: runs().map((w) => {
+      if (!w.workstream) return { project: w.project, slug: w.slug, error: w.error };
       let stepIds = Object.keys(w.workstream.steps);
       if (w.workflowPath) {
         const parsed = parseWorkflowText(readFileSync(w.workflowPath, "utf8"));
         if (parsed.ok) stepIds = parsed.workflow.steps.map((s) => s.id);
       }
       return {
+        project: w.project,
         slug: w.slug,
         workflow: w.workstream.workflow,
         ...(w.workflowPath ? { workflowPath: w.workflowPath } : {}),
@@ -297,6 +374,49 @@ export function startServer(options: ServerOptions): KomposerServer {
       };
     }),
   });
+
+  // The projects list for the app: each project with its run count, this one
+  // marked current, a registered folder that is gone marked missing.
+  const listProjects = () => {
+    const { paths, error } = projects();
+    return {
+      projects: paths.map((path) => {
+        const missing = !isDirectory(path);
+        return {
+          path,
+          name: basename(path),
+          current: path === root,
+          ...(missing ? { missing: true } : { runs: listWorkstreams(path).length }),
+        };
+      }),
+      ...(error ? { error } : {}),
+    };
+  };
+
+  const folderArg = (value: unknown): string => {
+    if (typeof value !== "string" || !value.trim()) throw new HttpError(400, "path is required");
+    const raw = value.trim();
+    const home = process.env.HOME ?? homedir();
+    const path = raw === "~" ? home : raw.startsWith("~/") ? join(home, raw.slice(2)) : raw;
+    if (!isAbsolute(path)) throw new HttpError(400, "Give an absolute path, or one that starts with ~/.");
+    return resolve(path);
+  };
+
+  // Add every project with runs at or below a folder. Registering goes through
+  // fuse-flow's own code, so the file stays the one fuse-flow writes.
+  const addProjects = (body: any) => {
+    const dir = folderArg(body.path);
+    if (!isDirectory(dir)) throw new HttpError(400, `${dir} is not a folder`);
+    const found = findProjects(dir);
+    const added = found.filter((p) => p !== root && registerProject(p));
+    return { found, added };
+  };
+
+  const removeProject = (body: any) => {
+    if (typeof body.path !== "string" || !body.path) throw new HttpError(400, "path is required");
+    if (resolve(body.path) === root) throw new HttpError(400, "Komposer was started on this project; it cannot be removed.");
+    return { removed: unregisterProject(body.path) };
+  };
 
   // Server-sent events for one file: its new hash each time it changes. The
   // folder is watched, not the file, because editors save by replacing it.
@@ -368,6 +488,12 @@ export function startServer(options: ServerOptions): KomposerServer {
         return Response.json(reviewGuides(body));
       case "GET /api/workstreams":
         return Response.json(workstreams());
+      case "GET /api/projects":
+        return Response.json(listProjects());
+      case "POST /api/projects":
+        return Response.json(addProjects(body));
+      case "DELETE /api/projects":
+        return Response.json(removeProject(body));
       case "GET /api/watch":
         return watchFile(url.searchParams.get("path") ?? "", req.signal);
       default:

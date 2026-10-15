@@ -1,8 +1,8 @@
 # Komposer
 
 Komposer is a local editor for fuse-flow workflows. It shows a workflow as a diagram, edits it
-without disturbing the file's comments and layout, and shows the runs of the project's
-workstreams. It reads and writes the workflow files on disk, in all three places fuse-flow looks:
+without disturbing the file's comments and layout, and shows the runs of workstreams in the
+project and in your other projects. It reads and writes the workflow files on disk, in all three places fuse-flow looks:
 
 - the project's `.konductor/workflows/`;
 - your own `~/.konductor/workflows/`;
@@ -47,9 +47,16 @@ serves the app with Vite on port 5173 and passes `/api` to the server started wi
 - **Saving a workflow that a workstream is following** affects that workstream, because fuse-flow
   reads the workflow again on every command. Komposer warns you when a save moves or renames
   steps that a running workstream depends on.
+- **Runs from all your projects.** The Projects section at the bottom of the list shows the
+  project Komposer was started on and every project in `~/.konductor/projects.yml`, each with
+  its runs; selecting a run opens it on the workflow it follows. fuse-flow adds a project to that
+  list when it writes a workstream there. For runs from before that, the folder button next to
+  Projects adds every project with runs in a folder and up to four folder levels below it. A
+  run whose workflow is the project's own file, outside the three folders above, opens that file
+  read-only. Removing a project from the list leaves its runs where they are.
 - **The server is for your machine only.** It listens on 127.0.0.1, requires the token from the
   printed URL, refuses requests that come with another host name, and writes only `.yml` files in
-  the three workflow folders and its own working-copy folder. It shows a review guide that a
+  the three workflow folders, its own working-copy folder and the projects list. It shows a review guide that a
   workflow names only when the guide lies in the project, a library or a workflow folder, or is
   a guide shipped with the package library.
 - **Known limitation:** comments inside a flow list (`[...]`) that spans several lines are lost

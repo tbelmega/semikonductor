@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { type KomposerServer, startServer } from "../app.ts";
 
 const CLI = resolve(import.meta.dir, "..", "..", "..", "flow", "src", "cli.ts");
@@ -47,8 +47,12 @@ function write(path: string, content: string): string {
 }
 
 function flow(...args: string[]): string {
+  return flowIn(root, ...args);
+}
+
+function flowIn(cwd: string, ...args: string[]): string {
   const proc = Bun.spawnSync([process.execPath, "run", CLI, ...args], {
-    cwd: root,
+    cwd,
     env: { ...(process.env as Record<string, string>), HOME: home },
     stdout: "pipe",
     stderr: "pipe",
@@ -460,6 +464,140 @@ steps:
     expect(run.slug).toBe("demo");
     expect(run.workflowPath).toBeUndefined();
     expect(run.events).toHaveLength(1);
+  });
+});
+
+describe("projects", () => {
+  const ONE = "version: 1\nname: one\nsteps:\n  - id: only\n    instruction: Do it.\n";
+  const projectsFile = () => join(home, ".konductor", "projects.yml");
+
+  // A second repository with its own copy of a workflow and one run of it.
+  function otherProject(name = "other"): string {
+    const other = join(root, name);
+    mkdirSync(join(other, ".git"), { recursive: true });
+    write(join(other, ".konductor", "workflows", "one.yml"), ONE);
+    flowIn(other, "start", "theirs", "--workflow", "one");
+    return other;
+  }
+
+  // A project for the folder scan: a run file is all the scan looks for.
+  function runFile(dir: string): string {
+    write(join(dir, ".konductor", "workstreams", "run.yml"), "not read by the scan\n");
+    return dir;
+  }
+
+  test("runs of every registered project are listed with their project", async () => {
+    write(join(root, ".konductor", "workflows", "one.yml"), ONE);
+    flow("start", "mine", "--workflow", "one");
+    const other = otherProject();
+
+    const { workstreams } = await json("/api/workstreams");
+    expect(workstreams.map((w: any) => [w.project, w.slug])).toEqual([
+      [root, "mine"],
+      [other, "theirs"],
+    ]);
+    expect(workstreams[1].workflowPath).toBe(join(other, ".konductor", "workflows", "one.yml"));
+    expect(workstreams[1].summary).toMatchObject({ status: "IN_PROGRESS", currentStep: "only" });
+  });
+
+  test("the workflow file another project's run follows is listed read-only", async () => {
+    const other = otherProject();
+    const path = join(other, ".konductor", "workflows", "one.yml");
+    const listed = (await json("/api/workflows")).workflows.filter((w: any) => w.location === "run");
+    expect(listed).toEqual([{ location: "run", project: other, dir: "", file: "one.yml", path, onDisk: true, text: ONE, hash: hash(ONE) }]);
+
+    const update = await api("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(ONE), text: "x" }) });
+    expect(update.status).toBe(403);
+    const copy = await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x" }) });
+    expect(copy.status).toBe(403);
+    expect(readFileSync(path, "utf8")).toBe(ONE);
+  });
+
+  test("a run of another project that follows a listed workflow is not listed twice", async () => {
+    write(join(home, ".konductor", "workflows", "shared.yml"), ONE);
+    const other = join(root, "other");
+    mkdirSync(join(other, ".git"), { recursive: true });
+    flowIn(other, "start", "theirs", "--workflow", "shared");
+    const { workflows } = await json("/api/workflows");
+    expect(workflows.filter((w: any) => w.location === "run")).toEqual([]);
+    const run = (await json("/api/workstreams")).workstreams[0];
+    expect(run).toMatchObject({ project: other, workflowPath: join(home, ".konductor", "workflows", "shared.yml") });
+  });
+
+  test("the list shows this project first, run counts, and a registered folder that is gone", async () => {
+    write(join(root, ".konductor", "workflows", "one.yml"), ONE);
+    flow("start", "mine", "--workflow", "one");
+    const other = otherProject();
+    const gone = otherProject("gone");
+    rmSync(gone, { recursive: true, force: true });
+
+    expect(await json("/api/projects")).toEqual({
+      projects: [
+        { path: root, name: basename(root), current: true, runs: 1 },
+        { path: other, name: "other", current: false, runs: 1 },
+        { path: gone, name: "gone", current: false, missing: true },
+      ],
+    });
+    // A gone project has no runs to list, and is no error.
+    expect((await json("/api/workstreams")).workstreams.map((w: any) => w.slug)).toEqual(["mine", "theirs"]);
+  });
+
+  test("a broken projects file leaves this project's runs and reports why", async () => {
+    write(projectsFile(), "projects: {not: a list}\n");
+    const body = await json("/api/projects");
+    expect(body.projects).toEqual([{ path: root, name: basename(root), current: true, runs: 0 }]);
+    expect(body.error).toContain("must hold a list of project paths");
+  });
+
+  test("adding a folder registers every project with runs at most four levels below it", async () => {
+    const area = join(root, "area");
+    const a = runFile(join(area, "a"));
+    const worktree = runFile(join(area, "a", ".worktrees", "w1"));
+    const deep = runFile(join(area, "b", "c", "d", "e"));
+    runFile(join(area, "b", "c", "d", "e", "f")); // five levels down
+    runFile(join(area, "node_modules", "pkg"));
+    mkdirSync(join(area, "empty", ".konductor", "workstreams"), { recursive: true });
+
+    const res = await json("/api/projects", { method: "POST", body: JSON.stringify({ path: area }) });
+    expect(res).toEqual({ found: [a, worktree, deep], added: [a, worktree, deep] });
+    expect(Bun.YAML.parse(readFileSync(projectsFile(), "utf8"))).toEqual({ projects: [a, worktree, deep] });
+
+    // Adding again finds them and adds nothing.
+    expect(await json("/api/projects", { method: "POST", body: JSON.stringify({ path: area }) })).toEqual({
+      found: [a, worktree, deep],
+      added: [],
+    });
+  });
+
+  test("adding takes ~/ paths, and refuses relative paths and files", async () => {
+    const mine = runFile(join(home, "work", "mine"));
+    expect(await json("/api/projects", { method: "POST", body: JSON.stringify({ path: "~/work" }) })).toEqual({
+      found: [mine],
+      added: [mine],
+    });
+    const relativePath = await api("/api/projects", { method: "POST", body: JSON.stringify({ path: "work" }) });
+    expect(relativePath.status).toBe(400);
+    const file = write(join(root, "file.txt"), "x");
+    const notFolder = await api("/api/projects", { method: "POST", body: JSON.stringify({ path: file }) });
+    expect(notFolder.status).toBe(400);
+    expect(((await notFolder.json()) as { error: string }).error).toBe(`${file} is not a folder`);
+  });
+
+  test("this project is found by a scan but never written to the list", async () => {
+    runFile(root);
+    const res = await json("/api/projects", { method: "POST", body: JSON.stringify({ path: root }) });
+    expect(res).toEqual({ found: [root], added: [] });
+    expect(existsSync(projectsFile())).toBe(false);
+  });
+
+  test("removing a project takes it off the list; this project cannot be removed", async () => {
+    const other = otherProject();
+    expect(await json("/api/projects", { method: "DELETE", body: JSON.stringify({ path: other }) })).toEqual({ removed: true });
+    expect((await json("/api/projects")).projects.map((p: any) => p.path)).toEqual([root]);
+    expect((await json("/api/workstreams")).workstreams).toEqual([]);
+
+    const self = await api("/api/projects", { method: "DELETE", body: JSON.stringify({ path: root }) });
+    expect(self.status).toBe(400);
   });
 });
 

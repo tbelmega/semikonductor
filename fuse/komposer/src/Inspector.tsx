@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import YAML, { Scalar } from "yaml";
 import { Plus, X } from "lucide-react";
 import type { FileRef, RunEvent, LibraryEntry, ReviewGuides, WorkstreamSummary } from "./api.ts";
-import { dateTime, duration, RUN_STATE, runDuration, runState } from "./runView.ts";
-import { ARTIFACT_DRAG, resolveLibrary, suggestPath } from "./api.ts";
+import { dateTime, duration, projectName, RUN_STATE, runDuration, runState } from "./runView.ts";
+import { ARTIFACT_DRAG, resolveLibrary, runKey, suggestPath } from "./api.ts";
 import { winningEntry } from "./model/artifactInstruction.ts";
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
@@ -38,6 +38,7 @@ export function Inspector({
   problems,
   library,
   workstreams,
+  root,
   diffBase,
   compareRequest,
   onEdit,
@@ -57,6 +58,8 @@ export function Inspector({
   problems: Problem[];
   library: LibraryEntry[];
   workstreams: WorkstreamSummary[];
+  // The project Komposer was started on.
+  root: string;
   diffBase: string;
   compareRequest: number;
   onEdit: (edit: Edit) => void;
@@ -67,7 +70,8 @@ export function Inspector({
   reviewGuides: ReviewGuides | null;
   allWorkflows: OpenWorkflow[];
   run?: WorkstreamSummary;
-  onOpenRun: (slug: string) => void;
+  // Opens a run by its runKey.
+  onOpenRun: (key: string) => void;
   onOpenWorkflowStep: (workflowKey: string, stepIndex: number) => void;
   onClose: () => void;
 }) {
@@ -116,7 +120,7 @@ export function Inspector({
           />
         )}
         {tab === "workflow" && (
-          <WorkflowTab workflow={workflow} workstreams={workstreams} onEdit={onEdit} onOpenRun={onOpenRun} />
+          <WorkflowTab workflow={workflow} workstreams={workstreams} root={root} onEdit={onEdit} onOpenRun={onOpenRun} />
         )}
         {tab === "library" && (
           <LibraryTab
@@ -841,13 +845,15 @@ function StepSectionView({
 function WorkflowTab({
   workflow,
   workstreams,
+  root,
   onEdit,
   onOpenRun,
 }: {
   workflow: OpenWorkflow;
   workstreams: WorkstreamSummary[];
+  root: string;
   onEdit: (edit: Edit) => void;
-  onOpenRun: (slug: string) => void;
+  onOpenRun: (key: string) => void;
 }) {
   const name = workflow.parsed?.name ?? workflow.rawWorkflow.name;
   const description = workflow.parsed?.description ?? workflow.rawWorkflow.description ?? "";
@@ -886,11 +892,12 @@ function WorkflowTab({
         {workstreams
           .filter((w) => w.workflowPath === workflow.path)
           .map((w) => (
-            <button key={w.slug} className="workstream-row" onClick={() => onOpenRun(w.slug)}>
+            <button key={runKey(w)} className="workstream-row" onClick={() => onOpenRun(runKey(w))}>
               <span className="mono">{w.slug}</span>
               <span className="workstream-meta">
                 {w.summary?.currentStep ? `at ${w.summary.currentStep} · ` : ""}
                 {w.summary?.status}
+                {w.project !== root ? ` · ${projectName(w.project)}` : ""}
               </span>
             </button>
           ))}

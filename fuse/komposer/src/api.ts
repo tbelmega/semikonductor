@@ -66,6 +66,11 @@ export const api = {
   reviewGuides: (path: string, text: string) =>
     request<ReviewGuides>("review-guides", { method: "POST", body: JSON.stringify({ path, text }) }),
   workstreams: () => request<{ workstreams: WorkstreamSummary[] }>("workstreams"),
+  projects: () => request<{ projects: ProjectSummary[]; error?: string }>("projects"),
+  addProjects: (path: string) =>
+    request<{ found: string[]; added: string[] }>("projects", { method: "POST", body: JSON.stringify({ path }) }),
+  removeProject: (path: string) =>
+    request<{ removed: boolean }>("projects", { method: "DELETE", body: JSON.stringify({ path }) }),
   watchUrl: (path: string) => `/api/watch?path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}`,
 };
 
@@ -124,6 +129,8 @@ export interface RunEvent {
 }
 
 export interface WorkstreamSummary {
+  // The project the run belongs to: its repository root.
+  project: string;
   slug: string;
   workflow?: string;
   workflowPath?: string;
@@ -143,6 +150,20 @@ export interface WorkstreamSummary {
     >;
   };
 }
+
+// One project whose runs Komposer shows: the one it was started on (current)
+// or one in ~/.konductor/projects.yml.
+export interface ProjectSummary {
+  path: string;
+  name: string;
+  current: boolean;
+  runs?: number;
+  // The registered folder no longer exists.
+  missing?: boolean;
+}
+
+// A run's identity across projects: slugs repeat between projects.
+export const runKey = (run: Pick<WorkstreamSummary, "project" | "slug">): string => `${run.project}/${run.slug}`;
 
 // The drag-and-drop type of a library entry dragged from the Library tab.
 export const ARTIFACT_DRAG = "application/x-komposer-artifact";
