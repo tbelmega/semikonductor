@@ -2,11 +2,13 @@
 // The state of one workstream, .konductor/workstreams/<slug>.yml: where each
 // step stands. Only fuse-flow writes it, and git ignores it.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
-import { findWorkflow, workstreamFile, workstreamsDir } from "./project.ts";
+import { withLock } from "./lock.ts";
+import { findWorkflow, projectsFile, workstreamFile, workstreamsDir } from "./project.ts";
+import { registerProject } from "./registry.ts";
 import { type StepState, type Workstream, WorkstreamSchema } from "./schemas/workstream.ts";
 
 export type { RecordedArtifact, StepState, StepStatus, Workstream } from "./schemas/workstream.ts";
@@ -59,6 +61,13 @@ export function updateWorkstream(
     writeFileSync(`${path}.tmp`, YAML.stringify(WorkstreamSchema.parse(ws)));
     renameSync(`${path}.tmp`, path);
   });
+  // Komposer finds the project's runs through this list. Recording it is not
+  // part of the workstream's state, so a failure is reported, not fatal.
+  try {
+    registerProject(root);
+  } catch (e) {
+    process.stderr.write(`fuse-flow: could not add ${root} to ${projectsFile()}: ${(e as Error).message}\n`);
+  }
 }
 
 // Workstream state and the reviewers' findings files are private to the
@@ -68,32 +77,6 @@ function prepareWorkstreamsDir(root: string): void {
     mkdirSync(dir, { recursive: true });
     const gitignore = join(dir, ".gitignore");
     if (!existsSync(gitignore)) writeFileSync(gitignore, "*\n");
-  }
-}
-
-const LOCK_WAIT_MS = 2000;
-
-// The lock is held only for the few milliseconds of one read and write, never
-// while a check command runs. A lock file left behind by a killed process is
-// not removed automatically; the error names the file to delete.
-function withLock(lockFile: string, fn: () => void): void {
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try {
-      writeFileSync(lockFile, `${process.pid}\n`, { flag: "wx" });
-      break;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      if (Date.now() > deadline) {
-        throw new FlowError(`another fuse-flow process holds ${lockFile}; if none is running, delete that file`);
-      }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20); // sleep 20 ms
-    }
-  }
-  try {
-    fn();
-  } finally {
-    rmSync(lockFile, { force: true });
   }
 }
 

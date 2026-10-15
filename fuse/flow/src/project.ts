@@ -61,10 +61,11 @@ export function isDirectory(path: string): boolean {
 }
 
 // Every .yml and .yaml file below `dir`, in nested folders too, following
-// symlinks. Skips node_modules, .git, and the project's workstream state files,
-// which are YAML but not workflows.
+// symlinks. Skips node_modules, .git, the project's workstream state files and
+// the user's projects list, which are YAML but not workflows.
 export function workflowFilesBelow(root: string, dir: string): string[] {
   const skip = new Set([join(root, ".git"), workstreamsDir(root)].filter(existsSync).map((p) => realpathSync(p)));
+  const notWorkflows = new Set([projectsFile()].filter(existsSync).map((p) => realpathSync(p)));
   const files: string[] = [];
   const walk = (folder: string) => {
     const real = realpathSync(folder);
@@ -74,7 +75,7 @@ export function workflowFilesBelow(root: string, dir: string): string[] {
       if (name === "node_modules" || name === ".git") continue;
       const path = join(folder, name);
       if (isDirectory(path)) walk(path);
-      else if (/\.ya?ml$/.test(name) && existsSync(path)) files.push(path);
+      else if (/\.ya?ml$/.test(name) && existsSync(path) && !notWorkflows.has(realpathSync(path))) files.push(path);
     }
   };
   walk(dir);
@@ -118,4 +119,9 @@ export function policyFiles(root: string): { user: string; team: string; local: 
     team: join(root, ".konductor", "policy-overrides.yml"),
     local: join(root, ".konductor", "policy-overrides.local.yml"),
   };
+}
+
+// The user's list of projects that hold workstreams; see registry.ts.
+export function projectsFile(): string {
+  return join(homeDir(), ".konductor", "projects.yml");
 }

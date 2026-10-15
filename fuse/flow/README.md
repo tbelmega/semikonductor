@@ -26,7 +26,9 @@ the agent rules into a project or into a user-level instruction file and checks 
 present. It does not copy fuse-flow. A global install writes the clone path into the rules. A
 project install writes `clone=<path>` to `~/.konductor/fuse-konductor-clone`, so a committed
 `AGENTS.md` stays the same for every developer. One clone serves any number of projects. Each
-repository keeps its private workstream state under `.konductor/workstreams/`.
+repository keeps its private workstream state under `.konductor/workstreams/`. Writing a
+workstream also adds the repository's root to `~/.konductor/projects.yml`, a list of paths that
+Komposer reads to show the runs of every project; the state itself stays in the project.
 
 ```bash
 cd <your-project>
