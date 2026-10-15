@@ -151,12 +151,14 @@ export interface WorkstreamSummary {
   };
 }
 
-// One project whose runs Komposer shows: the one it was started on (current)
-// or one in ~/.konductor/projects.yml.
+// One project whose runs Komposer shows: the one it was started on (current),
+// one in ~/.konductor/projects.yml, or the example runs that ship with
+// Komposer (example).
 export interface ProjectSummary {
   path: string;
   name: string;
   current: boolean;
+  example?: boolean;
   runs?: number;
   // The registered folder no longer exists.
   missing?: boolean;

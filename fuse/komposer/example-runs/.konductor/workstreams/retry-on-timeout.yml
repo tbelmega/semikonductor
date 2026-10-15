@@ -1,0 +1,46 @@
+workflow: custom-example-small
+started: 2026-10-14
+steps:
+  implementation:
+    status: COMPLETED
+    artifacts:
+      - artifact: implementation-report
+        path: .konductor/retry-on-timeout/implementation-report.md
+        status: approved
+      - artifact: code
+        path: .
+        status: approved
+    updated:
+      - src/http/client.ts
+      - test/http/client.test.ts
+    history:
+      - 2026-10-14T13:20:41.903Z handed out
+      - 2026-10-14T14:02:15.288Z completed
+  code-review:
+    status: COMPLETED
+    artifacts:
+      - artifact: implementation-report
+        path: .konductor/retry-on-timeout/implementation-report.md
+        status: approved
+      - artifact: code
+        path: .
+        status: approved
+    updated:
+      - .konductor/retry-on-timeout/implementation-report.md
+      - src/http/client.ts
+    verification:
+      - "check default (`npm test`): passed"
+    history:
+      - 2026-10-14T14:02:15.296Z handed out
+      - 2026-10-14T14:19:50.731Z completed
+  final-summary:
+    status: AWAITING_OWNER
+    artifacts:
+      - artifact: implementation-report
+        path: .konductor/retry-on-timeout/implementation-report.md
+        status: draft
+    updated:
+      - .konductor/retry-on-timeout/implementation-report.md
+    history:
+      - 2026-10-14T14:19:50.739Z handed out
+      - 2026-10-14T14:23:08.412Z work recorded; awaiting the owner's action

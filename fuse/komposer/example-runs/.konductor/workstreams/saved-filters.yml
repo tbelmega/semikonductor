@@ -1,0 +1,41 @@
+workflow: custom-example-medium
+started: 2026-10-13
+steps:
+  codebase-analysis:
+    status: COMPLETED
+    artifacts:
+      - artifact: codebase-analysis
+        path: .konductor/saved-filters/codebase-analysis.md
+        status: approved
+    history:
+      - 2026-10-13T09:02:18.775Z handed out
+      - 2026-10-13T09:27:40.163Z completed
+  requirements:
+    status: COMPLETED
+    artifacts:
+      - artifact: user-stories
+        path: .konductor/saved-filters/user-stories.md
+        status: approved
+    history:
+      - 2026-10-13T09:27:40.170Z handed out
+      - 2026-10-13T09:58:03.492Z completed
+  design:
+    status: COMPLETED
+    artifacts:
+      - artifact: design
+        path: .konductor/saved-filters/design.md
+        status: approved
+    history:
+      - 2026-10-13T09:58:03.500Z handed out
+      - 2026-10-13T10:40:56.118Z work recorded; awaiting the owner's action
+      - "2026-10-14T08:15:22.640Z owner approved: Approved. Keep filters per
+        user, not per team, for now."
+  implementation:
+    status: IN_PROGRESS
+    artifacts: []
+    verification:
+      - "check default (`npm test`): failed (exit 1)"
+    history:
+      - 2026-10-14T08:15:22.648Z handed out
+      - "2026-10-14T11:48:09.301Z continue refused: check default (`npm test`)
+        failed (exit 1)"

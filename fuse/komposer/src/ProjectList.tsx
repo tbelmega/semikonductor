@@ -70,7 +70,13 @@ export function ProjectList({
                   <button
                     className="lane-folder-row lane-toggle"
                     aria-expanded={expanded}
-                    title={project.current ? `${project.path}, the project Komposer was started on` : project.path}
+                    title={
+                      project.current
+                        ? `${project.path}, the project Komposer was started on`
+                        : project.example
+                          ? `${project.path}: made-up runs of the custom-example workflows, which ship with Komposer`
+                          : project.path
+                    }
                     onClick={() => sections.toggle(`project:${project.path}`, project.name, project.current)}
                   >
                     <Chevron open={expanded} />
@@ -79,7 +85,7 @@ export function ProjectList({
                       {project.missing ? "folder not found" : `${project.runs ?? 0} run${project.runs === 1 ? "" : "s"}`}
                     </span>
                   </button>
-                  {!project.current && (
+                  {!project.current && !project.example && (
                     <button
                       className="icon-mini lane-project-remove"
                       title={`Remove ${project.path} from the list; its runs stay where they are`}

@@ -35,7 +35,13 @@ try {
   const { dir, port } = parseArgs(process.argv.slice(2));
   const root = findRepoRoot(dir);
   const token = randomBytes(24).toString("base64url");
-  const server = startServer({ root, port, token, appDir: resolve(import.meta.dir, "..", "dist") });
+  const server = startServer({
+    root,
+    port,
+    token,
+    appDir: resolve(import.meta.dir, "..", "dist"),
+    examplesDir: resolve(import.meta.dir, "..", "example-runs"),
+  });
   console.log(`Komposer for ${root}`);
   console.log(`open ${server.url}/#token=${token}`);
   console.log(`with \`bun run dev\`, open http://127.0.0.1:5173/#token=${token}`);

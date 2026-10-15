@@ -1,0 +1,192 @@
+workflow: custom-example-large
+started: 2026-09-28
+steps:
+  elicitation:
+    status: COMPLETED
+    artifacts:
+      - artifact: requirements-summary
+        path: .konductor/team-workspaces/requirements-summary.md
+        status: approved
+    history:
+      - 2026-09-28T08:10:05.214Z handed out
+      - 2026-09-28T09:02:44.870Z work recorded; awaiting the owner's action
+      - "2026-09-28T11:30:18.093Z owner approved: Approved; single sign-on is
+        out of scope for the first release."
+  codebase-analysis:
+    status: COMPLETED
+    artifacts:
+      - artifact: codebase-analysis
+        path: .konductor/team-workspaces/codebase-analysis.md
+        status: approved
+    history:
+      - 2026-09-28T11:30:18.101Z handed out
+      - 2026-09-28T12:15:37.442Z completed
+  requirements:
+    status: COMPLETED
+    artifacts:
+      - artifact: user-stories
+        path: .konductor/team-workspaces/user-stories.md
+        status: approved
+    history:
+      - 2026-09-28T12:15:37.450Z handed out
+      - 2026-09-28T13:20:09.981Z work recorded; awaiting the owner's action
+      - 2026-09-29T08:05:41.337Z owner approved
+  design:
+    status: COMPLETED
+    artifacts:
+      - artifact: design
+        path: .konductor/team-workspaces/design.md
+        status: approved
+    history:
+      - 2026-09-29T08:05:41.345Z handed out
+      - 2026-09-29T10:48:22.716Z completed
+  threat-model:
+    status: COMPLETED
+    artifacts:
+      - artifact: threat-model
+        path: .konductor/team-workspaces/threat-model.md
+        status: approved
+    history:
+      - 2026-09-29T10:48:22.724Z handed out
+      - 2026-09-29T11:39:50.058Z completed
+  design-review:
+    status: COMPLETED
+    rounds_granted: 1
+    artifacts:
+      - artifact: design-review
+        path: .konductor/team-workspaces/design-review.md
+        status: approved
+      - artifact: design
+        path: .konductor/team-workspaces/design.md
+        status: approved
+    updated:
+      - .konductor/team-workspaces/design.md
+    history:
+      - 2026-09-29T11:39:50.066Z handed out
+      - "2026-09-29T14:22:31.580Z blocked by the agent: The design review
+        reached its cap of 2 rounds. Round 2 left one P1: deleting a workspace
+        removes its members' private drafts without notice. The fix needs a
+        product decision: keep the drafts in each member's personal space, or
+        warn before deleting."
+      - "2026-09-29T16:03:12.447Z owner granted 1 more review round: Keep the
+        drafts in each member's personal space, then review once more."
+      - 2026-09-29T17:10:45.902Z completed
+  design-signoff:
+    status: COMPLETED
+    artifacts:
+      - artifact: design-signoff
+        path: .konductor/team-workspaces/design-signoff.md
+        status: approved
+      - artifact: threat-model
+        path: .konductor/team-workspaces/threat-model.md
+        status: approved
+    updated:
+      - .konductor/team-workspaces/threat-model.md
+    history:
+      - 2026-09-29T17:10:45.910Z handed out
+      - 2026-09-29T17:31:28.265Z work recorded; awaiting the owner's action
+      - 2026-09-30T09:12:54.118Z owner approved
+  feature-splitting:
+    status: COMPLETED
+    artifacts:
+      - artifact: feature-split
+        path: .konductor/team-workspaces/feature-split.md
+        status: approved
+    history:
+      - 2026-09-30T09:12:54.126Z handed out
+      - 2026-09-30T09:48:30.771Z work recorded; awaiting the owner's action
+      - "2026-09-30T10:20:06.335Z owner approved: Three features; invitations
+        first."
+  specs:
+    status: COMPLETED
+    artifacts:
+      - artifact: spec-index
+        path: .konductor/team-workspaces/spec-index.md
+        status: approved
+    updated:
+      - .kiro/specs/workspace-invitations/requirements.md
+      - .kiro/specs/workspace-invitations/design.md
+      - .kiro/specs/workspace-invitations/tasks.md
+      - .kiro/specs/member-roles/requirements.md
+      - .kiro/specs/member-roles/design.md
+      - .kiro/specs/member-roles/tasks.md
+      - .kiro/specs/workspace-deletion/requirements.md
+      - .kiro/specs/workspace-deletion/design.md
+      - .kiro/specs/workspace-deletion/tasks.md
+    history:
+      - 2026-09-30T10:20:06.343Z handed out
+      - 2026-09-30T15:56:12.904Z work recorded; awaiting the owner's action
+      - 2026-10-01T08:40:27.210Z owner approved
+  implementation:
+    status: COMPLETED
+    artifacts:
+      - artifact: implementation-report
+        path: .konductor/team-workspaces/implementation-report.md
+        status: approved
+      - artifact: code
+        path: .
+        status: approved
+    updated:
+      - src/workspaces/invitations.ts
+      - src/workspaces/roles.ts
+      - src/workspaces/delete.ts
+      - src/api/routes/workspaces.ts
+      - test/workspaces/invitations.test.ts
+      - test/workspaces/roles.test.ts
+      - test/workspaces/delete.test.ts
+    verification:
+      - "check default (`npm test`): passed"
+    history:
+      - 2026-10-01T08:40:27.218Z handed out
+      - "2026-10-02T11:05:44.120Z continue refused: check default (`npm test`)
+        failed (exit 1)"
+      - 2026-10-02T16:48:03.557Z completed
+  code-review:
+    status: COMPLETED
+    artifacts:
+      - artifact: code-review
+        path: .konductor/team-workspaces/code-review.md
+        status: approved
+      - artifact: code
+        path: .
+        status: approved
+    updated:
+      - src/workspaces/roles.ts
+      - src/api/routes/workspaces.ts
+    verification:
+      - "check default (`npm test`): passed"
+    history:
+      - 2026-10-02T16:48:03.565Z handed out
+      - 2026-10-03T12:31:19.884Z completed
+  coverage-testing:
+    status: COMPLETED
+    artifacts:
+      - artifact: test-coverage
+        path: .konductor/team-workspaces/test-coverage.md
+        status: approved
+      - artifact: code
+        path: .
+        status: approved
+      - artifact: code-review
+        path: .konductor/team-workspaces/code-review.md
+        status: approved
+    updated:
+      - test/workspaces/roles.test.ts
+      - test/api/workspaces.test.ts
+      - .konductor/team-workspaces/code-review.md
+    verification:
+      - "check default (`npm test`): passed"
+    history:
+      - 2026-10-03T12:31:19.892Z handed out
+      - 2026-10-03T15:07:42.316Z completed
+  security-testing:
+    status: BLOCKED
+    artifacts: []
+    history:
+      - 2026-10-03T15:07:42.324Z handed out
+      - "2026-10-03T17:26:55.071Z blocked by the agent: Threat T4, replaying an
+        invitation link after the invitee has left the workspace, has no
+        mitigation in the code. The design names single-use links, but the
+        invitations feature reuses one link per workspace. Fixing it changes the
+        invitations feature, so the owner decides between sending the work back
+        to implementation and accepting the risk for the first release."

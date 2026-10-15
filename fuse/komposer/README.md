@@ -54,6 +54,12 @@ serves the app with Vite on port 5173 and passes `/api` to the server started wi
   Projects adds every project with runs in a folder and up to four folder levels below it. A
   run whose workflow is the project's own file, outside the three folders above, opens that file
   read-only. Removing a project from the list leaves its runs where they are.
+- **Example runs.** The last project in the list, `example-runs`, holds five made-up runs of the
+  `custom-example-small`, `-medium` and `-large` workflows, in `example-runs/.konductor/workstreams/`
+  in this folder. They come with the clone, so Komposer has runs to show before you have any of
+  your own. They show finished, waiting, in-progress and blocked runs, with a send-back, a failed
+  check and extra review rounds. Only the run files exist; the artifacts they name were never
+  written.
 - **The server is for your machine only.** It listens on 127.0.0.1, requires the token from the
   printed URL, refuses requests that come with another host name, and writes only `.yml` files in
   the three workflow folders, its own working-copy folder and the projects list. It shows a review guide that a

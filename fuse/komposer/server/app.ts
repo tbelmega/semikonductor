@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Komposer's local server: the JSON API the app uses to read and write the
 // workflow files and the library of one project, to show the workstreams of
-// that project and of every project in ~/.konductor/projects.yml, and the
+// that project, of every project in ~/.konductor/projects.yml and of the
+// example runs that ship with Komposer, and the
 // built app itself. Every location rule comes from fuse-flow's own code.
 //
 // The server writes files, so it guards itself: it listens on 127.0.0.1 only,
@@ -32,6 +33,9 @@ export interface ServerOptions {
   token: string;
   // The built app (dist/); not served when absent.
   appDir?: string;
+  // A folder of example runs that ships with Komposer, listed after the
+  // other projects so a fresh clone has runs to show; never registered.
+  examplesDir?: string;
 }
 
 export interface KomposerServer {
@@ -105,6 +109,7 @@ function findProjects(dir: string): string[] {
 
 export function startServer(options: ServerOptions): KomposerServer {
   const { root, token } = options;
+  const examples = options.examplesDir && isDirectory(options.examplesDir) ? realpathSync(options.examplesDir) : undefined;
   const [project, personal, pkg] = workflowDirs(root);
   const locations: Location[] = [
     { id: "project", label: "Project", path: project },
@@ -128,12 +133,15 @@ export function startServer(options: ServerOptions): KomposerServer {
   const inLocation = (path: string) => locations.some((l) => path.startsWith(l.path + sep));
 
   // The projects whose runs are shown: this one first, then the registered
-  // ones. A broken projects file leaves this project alone, with the reason.
+  // ones, then the example runs. A broken projects file leaves this project
+  // and the examples, with the reason.
   const projects = (): { paths: string[]; error?: string } => {
+    const last = examples && examples !== root ? [examples] : [];
     try {
-      return { paths: [...new Set([root, ...readProjects()])] };
+      const registered = readProjects().filter((p) => p !== examples);
+      return { paths: [...new Set([root, ...registered]), ...last] };
     } catch (e) {
-      return { paths: [root], error: (e as Error).message };
+      return { paths: [root, ...last], error: (e as Error).message };
     }
   };
 
@@ -386,6 +394,7 @@ export function startServer(options: ServerOptions): KomposerServer {
           path,
           name: basename(path),
           current: path === root,
+          ...(path === examples ? { example: true } : {}),
           ...(missing ? { missing: true } : { runs: listWorkstreams(path).length }),
         };
       }),
@@ -407,7 +416,7 @@ export function startServer(options: ServerOptions): KomposerServer {
   const addProjects = (body: any) => {
     const dir = folderArg(body.path);
     if (!isDirectory(dir)) throw new HttpError(400, `${dir} is not a folder`);
-    const found = findProjects(dir);
+    const found = findProjects(dir).filter((p) => p !== examples);
     const added = found.filter((p) => p !== root && registerProject(p));
     return { found, added };
   };
@@ -415,6 +424,7 @@ export function startServer(options: ServerOptions): KomposerServer {
   const removeProject = (body: any) => {
     if (typeof body.path !== "string" || !body.path) throw new HttpError(400, "path is required");
     if (resolve(body.path) === root) throw new HttpError(400, "Komposer was started on this project; it cannot be removed.");
+    if (resolve(body.path) === examples) throw new HttpError(400, "The example runs ship with Komposer; they cannot be removed.");
     return { removed: unregisterProject(body.path) };
   };
 
