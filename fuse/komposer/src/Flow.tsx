@@ -14,6 +14,7 @@ import { gatesInRunOrder, type ArtifactRole, type StepView, type WorkflowLink } 
 import { layoutEdges } from "./layout.ts";
 import { RunLinkButton, WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
+import type { StepCompare } from "./model/compare.ts";
 
 type Rect = { t: number; b: number; l: number; r: number };
 
@@ -46,6 +47,11 @@ function delegationTip(gate: Gate, link: WorkflowLink): string {
     .filter(Boolean)
     .join("\n");
 }
+const COMPARE_LABEL: Record<StepCompare["status"], string> = {
+  same: "same",
+  changed: "changed",
+  "only-here": "only here",
+};
 
 const ROLE_PREFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "", updates: "~" };
 const ROLE_SUFFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "?", updates: "" };
@@ -75,6 +81,8 @@ export function Flow({
   onOpenWorkflow,
   findRun,
   onOpenRun,
+  compare,
+  compareAction,
 }: {
   steps: StepView[];
   selectedIndex: number;
@@ -93,7 +101,8 @@ export function Flow({
   // A library entry dropped between steps, or on "Append step", becomes a new step at `at`.
   onDropArtifactAt: (at: number, artifact: string) => void;
   run?: WorkstreamSummary;
-  // Another project's file: shown, never edited, with or without a run.
+  // Another project's file, or compare mode: shown, never edited, with or without a run.
+  // No insert, append, move or delete controls, and artifact drops are ignored.
   readOnly?: boolean;
   gateTextVisible?: boolean;
   // The documents the workflow expects from outside, and the workflows it hands off to.
@@ -105,7 +114,12 @@ export function Flow({
   // Any workstream by slug, and opening its run, for a step's child workstreams.
   findRun: (slug: string) => WorkstreamSummary | undefined;
   onOpenRun: (slug: string) => void;
+  // Compare mode: how each step compares with the other workflow, by index.
+  compare?: StepCompare[];
+  // Compare mode: an action on each step that differs from the other side.
+  compareAction?: { label: string; title: (id: string) => string; run: (index: number) => void };
 }) {
+  const locked = readOnly || !!run;
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
     onDragOver: (event: DragEvent) => {
@@ -197,7 +211,7 @@ export function Flow({
           )}
           {steps.map((step, i) => (
             <div key={`${step.id}-${i}`}>
-              {run || readOnly ? null : (
+              {locked ? null : (
                 <div
                   className={`step-seam${dropAt === i ? " is-drop-target" : ""}`}
                   onClick={() => onInsert(i)}
@@ -239,6 +253,12 @@ export function Flow({
                 runChildren={(run?.children ?? []).filter((child) => child.step === step.id)}
                 findRun={findRun}
                 onOpenRun={onOpenRun}
+                compare={compare?.[i]}
+                compareAction={
+                  compareAction && compare?.[i] && compare[i].status !== "same"
+                    ? { label: compareAction.label, title: compareAction.title(step.id), run: () => compareAction.run(i) }
+                    : undefined
+                }
               />
             </div>
           ))}
@@ -268,7 +288,7 @@ export function Flow({
             </div>
           )}
         </div>
-        {!run && !readOnly && (
+        {!locked && (
           <button
             className={`append-step-btn${dropAt === steps.length ? " is-drop-target" : ""}`}
             onClick={onAppend}
@@ -323,6 +343,8 @@ function StepCard({
   runChildren,
   findRun,
   onOpenRun,
+  compare,
+  compareAction,
 }: {
   step: StepView;
   num: number;
@@ -351,7 +373,10 @@ function StepCard({
   runChildren: { pass: number; slug: string }[];
   findRun: (slug: string) => WorkstreamSummary | undefined;
   onOpenRun: (slug: string) => void;
+  compare?: StepCompare;
+  compareAction?: { label: string; title: string; run: () => void };
 }) {
+  const locked = runMode || readOnly;
   const hasProblems = problems.length > 0;
   const badConsumes = new Set(
     problems.filter((p) => p.field === "consumes" && p.itemIndex !== undefined).map((p) => step.consumes[p.itemIndex!]),
@@ -372,14 +397,14 @@ function StepCard({
   return (
     <div
       data-node={num}
-      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${stateInfo ? ` run-${stateInfo.className}` : ""}`}
+      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${stateInfo ? ` run-${stateInfo.className}` : ""}${compare ? ` compare-${compare.status}` : ""}`}
       onClick={onSelect}
       onDragOver={(event) => {
-        if (!runMode && !readOnly && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
+        if (!locked && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
       }}
       onDrop={(event) => {
         const artifact = event.dataTransfer.getData(ARTIFACT_DRAG);
-        if (artifact && !runMode && !readOnly) {
+        if (artifact && !locked) {
           event.preventDefault();
           onDropArtifact(artifact);
         }
@@ -520,6 +545,9 @@ function StepCard({
             )}
           </div>
         )}
+        {compare?.status === "changed" && (
+          <div className="compare-fields">differs in {compare.fields.join(", ")}</div>
+        )}
         {runBits.length > 0 && (
           <div className="run-step-meta">
             {runBits.map((bit) => (
@@ -528,7 +556,16 @@ function StepCard({
           </div>
         )}
       </div>
-      {runMode ? (
+      {compare ? (
+        <div className="compare-card-side" onClick={(event) => event.stopPropagation()}>
+          <span className={`compare-pill compare-pill-${compare.status}`}>{COMPARE_LABEL[compare.status]}</span>
+          {compareAction && (
+            <button className="compare-copy-btn" title={compareAction.title} onClick={compareAction.run}>
+              {compareAction.label}
+            </button>
+          )}
+        </div>
+      ) : readOnly ? null : runMode ? (
         <span className={`run-state-pill ${stateInfo?.className ?? "pending"}`}>
           {stateInfo?.label ?? "not started"}
         </span>
