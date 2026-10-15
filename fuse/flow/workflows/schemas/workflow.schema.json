@@ -19,6 +19,102 @@
       "description": "What the workflow is for, in a sentence or two. Engine effect: none; shown by `fuse-flow list` and the viewer.",
       "type": "string"
     },
+    "inputs": {
+      "description": "Documents the workflow expects from outside. Engine effect: `start --after <slug>` binds each to the earlier workstream's document with the same id, `start --input <id>=<path>` to a file, and a parent's workflow gate to its own documents. A step block shows an input that was not bound as not given.",
+      "type": "array",
+      "items": {
+        "description": "A document the workflow expects from outside.",
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "description": "The input's id. Engine effect: steps may consume it as if an earlier step had produced it. It may not be an id a step of this workflow produces, updates or returns.",
+            "examples": [
+              "build-order"
+            ],
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "description": {
+            "description": "What the input is, for the reader. Engine effect: none.",
+            "type": "string"
+          },
+          "required": {
+            "description": "Whether the workflow cannot start without it. Engine effect: `start`, and a parent creating this workflow as a child, refuse when it is not bound. Inputs are optional unless this is true.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "artifact"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "hands_off_to": {
+      "description": "The workflows that may come next: one or a list, each a name or `{ workflow, when }`. Engine effect: the completion block names each with the command that starts it after this workstream; nothing starts on its own, so the owner decides.",
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "properties": {
+                "workflow": {
+                  "description": "The next workflow, by name or by a path relative to this workflow file.",
+                  "examples": [
+                    "fuse-feature-development"
+                  ],
+                  "type": "string",
+                  "minLength": 1
+                },
+                "when": {
+                  "description": "When to start it, in words, such as once per entry of the build order. Engine effect: printed in the completion block with the start command.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "workflow"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "workflow": {
+                    "description": "The next workflow, by name or by a path relative to this workflow file.",
+                    "examples": [
+                      "fuse-feature-development"
+                    ],
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "when": {
+                    "description": "When to start it, in words, such as once per entry of the build order. Engine effect: printed in the completion block with the start command.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "workflow"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      ]
+    },
     "steps": {
       "description": "The steps, in the order fuse-flow runs them. The current step is the first one in the list that is neither COMPLETED nor SKIPPED, so steps run one at a time, in file order.",
       "minItems": 1,

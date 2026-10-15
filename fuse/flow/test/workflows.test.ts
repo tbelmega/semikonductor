@@ -112,7 +112,7 @@ describe("invalid workflows are refused with the reason", () => {
     ["depends_on, replaced by consumes", ONE_STEP + "    depends_on: []\n", "Unrecognized key"],
     ["the gate alias, replaced by gates", ONE_STEP + "    gate: { agent: review }\n", "Unrecognized key"],
     ["duplicate step id", ONE_STEP + "  - id: only\n    instruction: again\n", 'duplicate step id "only"'],
-    ["bad gate", ONE_STEP + "    gates: sometimes\n", 'must be one of owner-action, check, script or agent'],
+    ["bad gate", ONE_STEP + "    gates: sometimes\n", 'must be one of owner-action, check, script, agent or workflow'],
     ["empty script", ONE_STEP + '    gates: "script:"\n', "script needs a text"],
     ["step without an instruction", "version: 1\nname: x\nsteps:\n  - id: a\n", "steps.0.instruction"],
     ["agent gate max_rounds below 1", ONE_STEP + "    gates: { agent: review, max_rounds: 0 }\n", "max_rounds must be a whole number, 1 or more"],

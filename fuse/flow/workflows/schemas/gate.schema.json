@@ -178,8 +178,99 @@
       "additionalProperties": false
     },
     {
-      "description": "As a string: `owner-action(\"…\")`, `check: default`, `script(\"…\")` or `agent: …`.",
-      "pattern": "^\\s*(owner-action|check|script|agent)\\s*[(:][\\s\\S]*$",
+      "description": "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `inputs`, `returns`, `description` and `route_back_to`.",
+      "type": "object",
+      "properties": {
+        "workflow": {
+          "description": "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child workstream with its inputs bound from this workstream's documents, and `continue` is refused until the child is complete. After a send-back, the next pass gets a fresh child.",
+          "type": "string"
+        },
+        "slug": {
+          "description": "The child workstream's slug, a template that contains {slug}, the parent's slug, and may contain {step}, this step's id; {slug}-{step} unless set. Engine effect: the child is created under this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
+          "examples": [
+            "{slug}-adversarial"
+          ],
+          "type": "string"
+        },
+        "inputs": {
+          "description": "The documents the child is given: child input id -> artifact id in this workflow, available before this step. Engine effect: each binds the child's declared input to this workstream's document.",
+          "examples": [
+            {
+              "review-diff": "review-diff"
+            }
+          ],
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "returns": {
+          "description": "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` resolves each to the newest child's recorded document.",
+          "examples": [
+            [
+              "adversarial-review-report"
+            ],
+            {
+              "system-design": "design"
+            }
+          ],
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "description": {
+          "description": "What the gate is for, in free text, for the reader. Engine effect: none.",
+          "type": "string"
+        },
+        "route_back_to": {
+          "description": "The steps the work should go back to when this gate cannot be passed: one step id or a list, each this step or one before it. Usually the step that produces the artifact the gate finds fault with. Engine effect: when the step awaits the owner or is blocked, fuse-flow suggests these steps for `--back-to`, and the viewer draws them as routes back.",
+          "examples": [
+            "design",
+            [
+              "design",
+              "spec"
+            ]
+          ],
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "description": "As a string: `owner-action(\"…\")`, `check: default`, `script(\"…\")`, `agent: …` or `workflow: <name>`.",
+      "pattern": "^\\s*(owner-action|check|script|agent|workflow)\\s*[(:][\\s\\S]*$",
       "type": "string"
     }
   ]

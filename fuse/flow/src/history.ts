@@ -24,6 +24,7 @@ export const EVENT = {
   roundsGranted: (n: number, note?: string) => `owner granted ${n} more review round${n === 1 ? "" : "s"}${withNote(note)}`,
   sentBack: (from: string, to: string, note?: string) => `owner sent the work back from ${from} to ${to}${withNote(note)}`,
   approved: (note?: string) => `owner approved${withNote(note)}`,
+  childCreated: (slug: string) => `created child workstream ${slug}`,
 };
 
 // The skip reasons the owner's own commands give. They are written as
@@ -47,6 +48,7 @@ export type EventKind =
   | "rounds-granted"
   | "sent-back"
   | "approved"
+  | "child-created"
   | "other";
 
 export interface RunEvent {
@@ -95,6 +97,7 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
     (m) => ({ kind: "sent-back", to: "PENDING", actor: "owner", detail: m[3] ?? "", backFrom: m[1], backTo: m[2] }),
   ],
   [/^owner approved(?:: ([\s\S]*))?$/, (m) => ({ kind: "approved", to: "COMPLETED", actor: "owner", detail: m[1] ?? "" })],
+  [/^created child workstream (\S+)$/, (m) => ({ kind: "child-created", detail: m[1] })],
 ];
 
 function read(text: string): Reading {

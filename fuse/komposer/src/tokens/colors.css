@@ -115,6 +115,11 @@
   --tint-agent-bg:        oklch(0.94 0.05 160);
   --tint-agent-text:      oklch(0.4 0.1 160);
 
+  /* links to another workflow or workstream: hand-offs and delegations */
+  --tint-link-bg:         oklch(0.95 0.04 295);
+  --tint-link-line:       oklch(0.6 0.13 295);
+  --tint-link-text:       oklch(0.42 0.14 295);
+
   --tint-diff-add-bg:     oklch(0.94 0.05 155);
   --tint-diff-add-text:   oklch(0.35 0.09 155);
   --tint-diff-remove-bg:  oklch(0.95 0.035 25);
@@ -185,6 +190,10 @@
 
   --tint-agent-bg:        oklch(0.62 0.1 160 / 0.18);
   --tint-agent-text:      oklch(0.82 0.09 160);
+
+  --tint-link-bg:         oklch(0.6 0.13 295 / 0.16);
+  --tint-link-line:       oklch(0.7 0.12 295);
+  --tint-link-text:       oklch(0.82 0.1 295);
 
   --tint-diff-add-bg:     oklch(0.62 0.12 155 / 0.16);
   --tint-diff-add-text:   oklch(0.82 0.1 155);

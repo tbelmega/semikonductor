@@ -29,11 +29,13 @@ export interface Layout {
 
 export function layoutEdges(steps: StepView[]): Layout {
   // The first step to list each artifact in produces, optional_produces or
-  // updates is its producer.
+  // updates, or to return it from its child through a workflow gate, is its
+  // producer.
   const producedAt = new Map<string, number>();
   steps.forEach((step, i) => {
-    for (const a of step.artifacts) {
-      if (!producedAt.has(a.artifact)) producedAt.set(a.artifact, i);
+    const returned = step.gates.flatMap((g) => (g.kind === "workflow" ? Object.keys(g.returns ?? {}) : []));
+    for (const id of [...step.artifacts.map((a) => a.artifact), ...returned]) {
+      if (!producedAt.has(id)) producedAt.set(id, i);
     }
   });
 

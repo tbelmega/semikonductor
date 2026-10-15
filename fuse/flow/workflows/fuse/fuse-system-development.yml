@@ -22,6 +22,12 @@ description: >
   design and a build order, each reviewed by an agent and approved by the owner. The features in
   the build order are then built one by one, or in parallel by teammates, with
   fuse-feature-development.
+inputs:
+  - artifact: product-brief
+    description: The product brief of a prototype, when the system follows fuse-rapid-prototyping.
+hands_off_to:
+  - workflow: fuse-feature-development
+    when: once per entry of the build order, or for a few entries combined
 steps:
   - id: intake
     title: Intake
@@ -35,6 +41,7 @@ steps:
       still open; from then on, record each decision in the draft when it is made. When the
       request already settles the purpose and scope, write the draft straight away and say so.
       Do not order the draft for review yet.
+    consumes: [product-brief]
     produces:
       - artifact: requirements
         path: docs/specs/{date}-{slug}/requirements.md

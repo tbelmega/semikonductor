@@ -1348,3 +1348,133 @@ steps:
     for (const edit of edits) expect(applyEdit(text, edit)).toBe(text);
   });
 });
+
+describe("a workflow with inputs, hand-offs and a workflow gate", () => {
+  const text = `version: 1
+name: parent
+inputs:
+  - artifact: brief
+    required: true
+hands_off_to:
+  - workflow: next
+    when: once the parent is done
+steps:
+  - id: intake
+    instruction: Write the diff.
+    consumes: [brief]
+    produces: { artifact: diff, path: "diffs/{slug}.diff" }
+  - id: adversarial
+    instruction: Merge the new findings.
+    gates:
+      - owner-action: approve the findings
+      # the child does the review
+      - workflow: child
+        slug: "{slug}-adv"
+        inputs:
+          given-diff: diff
+        returns: [report]
+        route_back_to: intake
+  - id: summary
+    instruction: Summarize.
+    consumes: [report]
+`;
+  const workflowGateLines = ['      - workflow: child', '        slug: "{slug}-adv"', "        inputs:", "          given-diff: diff", "        returns: [report]"];
+  const gateOf = (out: string) => {
+    const parsed = parseWorkflowText(out);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    const step = parsed.workflow.steps.find((s) => s.gates.some((g) => g.kind === "workflow"))!;
+    return { step, gate: step.gates.find((g) => g.kind === "workflow")!, workflow: parsed.workflow };
+  };
+  // The workflow gate, inputs and hand-offs as plain YAML, so an edit that
+  // makes the file invalid (moving a step) can still be compared.
+  const rawOf = (out: string) => {
+    const doc = YAML.parse(out);
+    const gate = doc.steps.flatMap((s: { gates?: Record<string, unknown>[] }) => s.gates ?? []).find((g: Record<string, unknown>) => "workflow" in g);
+    return { gate, inputs: doc.inputs, hands_off_to: doc.hands_off_to };
+  };
+
+  test("an unrelated edit leaves the workflow gate, the inputs and the hand-offs as written", () => {
+    const before = rawOf(text);
+    expect(before.gate).toEqual({ workflow: "child", slug: "{slug}-adv", inputs: { "given-diff": "diff" }, returns: ["report"], route_back_to: "intake" });
+    const edits: Edit[] = [
+      { op: "setStepField", step: 1, key: "title", value: "Adversarial review" },
+      { op: "setStepField", step: 0, key: "description", value: "The diff." },
+      { op: "setInstruction", step: 1, text: "Merge every new finding.", style: ">" },
+      { op: "setConsumes", step: 2, ids: ["report", "diff"] },
+      { op: "setGate", step: 1, index: 0, fields: { text: "approve the merged findings" } },
+      { op: "addGate", step: 1, gate: { kind: "check", text: "default" } },
+      { op: "removeGate", step: 1, index: 0 },
+      { op: "insertStep", at: 0, step: { id: "first", instruction: "Begin." } },
+      { op: "moveStep", from: 2, to: 1 },
+      { op: "moveStep", from: 1, to: 2 },
+      { op: "deleteStep", index: 2 },
+      { op: "setWorkflowField", key: "description", value: "Reviews a diff." },
+      { op: "addOutput", step: 0, mode: "produces", artifact: "plan", path: "plan.md" },
+      { op: "setCondition", step: 2, condition: { kind: "agent", text: "when there are findings" } },
+    ];
+    for (const edit of edits) {
+      const out = applyEdit(text, edit);
+      expect({ edit, ...rawOf(out) }).toEqual({ edit, ...before });
+      for (const line of workflowGateLines) expect(out).toContain(line);
+      expect(out).toContain("      # the child does the review\n");
+    }
+  });
+
+  test("editing the workflow gate's own text, description or route back changes only that line", () => {
+    const renamed = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { text: "deep-review" } });
+    expect(changedLines(text, renamed).size).toBe(1);
+    expect(gateOf(renamed).gate).toMatchObject({ text: "deep-review", slug: "{slug}-adv", inputs: { "given-diff": "diff" }, returns: { report: "report" } });
+
+    const described = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { description: "an independent review" } });
+    expect(described).toContain('        returns: [report]\n        description: an independent review\n        route_back_to: intake\n');
+    expect(gateOf(described).gate).toMatchObject({ description: "an independent review", slug: "{slug}-adv", returns: { report: "report" } });
+
+    const routed = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { route_back_to: [] } });
+    expect(routed).not.toContain("route_back_to");
+    expect(gateOf(routed).gate).toMatchObject({ slug: "{slug}-adv", inputs: { "given-diff": "diff" }, returns: { report: "report" } });
+
+    // Renaming the step a workflow gate routes back to rewrites the route, not the gate's own fields.
+    const renamedStep = applyEdit(text, { op: "setStepField", step: 0, key: "id", value: "start" });
+    expect(gateOf(renamedStep).gate).toMatchObject({ route_back_to: ["start"], slug: "{slug}-adv", returns: { report: "report" } });
+  });
+
+  test("making the workflow gate another kind removes its slug, inputs and returns, which only it may carry", () => {
+    const out = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { kind: "agent", text: "review the diff" } });
+    expect(out).toContain("      - agent: review the diff\n        route_back_to: intake\n");
+    for (const key of ["slug:", "        inputs:", "given-diff", "returns:"]) expect(out).not.toContain(key);
+    // The comment above the gate stays.
+    expect(out).toContain("      # the child does the review\n");
+    // The step after it consumed what the child returned; the engine now says so.
+    const parsed = parseWorkflowText(out);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.issues.map((i) => i.path.join("."))).toEqual(["steps.2.consumes.0"]);
+  });
+
+  test("a workflow gate in a flow list keeps its fields when it is edited", () => {
+    const flow = text.replace(
+      /    gates:\n[\s\S]*?route_back_to: intake\n/,
+      '    gates: [{ owner-action: approve }, { workflow: child, slug: "{slug}-x", inputs: { given-diff: diff }, returns: [report] }]\n',
+    );
+    expect(gateOf(flow).gate).toMatchObject({ slug: "{slug}-x" });
+    const out = applyEdit(flow, { op: "setGate", step: 1, index: 1, fields: { description: "independent" } });
+    expect(out).toContain('{ workflow: child, slug: "{slug}-x", inputs: { given-diff: diff }, returns: [report], description: independent }');
+    expect(gateOf(out).gate).toMatchObject({ slug: "{slug}-x", inputs: { "given-diff": "diff" }, returns: { report: "report" }, description: "independent" });
+    const other = applyEdit(flow, { op: "setGate", step: 1, index: 0, fields: { text: "approve it" } });
+    expect(other).toContain('{ workflow: child, slug: "{slug}-x", inputs: { given-diff: diff }, returns: [report] }');
+  });
+
+  test("a workflow gate can be added, and a workflow written as a condition can be replaced", () => {
+    const added = applyEdit(text, { op: "addGate", step: 0, gate: { kind: "workflow", text: "child" } });
+    expect(added).toContain('    produces: { artifact: diff, path: "diffs/{slug}.diff" }\n    gates:\n      - workflow: child\n');
+    // A workflow is not a condition; the engine says so, and the editor can still replace it.
+    const wrong = text.replace("    instruction: Summarize.\n", "    instruction: Summarize.\n    condition: { workflow: child }\n");
+    expect(parseWorkflowText(wrong).ok).toBe(false);
+    const fixed = applyEdit(wrong, { op: "setCondition", step: 2, condition: { kind: "script", text: "test -f report.md" } });
+    expect(parseWorkflowText(fixed).ok).toBe(true);
+  });
+
+  test("a new workflow description goes before the inputs, in the file's key order", () => {
+    const out = applyEdit(text, { op: "setWorkflowField", key: "description", value: "Reviews a diff." });
+    expect(out.startsWith("version: 1\nname: parent\ndescription: Reviews a diff.\ninputs:\n")).toBe(true);
+  });
+});

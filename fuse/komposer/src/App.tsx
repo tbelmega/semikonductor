@@ -16,10 +16,13 @@ import { applyEdit, type Edit, type OutputMode } from "./model/yamlEdit.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
+  linkTo,
   openWorkflow,
   newStepKey,
   routeBackCount,
   stepViews,
+  workflowHandOffs,
+  workflowInputs,
   workflowKey,
   type LocationId,
   type OpenWorkflow,
@@ -30,6 +33,7 @@ import { WorkflowList } from "./WorkflowList.tsx";
 import { ProjectList } from "./ProjectList.tsx";
 import { Flow } from "./Flow.tsx";
 import { Inspector, type InspectorTab } from "./Inspector.tsx";
+import { RunLinkButton } from "./Links.tsx";
 import { dateTime, duration, projectName, RUN_STATE, runDuration, runOption, runState } from "./runView.ts";
 
 type SaveModal = { type: "save"; asNew: boolean; location: LocationId; folder: string; name: string; error?: string };
@@ -292,6 +296,23 @@ export function App() {
     setOpenRunKey(null);
     setCompareRequest(0);
     showTab("step");
+  };
+  // A workflow reference of the open workflow (a hand-off, a workflow gate),
+  // resolved the way fuse-flow resolves it.
+  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows);
+  // A linked run (the run a run came after, its parent, a child) is named by
+  // slug, so it is looked up in the open run's project.
+  const findRun = (slug: string) =>
+    workstreams.find((item) => item.project === (run?.project ?? session?.root) && item.slug === slug);
+  // Opens a linked run, in the workflow it follows.
+  const openAnyRun = (slug: string) => {
+    const target = findRun(slug);
+    if (!target) {
+      showToast(`Workstream ${slug} is not one Komposer lists.`);
+      return;
+    }
+    setProblemsOpen(false);
+    openRunOfAnyWorkflow(target);
   };
 
   const createNew = () => setModal({ type: "new", location: "project", folder: "", name: "" });
@@ -557,7 +578,7 @@ export function App() {
             ))}
           </select>
         </div>
-        {run && <RunBanner run={run} root={session.root} onClose={closeRun} />}
+        {run && <RunBanner run={run} root={session.root} onClose={closeRun} findRun={findRun} onOpenRun={openAnyRun} />}
         <Flow
           steps={steps}
           selectedIndex={drawerOpen ? selectedIndex : -1}
@@ -578,6 +599,12 @@ export function App() {
           onDropArtifact={(step, artifact) => addArtifact(step, "produces", artifact)}
           onDropArtifactAt={insertArtifactStep}
           run={run}
+          inputs={workflowInputs(workflow)}
+          handOffs={workflowHandOffs(workflow)}
+          linkTo={resolveLink}
+          onOpenWorkflow={openWorkflowKey}
+          findRun={findRun}
+          onOpenRun={openAnyRun}
         />
         {!drawerOpen && (
           <div className="drawer-fabs">
@@ -618,6 +645,10 @@ export function App() {
         allWorkflows={localWorkflows}
         run={run}
         onOpenRun={openRun}
+        onOpenAnyRun={openAnyRun}
+        findRun={findRun}
+        linkTo={resolveLink}
+        onOpenWorkflow={openWorkflowKey}
         onOpenWorkflowStep={openWorkflowStep}
         onClose={() => setDrawerOpen(false)}
       />
@@ -638,8 +669,21 @@ export function App() {
   );
 }
 
-function RunBanner({ run, root, onClose }: { run: WorkstreamSummary; root: string; onClose: () => void }) {
+function RunBanner({
+  run,
+  root,
+  onClose,
+  findRun,
+  onOpenRun,
+}: {
+  run: WorkstreamSummary;
+  root: string;
+  onClose: () => void;
+  findRun: (slug: string) => WorkstreamSummary | undefined;
+  onOpenRun: (slug: string) => void;
+}) {
   const info = RUN_STATE[runState(run.summary?.status)];
+  const linked = run.after || run.parent || (run.startedAfter?.length ?? 0) > 0;
   return (
     <div className="run-banner">
       <div className="run-banner-head">
@@ -651,6 +695,30 @@ function RunBanner({ run, root, onClose }: { run: WorkstreamSummary; root: strin
         </span>
         <button onClick={onClose}>Close run</button>
       </div>
+      {linked && (
+        <div className="run-banner-links">
+          {run.parent && (
+            <span>
+              child of step <span className="mono">{run.parent.step}</span> of
+              <RunLinkButton slug={run.parent.slug} run={findRun(run.parent.slug)} onOpen={onOpenRun} />
+            </span>
+          )}
+          {run.after && (
+            <span>
+              started after
+              <RunLinkButton slug={run.after} run={findRun(run.after)} onOpen={onOpenRun} />
+            </span>
+          )}
+          {(run.startedAfter?.length ?? 0) > 0 && (
+            <span>
+              started after it
+              {run.startedAfter!.map((slug) => (
+                <RunLinkButton key={slug} slug={slug} run={findRun(slug)} onOpen={onOpenRun} />
+              ))}
+            </span>
+          )}
+        </div>
+      )}
       <div className="run-legend">
         {Object.values(RUN_STATE).map((state) => (
           <span key={state.className}>

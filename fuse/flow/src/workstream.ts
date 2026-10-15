@@ -27,6 +27,23 @@ export function workstreamExists(root: string, slug: string): boolean {
   return existsSync(workstreamFile(root, slug));
 }
 
+// The local date, YYYY-MM-DD.
+export function localDate(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+// The day the workstream started. A state file written before `started`
+// existed falls back to its earliest history line.
+export function startedOn(ws: Workstream): string {
+  if (ws.started) return ws.started;
+  const stamps = Object.values(ws.steps)
+    .flatMap((s) => s.history.map((h) => h.split(" ")[0]))
+    .filter((t) => !Number.isNaN(Date.parse(t)))
+    .sort();
+  return localDate(stamps.length ? new Date(stamps[0]) : new Date());
+}
+
 export function readWorkstream(root: string, slug: string): Workstream {
   const path = workstreamFile(root, slug);
   if (!existsSync(path)) throw new FlowError(`no workstream "${slug}" in ${root}; run fuse-flow start ${slug} first`);

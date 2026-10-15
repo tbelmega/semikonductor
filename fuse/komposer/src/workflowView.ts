@@ -5,8 +5,9 @@
 
 import YAML from "yaml";
 import type { Gate } from "../../flow/src/schemas/gate.ts";
-import type { Workflow } from "../../flow/src/schemas/workflow.ts";
+import type { HandOff, Workflow, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import { parseWorkflowText, type WorkflowIssue } from "../../flow/src/parse.ts";
+import { resolveWorkflowRef } from "./model/workflowLinks.ts";
 
 export type LocationId = "project" | "personal" | "fuse-flow";
 
@@ -61,6 +62,8 @@ export interface OpenWorkflow extends WorkflowFile {
 export interface RawWorkflowGuess {
   name: string;
   description?: string;
+  inputs: WorkflowInput[];
+  hands_off_to: HandOff[];
   steps: RawStepGuess[];
 }
 
@@ -104,9 +107,23 @@ export function guessRawWorkflow(text: string): RawWorkflowGuess {
   }
   const w = doc && typeof doc === "object" ? (doc as Record<string, unknown>) : {};
   const steps = Array.isArray(w.steps) ? w.steps : [];
+  const handOffs = w.hands_off_to === undefined ? [] : Array.isArray(w.hands_off_to) ? w.hands_off_to : [w.hands_off_to];
   return {
     name: typeof w.name === "string" ? w.name : "",
     description: typeof w.description === "string" ? w.description : undefined,
+    inputs: (Array.isArray(w.inputs) ? w.inputs : [])
+      .filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && typeof x.artifact === "string")
+      .map((x) => ({
+        artifact: x.artifact as string,
+        ...(typeof x.description === "string" ? { description: x.description } : {}),
+        ...(typeof x.required === "boolean" ? { required: x.required } : {}),
+      })),
+    hands_off_to: handOffs.flatMap((h): HandOff[] => {
+      if (typeof h === "string" && h) return [{ workflow: h }];
+      if (!h || typeof h !== "object" || typeof (h as Record<string, unknown>).workflow !== "string") return [];
+      const { workflow, when } = h as Record<string, unknown>;
+      return [{ workflow: workflow as string, ...(typeof when === "string" ? { when } : {}) }];
+    }),
     steps: steps
       .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
       .map((s) => ({
@@ -222,19 +239,32 @@ export function stepViewsFromWorkflow(w: Workflow): StepView[] {
   }));
 }
 
+// An id map as a workflow gate writes it: a mapping of ids, or for returns a
+// list of ids, each mapping to itself. Anything else reads as absent.
+function guessIdMap(v: unknown, listAllowed: boolean): Record<string, string> | undefined {
+  if (Array.isArray(v) && listAllowed) {
+    const ids = v.filter((x): x is string => typeof x === "string");
+    return Object.fromEntries(ids.map((id) => [id, id]));
+  }
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  return Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string"));
+}
+
 function guessGate(raw: unknown): Gate | null {
   if (!raw || typeof raw !== "object") return null;
-  const { max_rounds, guide, route_back_to, description, ...rest } = raw as Record<string, unknown>;
+  const { max_rounds, guide, route_back_to, description, slug, inputs, returns, ...rest } = raw as Record<string, unknown>;
   const entries = Object.entries(rest).filter(([k]) => k !== "description");
   if (entries.length !== 1) return null;
   const [kind, text] = entries[0];
-  if (!["owner-action", "check", "script", "agent"].includes(kind)) return null;
+  if (!["owner-action", "check", "script", "agent", "workflow"].includes(kind)) return null;
   const routes =
     route_back_to === undefined
       ? []
       : Array.isArray(route_back_to)
         ? (route_back_to as string[])
         : [route_back_to as string];
+  const inputMap = kind === "workflow" ? guessIdMap(inputs, false) : undefined;
+  const returnMap = kind === "workflow" ? guessIdMap(returns, true) : undefined;
   return {
     kind: kind as Gate["kind"],
     text: typeof text === "string" ? text : "",
@@ -242,6 +272,9 @@ function guessGate(raw: unknown): Gate | null {
     ...(typeof description === "string" ? { description } : {}),
     ...(typeof max_rounds === "number" ? { max_rounds } : {}),
     ...(typeof guide === "string" ? { guide } : {}),
+    ...(kind === "workflow" && typeof slug === "string" ? { slug } : {}),
+    ...(inputMap ? { inputs: inputMap } : {}),
+    ...(returnMap ? { returns: returnMap } : {}),
   };
 }
 
@@ -270,8 +303,29 @@ export function stepViews(w: OpenWorkflow): StepView[] {
   return w.parsed ? stepViewsFromWorkflow(w.parsed) : stepViewsFromRaw(w.rawWorkflow);
 }
 
-// Gates and conditions run checks and scripts first, then agent, then owner.
-const GATE_ORDER: Record<Gate["kind"], number> = { check: 0, script: 0, agent: 1, "owner-action": 2 };
+// The documents the workflow expects from outside, and the workflows that may
+// come after it, from the parsed file or, when it does not parse, the guess.
+export const workflowInputs = (w: OpenWorkflow): WorkflowInput[] => w.parsed?.inputs ?? w.rawWorkflow.inputs;
+export const workflowHandOffs = (w: OpenWorkflow): HandOff[] => w.parsed?.hands_off_to ?? w.rawWorkflow.hands_off_to;
+
+// The step's workflow gate, which delegates the step to a child workstream; a
+// step has at most one.
+export const delegationOf = (step: StepView): Gate | undefined => step.gates.find((g) => g.kind === "workflow");
+
+// Where a hand-off or a workflow gate leads: the listed workflow it resolves
+// to, or why it does not resolve.
+export type WorkflowLink = { ok: true; key: string; name: string; path: string } | { ok: false; reason: string };
+
+export function linkTo(ref: string, from: OpenWorkflow, all: OpenWorkflow[]): WorkflowLink {
+  const found = resolveWorkflowRef(ref, from.path, all);
+  if (!found.ok) return found;
+  const target = found.target;
+  return { ok: true, key: workflowKey(target), name: target.parsed?.name || target.rawWorkflow.name || stem(target.file), path: target.path };
+}
+
+// Gates run the workflow gate first (its child must be complete), then checks
+// and scripts, then agent, then owner. Conditions run the same order.
+const GATE_ORDER: Record<Gate["kind"], number> = { workflow: -1, check: 0, script: 0, agent: 1, "owner-action": 2 };
 
 export function gatesInRunOrder(gates: Gate[]): { gate: Gate; fileIndex: number }[] {
   return gates

@@ -6,11 +6,13 @@
 import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import type { Gate } from "../../flow/src/schemas/gate.ts";
+import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import type { LibraryEntry, WorkstreamSummary } from "./api.ts";
 import { duration, RUN_STATE, runState } from "./runView.ts";
 import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
-import { gatesInRunOrder, type ArtifactRole, type StepView } from "./workflowView.ts";
+import { gatesInRunOrder, type ArtifactRole, type StepView, type WorkflowLink } from "./workflowView.ts";
 import { layoutEdges } from "./layout.ts";
+import { RunLinkButton, WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
 
 type Rect = { t: number; b: number; l: number; r: number };
@@ -21,11 +23,29 @@ const BACK = "var(--tint-route-back)";
 const BADGE_X = 24;
 
 const GATE_STYLE: Record<Gate["kind"], { label: string; bg: string; fg: string }> = {
+  workflow: { label: "workflow", bg: "var(--tint-link-bg)", fg: "var(--tint-link-text)" },
   check: { label: "check", bg: "var(--accent-soft)", fg: "var(--accent-text)" },
   script: { label: "script", bg: "var(--surface-sunken)", fg: "var(--text-strong)" },
   agent: { label: "agent", bg: "var(--tint-agent-bg)", fg: "var(--tint-agent-text)" },
   "owner-action": { label: "owner", bg: "var(--tint-warn-pill-bg)", fg: "var(--tint-warn-text)" },
 };
+
+// What a workflow gate does, for its pill's tooltip: the child's workflow,
+// its slug, what it is given and what it returns.
+function delegationTip(gate: Gate, link: WorkflowLink): string {
+  const pairs = (map: Record<string, string> | undefined, arrow: string) =>
+    Object.entries(map ?? {}).map(([a, b]) => (a === b ? a : `${a} ${arrow} ${b}`)).join(", ");
+  return [
+    `workflow: ${gate.text}`,
+    link.ok ? `opens ${link.path}` : link.reason,
+    `child slug: ${gate.slug ?? "{slug}-{step}"}`,
+    gate.inputs && `gives: ${pairs(gate.inputs, "←")}`,
+    gate.returns && `returns: ${pairs(gate.returns, "←")}`,
+    gate.route_back_to.length ? `route back to: ${gate.route_back_to.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 const ROLE_PREFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "", updates: "~" };
 const ROLE_SUFFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "?", updates: "" };
@@ -48,6 +68,12 @@ export function Flow({
   onDropArtifactAt,
   run,
   gateTextVisible = true,
+  inputs,
+  handOffs,
+  linkTo,
+  onOpenWorkflow,
+  findRun,
+  onOpenRun,
 }: {
   steps: StepView[];
   selectedIndex: number;
@@ -67,6 +93,15 @@ export function Flow({
   onDropArtifactAt: (at: number, artifact: string) => void;
   run?: WorkstreamSummary;
   gateTextVisible?: boolean;
+  // The documents the workflow expects from outside, and the workflows it hands off to.
+  inputs: WorkflowInput[];
+  handOffs: HandOff[];
+  // Where a workflow reference leads, and opening a listed workflow by key.
+  linkTo: (ref: string) => WorkflowLink;
+  onOpenWorkflow: (key: string) => void;
+  // Any workstream by slug, and opening its run, for a step's child workstreams.
+  findRun: (slug: string) => WorkstreamSummary | undefined;
+  onOpenRun: (slug: string) => void;
 }) {
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
@@ -133,6 +168,30 @@ export function Flow({
             hoveredArtifact={hoveredArtifact}
             run={run}
           />
+          {inputs.length > 0 && (
+            <div className="workflow-inputs">
+              <span className="link-label">inputs</span>
+              {inputs.map((input) => (
+                <span
+                  key={input.artifact}
+                  className={`chip chip-input${hoveredArtifact === input.artifact ? " is-hovered" : ""}`}
+                  title={[
+                    `input ${input.artifact}${input.required ? ", required" : ", optional"}`,
+                    input.description ?? "",
+                    run?.inputs?.[input.artifact] ? `given: ${run.inputs[input.artifact]}` : run ? "not given" : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                  onMouseEnter={() => onHoverArtifact(input.artifact)}
+                  onMouseLeave={() => onHoverArtifact(null)}
+                >
+                  {input.artifact}
+                  {input.required && <span className="chip-required">required</span>}
+                  {run && !run.inputs?.[input.artifact] && <span className="chip-nolib">not given</span>}
+                </span>
+              ))}
+            </div>
+          )}
           {steps.map((step, i) => (
             <div key={`${step.id}-${i}`}>
               {run ? null : (
@@ -170,9 +229,40 @@ export function Flow({
                 onDropArtifact={(artifact) => onDropArtifact(i, artifact)}
                 runStep={run?.summary?.steps[step.id]}
                 runMode={!!run}
+                inputIds={inputs.map((input) => input.artifact)}
+                linkTo={linkTo}
+                onOpenWorkflow={onOpenWorkflow}
+                runChildren={(run?.children ?? []).filter((child) => child.step === step.id)}
+                findRun={findRun}
+                onOpenRun={onOpenRun}
               />
             </div>
           ))}
+          {handOffs.length > 0 && (
+            <div className="handoff">
+              <div className="handoff-connector" style={{ marginLeft: `${BADGE_X - 1}px` }} />
+              <div className="handoff-box">
+                <span className="link-label">hands off to</span>
+                {handOffs.map((handOff, k) => {
+                  const link = linkTo(handOff.workflow);
+                  return (
+                    <div key={`${handOff.workflow}-${k}`} className="handoff-row">
+                      <WorkflowLinkButton refText={handOff.workflow} link={link} onOpen={onOpenWorkflow} />
+                      {handOff.when && <span className="handoff-when">{handOff.when}</span>}
+                    </div>
+                  );
+                })}
+                {run && (run.startedAfter?.length ?? 0) > 0 && (
+                  <div className="handoff-row">
+                    <span className="link-label">started after this run</span>
+                    {run.startedAfter!.map((slug) => (
+                      <RunLinkButton key={slug} slug={slug} run={findRun(slug)} onOpen={onOpenRun} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         {!run && (
           <button
@@ -193,6 +283,9 @@ export function Flow({
           <span>~ updates</span>
           <span>id? may produce</span>
           <span>G T R guide · template · review</span>
+          {(handOffs.length > 0 || steps.some((s) => s.gates.some((g) => g.kind === "workflow"))) && (
+            <span className="flow-legend-link">↗ opens another workflow</span>
+          )}
         </div>
       </div>
     </div>
@@ -219,6 +312,12 @@ function StepCard({
   onDropArtifact,
   runStep,
   runMode,
+  inputIds,
+  linkTo,
+  onOpenWorkflow,
+  runChildren,
+  findRun,
+  onOpenRun,
 }: {
   step: StepView;
   num: number;
@@ -239,6 +338,13 @@ function StepCard({
   onDropArtifact: (artifact: string) => void;
   runStep?: { status: string; activeMs: number; ownerWaitMs: number; visits: number; skipReason?: string };
   runMode: boolean;
+  inputIds: string[];
+  linkTo: (ref: string) => WorkflowLink;
+  onOpenWorkflow: (key: string) => void;
+  // The child workstreams of this step in the open run, oldest pass first.
+  runChildren: { pass: number; slug: string }[];
+  findRun: (slug: string) => WorkstreamSummary | undefined;
+  onOpenRun: (slug: string) => void;
 }) {
   const hasProblems = problems.length > 0;
   const badConsumes = new Set(
@@ -301,7 +407,9 @@ function StepCard({
                 <span
                   key={id}
                   className={`chip chip-consumes${bad ? " is-bad" : ""}${hovered ? " is-hovered" : ""}`}
-                  title={bad ? "Not produced by an earlier step" : `consumes ${id}`}
+                  title={
+                    bad ? "Not produced by an earlier step" : inputIds.includes(id) ? `consumes ${id}, an input of the workflow` : `consumes ${id}`
+                  }
                   onMouseEnter={() => onHoverArtifact(id)}
                   onMouseLeave={() => onHoverArtifact(null)}
                 >
@@ -345,6 +453,31 @@ function StepCard({
           <div className="step-gates">
             {order.map(({ gate }, k) => {
               const style = GATE_STYLE[gate.kind];
+              if (gate.kind === "workflow") {
+                // A delegation: the pill links to the child's workflow.
+                const link = linkTo(gate.text);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    className={`gate-pill gate-pill-link${link.ok ? "" : " is-unresolved"}`}
+                    title={delegationTip(gate, link)}
+                    style={{ background: style.bg, color: style.fg }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (link.ok) onOpenWorkflow(link.key);
+                    }}
+                  >
+                    <span className="gate-num">{k + 1}</span>
+                    <span className="gate-kind">{style.label}</span>
+                    <span className="gate-text">{gate.text}</span>
+                    <span className="gate-extra">{link.ok ? "↗" : "not found"}</span>
+                    {gate.route_back_to.length > 0 && (
+                      <span className="gate-route">↩ {gate.route_back_to.join(", ")}</span>
+                    )}
+                  </button>
+                );
+              }
               const extra = gate.kind === "agent" ? `×${gate.max_rounds ?? 2}${gate.guide ? " · guide" : ""}` : "";
               const tip = `${gate.kind}: ${gate.text}${gate.guide ? `\nguide: ${gate.guide}` : ""}${gate.route_back_to.length ? `\nroute back to: ${gate.route_back_to.join(", ")}` : ""}`;
               return (
@@ -365,6 +498,20 @@ function StepCard({
           <div className="step-error">
             {firstError.message}
             {problems.length > 1 && `  +${problems.length - 1} more`}
+          </div>
+        )}
+        {runChildren.length > 0 && (
+          <div className="run-children" onClick={(event) => event.stopPropagation()}>
+            <span className="link-label">{runChildren.length > 1 ? "waits for" : "child"}</span>
+            <RunLinkButton slug={runChildren.at(-1)!.slug} run={findRun(runChildren.at(-1)!.slug)} onOpen={onOpenRun} />
+            {runChildren.length > 1 && (
+              <>
+                <span className="link-label">earlier passes</span>
+                {runChildren.slice(0, -1).map((child) => (
+                  <RunLinkButton key={child.slug} slug={child.slug} run={findRun(child.slug)} onOpen={onOpenRun} />
+                ))}
+              </>
+            )}
           </div>
         )}
         {runBits.length > 0 && (

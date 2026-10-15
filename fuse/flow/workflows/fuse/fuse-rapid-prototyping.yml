@@ -21,6 +21,11 @@ description: >
   A new product idea explored as a runnable prototype: a short interview on the owner's intent,
   then many small build-and-feedback iterations with no code review loop, ending in a product
   brief of what to build, ranked by the feedback, that fuse-system-development can take up.
+hands_off_to:
+  - workflow: fuse-system-development
+    when: for most products, as the product brief recommends
+  - workflow: fuse-feature-development
+    when: when the brief recommends hardening a small prototype in place
 steps:
   - id: intake
     title: Intake

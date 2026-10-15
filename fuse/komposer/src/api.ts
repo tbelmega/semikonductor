@@ -135,6 +135,17 @@ export interface WorkstreamSummary {
   workflow?: string;
   workflowPath?: string;
   error?: string;
+  // The workstream this one was started after (`start --after`).
+  after?: string;
+  // For a child: the workstream and the step with the workflow gate that waits for it.
+  parent?: { slug: string; step: string };
+  // The workflow inputs bound when it started: input id -> path.
+  inputs?: Record<string, string>;
+  // The workstreams started after this one.
+  startedAfter?: string[];
+  // The child workstreams its steps wait for, in step and pass order; a
+  // step's last one is the one it waits for now.
+  children?: { step: string; pass: number; slug: string }[];
   steps?: Record<string, unknown>;
   events?: RunEvent[];
   summary?: {

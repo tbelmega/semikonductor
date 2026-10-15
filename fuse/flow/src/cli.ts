@@ -10,9 +10,12 @@ import { checkSlug, findRepoRoot, isDirectory, isWorkflowPath } from "./project.
 
 const USAGE = `usage:
   fuse-flow start <slug> [--workflow <name or path>] [--from <step>]
+                         [--after <earlier slug>] [--input <artifact-id>=<path>]...
                                                 mint a workstream that follows the workflow, or resume it;
                                                 prints what to do now. --from starts a new workstream at a
-                                                later step, as the owner's decision
+                                                later step, as the owner's decision. --after binds the
+                                                workflow's inputs to the earlier workstream's documents of
+                                                the same id; --input binds one to a file, and wins
   fuse-flow continue <slug> [--updated <file>]... [--unchanged <artifact> <reason>]...
                             [--not-produced <artifact> <reason>]...
                                                 the current step's work is done: refused until every artifact
@@ -56,7 +59,7 @@ state:     .konductor/workstreams/<slug>.yml`;
 // --unchanged and --not-produced take two values each and are read before
 // these, by takePairs.
 const OPTIONS = {
-  start: { workflow: { type: "string" }, from: { type: "string" } },
+  start: { workflow: { type: "string" }, from: { type: "string" }, after: { type: "string" }, input: { type: "string", multiple: true } },
   continue: {
     updated: { type: "string", multiple: true },
     "owner-approved": { type: "boolean" },
@@ -122,7 +125,16 @@ function run(argv: string[]): string[] {
       // a later command runs from another directory.
       const workflow = values.workflow as string | undefined;
       const resolved = workflow && isWorkflowPath(workflow) ? resolve(workflow) : workflow;
-      return commands.start(root, slug, resolved, values.from as string | undefined);
+      const after = values.after as string | undefined;
+      if (after !== undefined) checkSlug(after);
+      const inputs: Record<string, string> = {};
+      for (const pair of (values.input as string[] | undefined) ?? []) {
+        const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(pair);
+        if (!m) throw new UsageError(`--input takes <artifact-id>=<path>, for example --input product-brief=docs/brief.md; got "${pair}"`);
+        if (m[1] in inputs) throw new UsageError(`--input ${m[1]} is given twice`);
+        inputs[m[1]] = resolve(m[2]);
+      }
+      return commands.start(root, slug, resolved, values.from as string | undefined, { ...(after !== undefined ? { after } : {}), inputs });
     }
     case "continue": {
       const ownerApproved = Boolean(values["owner-approved"]);

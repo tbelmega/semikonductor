@@ -363,25 +363,42 @@ export function startServer(options: ServerOptions): KomposerServer {
     return { gates, files };
   };
 
-  const workstreams = () => ({
-    workstreams: runs().map((w) => {
-      if (!w.workstream) return { project: w.project, slug: w.slug, error: w.error };
-      let stepIds = Object.keys(w.workstream.steps);
-      if (w.workflowPath) {
-        const parsed = parseWorkflowText(readFileSync(w.workflowPath, "utf8"));
-        if (parsed.ok) stepIds = parsed.workflow.steps.map((s) => s.id);
-      }
-      return {
-        project: w.project,
-        slug: w.slug,
-        workflow: w.workstream.workflow,
-        ...(w.workflowPath ? { workflowPath: w.workflowPath } : {}),
-        steps: w.workstream.steps,
-        events: runEvents(w.workstream),
-        summary: summarizeRun(w.workstream, stepIds),
-      };
-    }),
-  });
+  // Each workstream with the runs it links to: the one it was started after,
+  // the ones started after it, the parent whose step waits for it, and the
+  // children its steps wait for, in step order and pass order. The newest
+  // child of a step is the one the step waits for. Links are slugs, so they
+  // resolve within the run's own project.
+  const workstreams = () => {
+    const listed = runs();
+    return {
+      workstreams: listed.map((w) => {
+        if (!w.workstream) return { project: w.project, slug: w.slug, error: w.error };
+        const ws = w.workstream;
+        let stepIds = Object.keys(ws.steps);
+        if (w.workflowPath) {
+          const parsed = parseWorkflowText(readFileSync(w.workflowPath, "utf8"));
+          if (parsed.ok) stepIds = parsed.workflow.steps.map((s) => s.id);
+        }
+        const inOrder = [...stepIds, ...Object.keys(ws.steps).filter((id) => !stepIds.includes(id))];
+        return {
+          project: w.project,
+          slug: w.slug,
+          workflow: ws.workflow,
+          ...(w.workflowPath ? { workflowPath: w.workflowPath } : {}),
+          ...(ws.after ? { after: ws.after } : {}),
+          ...(ws.parent ? { parent: ws.parent } : {}),
+          ...(ws.inputs ? { inputs: ws.inputs } : {}),
+          startedAfter: listed
+            .filter((other) => other.project === w.project && other.workstream?.after === w.slug)
+            .map((other) => other.slug),
+          children: inOrder.flatMap((step) => (ws.steps[step]?.children ?? []).map((child) => ({ step, ...child }))),
+          steps: ws.steps,
+          events: runEvents(ws),
+          summary: summarizeRun(ws, stepIds),
+        };
+      }),
+    };
+  };
 
   // The projects list for the app: each project with its run count, this one
   // marked current, a registered folder that is gone marked missing.

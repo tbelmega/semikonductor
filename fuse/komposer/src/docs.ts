@@ -38,6 +38,8 @@ const artifactShape = ArtifactSchema.shape;
 export const DOCS: Record<string, FieldDoc> = {
   wfName: doc("name", true, wfShape.name),
   wfDescription: doc("description", false, wfShape.description),
+  wfInputs: doc("inputs", false, wfShape.inputs),
+  wfHandsOffTo: doc("hands_off_to", false, wfShape.hands_off_to),
   version: doc("version: 1", true, wfShape.version),
   id: doc("id", true, stepShape.id),
   title: doc("title", false, stepShape.title),
@@ -72,11 +74,12 @@ function fieldFromGateUnion(key: string, required: boolean): FieldDoc {
   return { yamlKey: key, required, description: "" };
 }
 
-export const GATE_KIND_DOCS: Record<"owner-action" | "check" | "script" | "agent", FieldDoc> = {
+export const GATE_KIND_DOCS: Record<"owner-action" | "check" | "script" | "agent" | "workflow", FieldDoc> = {
   "owner-action": fieldFromGateUnion("owner-action", true),
   check: fieldFromGateUnion("check", true),
   script: fieldFromGateUnion("script", true),
   agent: fieldFromGateUnion("agent", true),
+  workflow: fieldFromGateUnion("workflow", true),
 };
 
 export const GATE_FIELD_DOCS = {
@@ -84,4 +87,7 @@ export const GATE_FIELD_DOCS = {
   guide: fieldFromGateUnion("guide", false),
   routeBack: fieldFromGateUnion("route_back_to", false),
   gateDescription: fieldFromGateUnion("description", false),
+  slug: fieldFromGateUnion("slug", false),
+  inputs: fieldFromGateUnion("inputs", false),
+  returns: fieldFromGateUnion("returns", false),
 };

@@ -75,6 +75,14 @@ export const StepStateSchema = z
         verification: z.array(z.string()).optional().meta({
           description: "The result of each check and script gate when the step was last continued.",
         }),
+        children: z
+          .array(z.object({ pass: z.number().int().min(1), slug: z.string() }).strict())
+          .optional()
+          .meta({
+            description:
+              "The child workstreams of a step with a workflow gate, one per pass of the step: the newest is " +
+              "the one the step waits for, and the one later steps read returned documents from.",
+          }),
         history: z.array(z.string()).meta({ description: "One timestamped line per event on the step, oldest first." }),
       })
       .strict(),
@@ -98,6 +106,17 @@ export const WorkstreamSchema = z
           "The local date the workstream was started, YYYY-MM-DD; artifact paths use it for `{date}`. Absent in " +
           "state files written before it existed; the date of the earliest history line stands in then.",
       }),
+    after: z.string().optional().meta({
+      description: "The workstream this one was started after, with `start --after`, which gave it its inputs.",
+    }),
+    parent: z
+      .object({ slug: z.string(), step: z.string() })
+      .strict()
+      .optional()
+      .meta({ description: "For a child workstream: the workstream and the step with the workflow gate that created it and waits for it." }),
+    inputs: z.object({}).catchall(z.string()).optional().meta({
+      description: "The workflow's inputs that were bound when the workstream started: input id -> path.",
+    }),
     steps: z.object({}).catchall(StepStateSchema).meta({ description: "The state of each step, by step id." }),
   })
   .strict()

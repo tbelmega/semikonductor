@@ -344,6 +344,84 @@ describe("library", () => {
 });
 
 describe("workstreams", () => {
+  test("a run's links: the workstream it came after, its parent, and the children its steps wait for", async () => {
+    const workflows = join(root, ".konductor", "workflows");
+    write(
+      join(workflows, "child.yml"),
+      `version: 1
+name: child
+inputs:
+  - artifact: given-diff
+steps:
+  - id: review
+    instruction: Review the diff.
+    consumes: [given-diff]
+    produces: { artifact: report, path: "reports/{slug}.md" }
+`,
+    );
+    write(
+      join(workflows, "parent.yml"),
+      `version: 1
+name: parent
+hands_off_to: next
+steps:
+  - id: intake
+    instruction: Write the diff.
+    produces: { artifact: diff, path: "diffs/{slug}.diff" }
+  - id: adversarial
+    instruction: Merge the findings.
+    gates:
+      - workflow: child
+        slug: "{slug}-adv"
+        inputs: { given-diff: diff }
+        returns: { findings: report }
+`,
+    );
+    write(
+      join(workflows, "next.yml"),
+      `version: 1
+name: next
+inputs:
+  - artifact: diff
+steps:
+  - id: build
+    instruction: Build on the diff.
+    consumes: [diff]
+`,
+    );
+    flow("start", "pr", "--workflow", "parent");
+    write(join(root, "diffs", "pr.diff"), "");
+    // Handing out the delegating step creates the child.
+    flow("continue", "pr");
+    flow("start", "feat", "--workflow", "next", "--after", "pr");
+
+    const { workstreams } = await json("/api/workstreams");
+    const bySlug = Object.fromEntries(workstreams.map((w: any) => [w.slug, w]));
+    expect(Object.keys(bySlug).sort()).toEqual(["feat", "pr", "pr-adv"]);
+
+    const pr = bySlug.pr;
+    expect(pr.children).toEqual([{ step: "adversarial", pass: 1, slug: "pr-adv" }]);
+    expect(pr.startedAfter).toEqual(["feat"]);
+    expect(pr.after).toBeUndefined();
+    expect(pr.parent).toBeUndefined();
+    expect(pr.steps.adversarial.children).toEqual([{ pass: 1, slug: "pr-adv" }]);
+    expect(pr.events.filter((e: any) => e.kind === "child-created").map((e: any) => [e.step, e.detail])).toEqual([["adversarial", "pr-adv"]]);
+
+    const child = bySlug["pr-adv"];
+    expect(child).toMatchObject({
+      workflow: "child",
+      workflowPath: join(workflows, "child.yml"),
+      parent: { slug: "pr", step: "adversarial" },
+      inputs: { "given-diff": "diffs/pr.diff" },
+      startedAfter: [],
+      children: [],
+    });
+    expect(child.after).toBeUndefined();
+
+    const feat = bySlug.feat;
+    expect(feat).toMatchObject({ after: "pr", inputs: { diff: "diffs/pr.diff" }, startedAfter: [], children: [] });
+    expect(feat.parent).toBeUndefined();
+  });
   test("a run's events, states, times, visits and routes back, from real fuse-flow commands", async () => {
     write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS.replace("    consumes: [notes]\n", ""));
     flow("start", "demo", "--workflow", "two-steps");
@@ -498,6 +576,23 @@ describe("projects", () => {
     ]);
     expect(workstreams[1].workflowPath).toBe(join(other, ".konductor", "workflows", "one.yml"));
     expect(workstreams[1].summary).toMatchObject({ status: "IN_PROGRESS", currentStep: "only" });
+  });
+
+  test("a run's links stay within its own project, though slugs repeat between projects", async () => {
+    const next = "version: 1\nname: next\nsteps:\n  - id: only\n    instruction: Do it.\n";
+    write(join(root, ".konductor", "workflows", "one.yml"), ONE);
+    write(join(root, ".konductor", "workflows", "next.yml"), next);
+    flow("start", "theirs", "--workflow", "one");
+    flow("start", "after-mine", "--workflow", "next", "--after", "theirs");
+    const other = otherProject();
+    write(join(other, ".konductor", "workflows", "next.yml"), next);
+    flowIn(other, "start", "after-theirs", "--workflow", "next", "--after", "theirs");
+
+    const { workstreams } = await json("/api/workstreams");
+    const run = (project: string, slug: string) => workstreams.find((w: any) => w.project === project && w.slug === slug);
+    expect(run(root, "theirs").startedAfter).toEqual(["after-mine"]);
+    expect(run(other, "theirs").startedAfter).toEqual(["after-theirs"]);
+    expect(run(other, "after-theirs")).toMatchObject({ project: other, after: "theirs" });
   });
 
   test("the workflow file another project's run follows is listed read-only", async () => {

@@ -36,7 +36,14 @@ import { Pair, Scalar, YAMLMap, YAMLSeq } from "yaml";
 // Public types
 
 export type OutputMode = "produces" | "optional_produces" | "updates";
-export type GateKind = "owner-action" | "check" | "script" | "agent";
+export type GateKind = "owner-action" | "check" | "script" | "agent" | "workflow";
+// Every gate kind, as the key a gate mapping is written with. A workflow gate
+// is read too wherever a condition is, so a file that wrongly uses one as a
+// condition can still be edited; the engine reports it.
+const GATE_KINDS: readonly GateKind[] = ["owner-action", "check", "script", "agent", "workflow"];
+// The keys only a workflow gate has. Komposer does not edit them; it keeps
+// them as written, and removes them when the gate becomes another kind.
+const WORKFLOW_GATE_KEYS = ["slug", "inputs", "returns"] as const;
 
 export interface ConditionValue {
   kind: GateKind;
@@ -359,7 +366,7 @@ function removeKeySplice(text: string, map: InstanceType<typeof YAMLMap>, key: s
 function applySetWorkflowField(text: string, edit: { key: "name" | "description"; value: string | null }): string {
   const doc = parseDoc(text);
   const map = rootMap(doc);
-  return applyScalarField(text, map, STEP_KEY_ORDER.length ? (["version", "name", "description", "steps"] as const) : [], edit.key, edit.value, { required: edit.key === "name" });
+  return applyScalarField(text, map, ["version", "name", "description", "inputs", "hands_off_to", "steps"], edit.key, edit.value, { required: edit.key === "name" });
 }
 
 function applyScalarField(
@@ -513,7 +520,7 @@ function conditionLines(kind: GateKind, text: string, description: string | unde
 
 function readCondition(node: unknown): ConditionValue {
   if (isMap(node)) {
-    const kindPair = node.items.find((p) => isScalar(p.key) && (["owner-action", "check", "script", "agent"] as const).includes(String(p.key.value) as GateKind));
+    const kindPair = node.items.find((p) => isScalar(p.key) && GATE_KINDS.includes(String(p.key.value) as GateKind));
     if (!kindPair || !isScalar(kindPair.key) || !isScalar(kindPair.value)) fail("condition mapping has no kind key");
     const description = scalarOf(node, "description");
     return { kind: String(kindPair.key.value) as GateKind, text: String(kindPair.value.value), ...(description === undefined ? {} : { description }) };
@@ -557,7 +564,7 @@ function applySetCondition(text: string, edit: { step: number; condition: Condit
       }
       if (current.description !== edit.condition.description) {
         const condition = findPair(stepMap(parseDoc(out), edit.step), "condition")!.value as InstanceType<typeof YAMLMap>;
-        out = applyScalarField(out, condition, ["owner-action", "check", "script", "agent", "description"], "description", edit.condition.description ?? null, {
+        out = applyScalarField(out, condition, [...GATE_KINDS, "description"], "description", edit.condition.description ?? null, {
           required: false,
         });
       }
@@ -986,10 +993,21 @@ function applyRemoveGate(text: string, edit: { step: number; index: number }): s
 // resolving string form the same way the engine's gate schema does, well
 // enough to re-render it. Used by setGate when it must rewrite the whole
 // entry (kind change, or a string-form gate being edited for the first
-// time).
-function readGateItem(item: InstanceType<typeof YAMLMap> | InstanceType<typeof Scalar>): { kind: GateKind; text: string; description?: string; route_back_to: string[]; max_rounds?: number; guide?: string } {
+// time). A workflow gate's slug, inputs and returns are kept as their source
+// text, since Komposer does not edit them.
+interface GateItem {
+  kind: GateKind;
+  text: string;
+  description?: string;
+  route_back_to: string[];
+  max_rounds?: number;
+  guide?: string;
+  workflowKeys: { key: (typeof WORKFLOW_GATE_KEYS)[number]; source: string }[];
+}
+
+function readGateItem(source: string, item: InstanceType<typeof YAMLMap> | InstanceType<typeof Scalar>): GateItem {
   if (isMap(item)) {
-    const kindEntry = item.items.find((p) => isScalar(p.key) && (["owner-action", "check", "script", "agent"] as const).includes(String(p.key.value) as GateKind));
+    const kindEntry = item.items.find((p) => isScalar(p.key) && GATE_KINDS.includes(String(p.key.value) as GateKind));
     if (!kindEntry || !isScalar(kindEntry.key) || !isScalar(kindEntry.value)) fail("internal error: gate mapping has no kind key");
     const kind = String(kindEntry.key.value) as GateKind;
     const gateText = String(kindEntry.value.value);
@@ -1001,7 +1019,13 @@ function readGateItem(item: InstanceType<typeof YAMLMap> | InstanceType<typeof S
     let route_back_to: string[] = [];
     if (isScalar(rbtValue)) route_back_to = [String(rbtValue.value)];
     else if (isSeq(rbtValue)) route_back_to = rbtValue.items.filter(isScalar).map((s) => String(s.value));
-    return { kind, text: gateText, description, route_back_to, max_rounds, guide };
+    const workflowKeys = WORKFLOW_GATE_KEYS.flatMap((key) => {
+      const value = findPair(item, key)?.value;
+      if (!isScalar(value) && !isMap(value) && !isSeq(value)) return [];
+      const r = value.range as Range;
+      return [{ key, source: source.slice(r[0], r[1]).trimEnd() }];
+    });
+    return { kind, text: gateText, description, route_back_to, max_rounds, guide, workflowKeys };
   }
   // String form, e.g. `script("bun run check")` or `check: default`.
   const raw = String(item.value).trim();
@@ -1009,7 +1033,7 @@ function readGateItem(item: InstanceType<typeof YAMLMap> | InstanceType<typeof S
   if (!m) fail(`cannot read gate string "${raw}"`);
   const kind = m[1] as GateKind;
   const gateText = (m[2] ?? m[3] ?? "").trim();
-  return { kind, text: gateText, route_back_to: [] };
+  return { kind, text: gateText, route_back_to: [], workflowKeys: [] };
 }
 
 function gateItemAt(step: InstanceType<typeof YAMLMap>, index: number): InstanceType<typeof YAMLMap> | InstanceType<typeof Scalar> | undefined {
@@ -1022,7 +1046,7 @@ function gateItemAt(step: InstanceType<typeof YAMLMap>, index: number): Instance
   return undefined;
 }
 
-function patchGate(current: ReturnType<typeof readGateItem>, fields: GateFields): ReturnType<typeof readGateItem> {
+function patchGate(current: GateItem, fields: GateFields): GateItem {
   const next = { ...current };
   if (fields.kind !== undefined) next.kind = fields.kind;
   if (fields.text !== undefined) next.text = fields.text;
@@ -1034,6 +1058,7 @@ function patchGate(current: ReturnType<typeof readGateItem>, fields: GateFields)
     next.max_rounds = undefined;
     next.guide = undefined;
   }
+  if (next.kind !== "workflow") next.workflowKeys = [];
   return next;
 }
 
@@ -1043,8 +1068,9 @@ function routeBackValue(targets: string[]): string {
 }
 
 // The keys of a gate mapping, in the order new keys are inserted: the kind
-// key first (only one of the four is ever present).
-const GATE_KEY_ORDER = ["owner-action", "check", "script", "agent", "description", "guide", "max_rounds", "route_back_to"] as const;
+// key first (only one of the kinds is ever present), then a workflow gate's
+// own keys.
+const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to"] as const;
 
 // The gate mapping at `index` of an already-normalized gates list.
 function gateMapAt(text: string, stepIndex: number, index: number): InstanceType<typeof YAMLMap> {
@@ -1074,7 +1100,7 @@ function applySetGate(text: string, edit: { step: number; index: number; fields:
   const originalStep = stepMap(parseDoc(text), edit.step);
   const originalItem = gateItemAt(originalStep, edit.index);
   if (!originalItem) fail(`gate index ${edit.index} is out of range`);
-  const current = readGateItem(originalItem);
+  const current = readGateItem(text, originalItem);
   const next = patchGate(current, edit.fields);
   if (JSON.stringify(current) === JSON.stringify(next)) return text;
 
@@ -1082,7 +1108,7 @@ function applySetGate(text: string, edit: { step: number; index: number; fields:
   // again as one flow mapping, in its place; the rest of the list is untouched.
   const gatesValue = findPair(originalStep, "gates")?.value;
   if (isSeq(gatesValue) && gatesValue.flow) {
-    const parts = [`${next.kind}: ${plainScalar(next.text)}`];
+    const parts = [`${next.kind}: ${plainScalar(next.text)}`, ...next.workflowKeys.map(({ key, source }) => `${key}: ${source}`)];
     if (next.description !== undefined) parts.push(`description: ${plainScalar(next.description)}`);
     if (next.guide !== undefined) parts.push(`guide: ${plainScalar(next.guide)}`);
     if (next.max_rounds !== undefined) parts.push(`max_rounds: ${next.max_rounds}`);
@@ -1117,6 +1143,9 @@ function applySetGate(text: string, edit: { step: number; index: number; fields:
     text = applySplices(text, [{ start: keyRange[0], end: valueRange[1], insert: `${next.kind}: ${plainScalar(next.text)}` }]);
   }
   const value = (v: string | undefined) => (v === undefined ? null : plainScalar(v));
+  for (const { key } of current.workflowKeys) {
+    if (!next.workflowKeys.some((k) => k.key === key)) text = setGateKey(text, edit.step, edit.index, key, null);
+  }
   if (next.description !== current.description) text = setGateKey(text, edit.step, edit.index, "description", value(next.description));
   if (next.guide !== current.guide) text = setGateKey(text, edit.step, edit.index, "guide", value(next.guide));
   if (next.max_rounds !== current.max_rounds) {

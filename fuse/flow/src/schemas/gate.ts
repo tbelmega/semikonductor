@@ -5,15 +5,31 @@
 
 import { z } from "zod";
 
-export const GATE_KINDS = ["owner-action", "check", "script", "agent"] as const;
+export const GATE_KINDS = ["owner-action", "check", "script", "agent", "workflow"] as const;
 export type GateKind = (typeof GATE_KINDS)[number];
 
 // `text` is what the gate says: the owner's action, the kind of check, the
-// command, or what the agent reviews. max_rounds and guide are set on agent
-// gates only; max_rounds is undefined when the workflow does not set it, so
-// policy can fill it in. route_back_to lists the steps to
-// suggest sending the work back to.
-export type Gate = { kind: GateKind; text: string; description?: string; max_rounds?: number; guide?: string; route_back_to: string[] };
+// command, what the agent reviews, or the workflow a child workstream
+// follows. max_rounds and guide are set on agent gates only; max_rounds is
+// undefined when the workflow does not set it, so policy can fill it in.
+// slug, inputs and returns are set on workflow gates only: the child's slug
+// template, its inputs (child input id -> parent artifact id) and the
+// documents it returns (parent id -> child id). route_back_to lists the steps
+// to suggest sending the work back to.
+export type Gate = {
+  kind: GateKind;
+  text: string;
+  description?: string;
+  max_rounds?: number;
+  guide?: string;
+  slug?: string;
+  inputs?: Record<string, string>;
+  returns?: Record<string, string>;
+  route_back_to: string[];
+};
+
+// The slug a workflow gate gives its child unless it says otherwise.
+export const DEFAULT_CHILD_SLUG = "{slug}-{step}";
 
 // A condition is a gate without the fields that only make sense on a gate.
 // `description` is for the reader only; the engine never reads it.
@@ -34,8 +50,27 @@ export const DEFAULT_MAX_ROUNDS = 2;
 const isKind = (k: string): k is GateKind => (GATE_KINDS as readonly string[]).includes(k);
 
 const HINT =
-  'must be one of owner-action, check, script or agent, as a one-key mapping such as `owner-action: approve` ' +
-  'or a string such as `script("bun run check")`';
+  'must be one of owner-action, check, script, agent or workflow, as a one-key mapping such as ' +
+  '`owner-action: approve` or a string such as `script("bun run check")`';
+
+const ID = /^[a-z0-9][a-z0-9-]*$/;
+
+// An id map written as a list of ids (each maps to itself) or as a mapping of
+// ids, or why it is refused.
+function idMap(field: string, v: unknown, listAllowed: boolean): Record<string, string> | string {
+  const pairs: [unknown, unknown][] = Array.isArray(v) && listAllowed ? v.map((id) => [id, id]) : v && typeof v === "object" && !Array.isArray(v) ? Object.entries(v) : [];
+  if (pairs.length === 0) {
+    return `${field} is ${listAllowed ? "a list of artifact ids or a mapping" : "a mapping"} of artifact ids; got ${JSON.stringify(v)}`;
+  }
+  const out: Record<string, string> = {};
+  for (const [key, value] of pairs) {
+    if (typeof key !== "string" || !ID.test(key) || typeof value !== "string" || !ID.test(value)) {
+      return `${field} names artifact ids, lowercase letters, digits and hyphens; got ${JSON.stringify(v)}`;
+    }
+    out[key] = value;
+  }
+  return out;
+}
 
 // Why one written gate or condition is refused, or the gate it stands for.
 // `asCondition` refuses the fields only a gate may carry.
@@ -44,8 +79,8 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   let text: unknown;
   let extra: Record<string, unknown> = {};
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    const { max_rounds, guide, description, route_back_to, ...rest } = v as Record<string, unknown>;
-    extra = { max_rounds, guide, description, route_back_to };
+    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, ...rest } = v as Record<string, unknown>;
+    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns };
     const entries = Object.entries(rest);
     if (entries.length !== 1) return `${HINT}; got ${JSON.stringify(v)}`;
     [kind, text] = entries[0];
@@ -67,10 +102,11 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   if (kind === "check" && !CHECK_KIND.test(trimmed)) {
     return `check names a kind of check, a single lower-case word such as default; for a command use \`script: ${trimmed}\``;
   }
-  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo } = extra;
+  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns } = extra;
   if (description !== undefined && typeof description !== "string") return "description must be text";
   if (asCondition) {
-    for (const field of ["max_rounds", "guide", "route_back_to"] as const) {
+    if (kind === "workflow") return "a condition cannot be a workflow; a workflow gate goes under gates";
+    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns"] as const) {
       if (extra[field] !== undefined) return `a condition has no ${field}`;
     }
     return { kind, text: trimmed, ...(description !== undefined ? { description: description as string } : {}), route_back_to: [] };
@@ -83,10 +119,31 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   }
   if (guide !== undefined && kind !== "agent") return "guide goes on an agent gate only";
   if (guide !== undefined && (typeof guide !== "string" || !guide.trim())) return "guide must be a path";
+  for (const field of ["slug", "inputs", "returns"] as const) {
+    if (extra[field] !== undefined && kind !== "workflow") return `${field} goes on a workflow gate only`;
+  }
   const gate: Gate = { kind, text: trimmed, route_back_to: routes };
   if (description !== undefined) gate.description = description as string;
   if (maxRounds !== undefined) gate.max_rounds = maxRounds as number;
   if (guide !== undefined) gate.guide = (guide as string).trim();
+  if (slug !== undefined) {
+    // {slug} keeps two parent workstreams from sharing one child.
+    const sample = typeof slug === "string" ? slug.replaceAll("{slug}", "a").replaceAll("{step}", "b") : "";
+    if (typeof slug !== "string" || !slug.includes("{slug}") || !ID.test(sample)) {
+      return `slug is a template that contains {slug}, with lowercase letters, digits, hyphens and {step}; got ${JSON.stringify(slug)}`;
+    }
+    gate.slug = slug;
+  }
+  if (inputs !== undefined) {
+    const map = idMap("inputs", inputs, false);
+    if (typeof map === "string") return map;
+    gate.inputs = map;
+  }
+  if (returns !== undefined) {
+    const map = idMap("returns", returns, true);
+    if (typeof map === "string") return map;
+    gate.returns = map;
+  }
   return gate;
 }
 
@@ -107,6 +164,11 @@ const KIND_DOCS: Record<GateKind, string> = {
     "false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the " +
     "review guide says. Engine effect: none; the text, the review guide and the round cap are printed with the " +
     "step, and the agent that did the work counts the rounds.",
+  workflow:
+    "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step " +
+    "waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child " +
+    "workstream with its inputs bound from this workstream's documents, and `continue` is refused until the " +
+    "child is complete. After a send-back, the next pass gets a fresh child.",
 };
 
 const DESCRIPTION = z.string().optional().meta({
@@ -160,10 +222,45 @@ const SHAPES = [
     })
     .strict()
     .meta({ description: "The agent gate as a mapping: `agent: …`, optionally with `max_rounds`, `guide`, `description` and `route_back_to`." }),
+  z
+    .object({
+      workflow: z.string().meta({ description: KIND_DOCS.workflow }),
+      slug: z.string().optional().meta({
+        description:
+          "The child workstream's slug, a template that contains {slug}, the parent's slug, and may contain " +
+          `{step}, this step's id; ${DEFAULT_CHILD_SLUG} unless set. Engine effect: the child is created under ` +
+          "this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
+        examples: ["{slug}-adversarial"],
+      }),
+      inputs: z.record(z.string(), z.string()).optional().meta({
+        description:
+          "The documents the child is given: child input id -> artifact id in this workflow, available before " +
+          "this step. Engine effect: each binds the child's declared input to this workstream's document.",
+        examples: [{ "review-diff": "review-diff" }],
+      }),
+      returns: z
+        .union([z.array(z.string()), z.record(z.string(), z.string())])
+        .optional()
+        .meta({
+          description:
+            "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of " +
+            "id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` " +
+            "resolves each to the newest child's recorded document.",
+          examples: [["adversarial-review-report"], { "system-design": "design" }],
+        }),
+      description: DESCRIPTION,
+      route_back_to: ROUTE_BACK_TO,
+    })
+    .strict()
+    .meta({
+      description:
+        "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `inputs`, `returns`, " +
+        "`description` and `route_back_to`.",
+    }),
   z.string().meta({
-    description: 'As a string: `owner-action("…")`, `check: default`, `script("…")` or `agent: …`.',
+    description: 'As a string: `owner-action("…")`, `check: default`, `script("…")`, `agent: …` or `workflow: <name>`.',
     // For editors only: parseGate decides at run time.
-    pattern: String.raw`^\s*(owner-action|check|script|agent)\s*[(:][\s\S]*$`,
+    pattern: String.raw`^\s*(owner-action|check|script|agent|workflow)\s*[(:][\s\S]*$`,
   }),
 ] as const;
 
