@@ -35,6 +35,8 @@ import {
 import { problemsByStep, problemsForText } from "./validate.ts";
 import { WorkflowList } from "./WorkflowList.tsx";
 import { ProjectList } from "./ProjectList.tsx";
+import { ComparePage, compareOrder, ModeSwitch, type Mode } from "./ComparePage.tsx";
+import { defaultComparePair, swapPair } from "./model/compare.ts";
 import { Flow } from "./Flow.tsx";
 import { Inspector, type InspectorTab } from "./Inspector.tsx";
 import { RunLinkButton } from "./Links.tsx";
@@ -70,6 +72,9 @@ export function App() {
   // The workflow last opened by itself (from the list or by following a
   // link), not with a run; another project's file opened so stays open.
   const [linkedKey, setLinkedKey] = useState<string | null>(null);
+  // Edit mode is the editor; compare mode shows two workflows side by side.
+  const [mode, setMode] = useState<Mode>("edit");
+  const [comparePair, setComparePair] = useState<[string | null, string | null]>([null, null]);
   const [error, setError] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(false);
   const [showDescriptions, setShowDescriptions] = useState(true);
@@ -240,28 +245,54 @@ export function App() {
     };
   }, [workflow?.path, workflow?.onDisk, readOnly]);
 
+  // The workflow after edits applied in order as one change: either all
+  // apply or the function throws and nothing changes.
+  const edited = (target: OpenWorkflow, list: Edit[]): OpenWorkflow => {
+    let nextText = target.openText;
+    const stepKeys = [...target.stepKeys];
+    // A step deleted and inserted again at the same index is a replaced step
+    // (compare mode's copy); it keeps its identity, so saving does not report
+    // it as deleted and added.
+    let freed: { at: number; key: string } | null = null;
+    for (const edit of list) {
+      nextText = applyEdit(nextText, edit);
+      if (edit.op === "insertStep") {
+        stepKeys.splice(edit.at, 0, freed?.at === edit.at ? freed.key : newStepKey());
+        freed = null;
+      }
+      if (edit.op === "deleteStep") freed = { at: edit.index, key: stepKeys.splice(edit.index, 1)[0] };
+      if (edit.op === "moveStep") {
+        const [key] = stepKeys.splice(edit.from, 1);
+        stepKeys.splice(edit.to, 0, key);
+      }
+    }
+    return openWorkflow({ ...target, stepKeys, workingCopy: nextText === target.text ? undefined : nextText });
+  };
+  // Compare mode's copy: edits any workflow, not only the open one. The
+  // autosave below follows the open workflow only, so a copy into any other
+  // workflow writes its working copy at once; one into the open workflow is
+  // left to the autosave, so it is written once.
+  const applyTo = (key: string, list: Edit[], message: string) => {
+    const target = workflows.find((w) => workflowKey(w) === key);
+    if (!target) return;
+    if (!list.length) return showToast(message);
+    try {
+      const next = edited(target, list);
+      replaceWorkflow(key, next);
+      if (key === currentKey) return showToast(message);
+      (next.workingCopy === undefined ? api.deleteWorkingCopy(next.path) : api.putWorkingCopy(next.path, next.openText))
+        .then(() => showToast(message))
+        .catch((e) => showToast(e instanceof Error ? e.message : String(e)));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  };
   // Applies one edit, or several in order as one change: either all apply or none.
   const apply = (edits: Edit | Edit[]) => {
     if (!workflow || !currentKey || readOnly) return;
     const list = Array.isArray(edits) ? edits : [edits];
     try {
-      let nextText = workflow.openText;
-      const stepKeys = [...workflow.stepKeys];
-      for (const edit of list) {
-        nextText = applyEdit(nextText, edit);
-        if (edit.op === "insertStep") stepKeys.splice(edit.at, 0, newStepKey());
-        if (edit.op === "deleteStep") stepKeys.splice(edit.index, 1);
-        if (edit.op === "moveStep") {
-          const [key] = stepKeys.splice(edit.from, 1);
-          stepKeys.splice(edit.to, 0, key);
-        }
-      }
-      const next = openWorkflow({
-        ...workflow,
-        stepKeys,
-        workingCopy: nextText === workflow.text ? undefined : nextText,
-      });
-      replaceWorkflow(currentKey, next);
+      replaceWorkflow(currentKey, edited(workflow, list));
       for (const edit of list) {
         if (edit.op === "insertStep") {
           setSelectedIndex(edit.at);
@@ -298,7 +329,17 @@ export function App() {
     while (steps.some((s) => s.id === id)) id = `new-step-${n++}`;
     return id;
   };
+  const openCompare = () => {
+    const keys = compareOrder(workflows).map(workflowKey);
+    const kept = comparePair.every((key) => key !== null && keys.includes(key));
+    if (!kept) setComparePair(defaultComparePair(keys, currentKey));
+    setDrawerOpen(false);
+    setProblemsOpen(false);
+    setMode("compare");
+  };
+  const switchMode = (next: Mode) => (next === "compare" ? openCompare() : setMode("edit"));
   const openWorkflowKey = (key: string) => {
+    setMode("edit");
     setCurrentKey(key);
     setLinkedKey(key);
     setSelectedIndex(0);
@@ -361,6 +402,9 @@ export function App() {
   const linkProject = run?.project ?? (readOnly ? workflow?.project : undefined) ?? session?.root;
   const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
   const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
+  // Compare mode shows this project's workflows only, so their references resolve here.
+  const localLinkDir = projects.projects.find((p) => p.path === session?.root)?.workflowsDir ?? session?.locations[0].path ?? "";
+  const resolveLocalLink = (ref: string, from: OpenWorkflow) => linkTo(ref, from, workflows, localLinkDir, unavailable);
   // A linked run (the run a run came after, its parent, a child) is named by
   // slug, so it is looked up in the open run's project.
   const findRun = (slug: string) =>
@@ -524,10 +568,10 @@ export function App() {
   const structural = structureChanges(workflow, steps);
 
   return (
-    <div className={`screen${drawerOpen ? " has-drawer" : ""}`}>
+    <div className={`screen${drawerOpen && mode === "edit" ? " has-drawer" : ""}`}>
       <WorkflowList
         workflows={workflows}
-        currentKey={currentKey}
+        currentKey={mode === "compare" ? null : currentKey}
         onOpen={openWorkflowKey}
         workstreams={workstreams}
         onNew={createNew}
@@ -542,7 +586,25 @@ export function App() {
             onMessage={showToast}
           />
         }
+        onCompare={openCompare}
+        compareActive={mode === "compare"}
       />
+      {mode === "compare" ? (
+        <div className="center">
+          <ComparePage
+            workflows={workflows}
+            library={library}
+            leftKey={comparePair[0]}
+            rightKey={comparePair[1]}
+            onPick={(side, key) => setComparePair(([l, r]) => (side === "left" ? [key, r] : [l, key]))}
+            onEdit={openWorkflowKey}
+            onMode={switchMode}
+            onSwap={() => setComparePair(swapPair)}
+            onApply={applyTo}
+            resolveLink={resolveLocalLink}
+          />
+        </div>
+      ) : (
       <div className="center">
         <div className="center-header">
           <div className="center-header-main">
@@ -552,6 +614,7 @@ export function App() {
               <span className="center-header-path mono">{workflow.path}</span>
             </div>
           </div>
+          <ModeSwitch mode="edit" onMode={switchMode} />
           {!viewOnly && problems.length > 0 && (
             <button className="problems-chip" onClick={() => setProblemsOpen((v) => !v)}>
               {problems.length} problem{problems.length === 1 ? "" : "s"}
@@ -688,7 +751,8 @@ export function App() {
           </div>
         )}
       </div>
-      {drawerOpen && (
+      )}
+      {drawerOpen && mode === "edit" && (
       <Inspector
         tab={tab}
         onTab={(next) => {

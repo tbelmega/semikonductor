@@ -3,9 +3,11 @@
 // folder rows that open and close (kept in localStorage), search, and the +
 // button. While searching, every match is shown. The workflow files that runs
 // of other projects follow are not listed here; they open from their run.
+// The fuse-flow section ends with the "workflow compare" entry, which opens
+// compare mode.
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Columns2, Plus } from "lucide-react";
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import type { LibraryEntry, WorkstreamSummary } from "./api.ts";
 import { gateCount, workflowKey, type LocationId, type OpenWorkflow } from "./workflowView.ts";
@@ -25,6 +27,8 @@ const LOCATION_ROOT: Record<LocationId, string> = {
   "fuse-flow": "fuse-flow/workflows/",
 };
 
+export const COMPARE_ENTRY = "workflow compare";
+
 function stem(file: string) {
   return file.replace(/\.ya?ml$/, "");
 }
@@ -36,6 +40,8 @@ export function WorkflowList({
   workstreams,
   onNew,
   footer,
+  onCompare,
+  compareActive,
 }: {
   workflows: OpenWorkflow[];
   currentKey: string | null;
@@ -44,6 +50,8 @@ export function WorkflowList({
   onNew: () => void;
   // Shown below the list: the projects section.
   footer?: React.ReactNode;
+  onCompare: () => void;
+  compareActive: boolean;
 }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
@@ -53,7 +61,9 @@ export function WorkflowList({
       .filter((w) => w.location === loc && (!q || `${w.dir}${w.file}`.toLowerCase().includes(q)))
       .sort((a, b) => `${a.dir}${a.file}`.localeCompare(`${b.dir}${b.file}`));
     return { loc, workflows: inLoc };
-  }).filter((g) => g.workflows.length > 0);
+  });
+  const compareShown = !q || COMPARE_ENTRY.includes(q);
+  const shownGroups = groups.filter((g) => g.workflows.length > 0 || (g.loc === "fuse-flow" && compareShown));
 
   const runsFor = (w: OpenWorkflow) => workstreams.filter((ws) => ws.workflowPath === w.path);
   const folders = useFolderState("komposer-workflow-folders");
@@ -80,7 +90,7 @@ export function WorkflowList({
         </button>
       </div>
       <div className="lane-list">
-        {groups.map((group) => {
+        {shownGroups.map((group) => {
           const shownFolders = new Set<string>();
           return (
             <div key={group.loc}>
@@ -147,10 +157,23 @@ export function WorkflowList({
                     </div>
                   );
                 })}
+              {group.loc === "fuse-flow" && sectionOpen(group.loc) && compareShown && (
+                <button
+                  className={`lane-row lane-compare-row${compareActive ? " is-current" : ""}`}
+                  onClick={onCompare}
+                  title="Compare two workflows side by side"
+                >
+                  <span className="lane-row-head">
+                    <Columns2 size={13} strokeWidth={1.75} className="lane-compare-icon" />
+                    <span className="lane-row-name">{COMPARE_ENTRY}</span>
+                  </span>
+                  <span className="lane-row-meta">compare any two workflows</span>
+                </button>
+              )}
             </div>
           );
         })}
-        {groups.length === 0 && <div className="lane-empty">No match.</div>}
+        {shownGroups.length === 0 && <div className="lane-empty">No match.</div>}
       </div>
       {footer}
     </div>
