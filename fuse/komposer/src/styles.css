@@ -1310,3 +1310,37 @@ select {
 .step-section-problem { width: 7px; height: 7px; border-radius: 50%; background: var(--tint-danger-dot); flex: none; }
 .step-section-body { display: flex; flex-direction: column; gap: 18px; padding-top: 10px; }
 .inspector-section-stack:has(> .step-section) { gap: 12px; }
+
+/* ------------------------------------------------------- compare mode */
+.mode-switch { flex: none; margin-left: 12px; }
+.mode-switch .segmented-opt { cursor: pointer; }
+.lane-compare-row { margin-top: 6px; border-top: 1px dashed var(--border); }
+.lane-compare-icon { flex: none; color: var(--text-muted); }
+.compare-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.compare-columns { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0; }
+.compare-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.compare-side + .compare-side { border-left: 1px solid var(--border); }
+.compare-side-head { display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.compare-picker { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-strong); font: 500 12px "JetBrains Mono", monospace; }
+.compare-edit-btn { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-strong); font: 500 12px "IBM Plex Sans", sans-serif; cursor: pointer; }
+.compare-edit-btn:hover { background: var(--surface-subtle); }
+.compare-counts { flex-direction: column; align-items: flex-start; gap: 2px; }
+.compare-side .step-card { cursor: default; }
+.step-card.compare-changed { border-color: var(--tint-warn-border); }
+.step-card.compare-only-here { border-color: var(--accent); }
+.compare-fields { font: 500 12px "IBM Plex Sans", sans-serif; color: var(--tint-warn-text); }
+.compare-pill { flex: none; align-self: flex-start; padding: 2px 8px; border-radius: 999px; font: 500 11px "JetBrains Mono", monospace; white-space: nowrap; }
+.compare-pill-same { background: var(--tint-ok-bg); color: var(--tint-ok-text); }
+.compare-pill-changed { background: var(--tint-warn-pill-bg); color: var(--tint-warn-text); }
+.compare-pill-only-here { background: var(--accent-soft); color: var(--accent-text); }
+.compare-swap-btn { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-strong); font: 500 12px "IBM Plex Sans", sans-serif; cursor: pointer; }
+.compare-swap-btn:hover { background: var(--surface-subtle); }
+.compare-view-switch { flex: none; margin-left: 8px; }
+.compare-view-switch .segmented-opt { cursor: pointer; }
+.compare-columns.is-yaml { flex: none; }
+.compare-card-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.compare-copy-btn { padding: 2px 8px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text-strong); font: 500 11px "JetBrains Mono", monospace; white-space: nowrap; cursor: pointer; }
+.compare-copy-btn:hover { border-color: var(--accent); color: var(--accent-text); }
+.compare-yaml { flex: 1; min-height: 0; overflow: auto; padding: 12px 20px 24px; }
+.compare-yaml-legend { display: flex; gap: 16px; margin-bottom: 8px; font: 500 12px "JetBrains Mono", monospace; }
+.compare-yaml-legend span { padding: 2px 6px; border-radius: 4px; }

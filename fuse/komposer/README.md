@@ -16,6 +16,13 @@ right open it on those tabs; Escape or its close button closes it again. The ste
 fields in four sections (basics, instruction, inputs and outputs, gates); only the instruction is
 open at first, a closed section shows a one-line summary, and a section with a problem stays open.
 
+Komposer has two modes, switched at the top right. Edit mode, the default, is the editor described
+above. Compare mode, also opened by "workflow compare" at the end of the fuse-flow section, shows
+any two workflows side by side as read-only diagrams, with each step marked as the same, changed
+(naming the fields that differ) or only on one side. "Swap sides" exchanges them, the YAML view
+shows the line diff of the two files, and a step that differs can be copied to the other side. A
+copy is an unsaved change of that workflow, which you save or discard in edit mode.
+
 ## Running it
 
 You need [Bun](https://bun.sh) 1.3 or later. From this folder, the first time:

@@ -12,6 +12,7 @@ import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
 import { gatesInRunOrder, type ArtifactRole, type StepView } from "./workflowView.ts";
 import { layoutEdges } from "./layout.ts";
 import type { Problem } from "./validate.ts";
+import type { StepCompare } from "./model/compare.ts";
 
 type Rect = { t: number; b: number; l: number; r: number };
 
@@ -25,6 +26,12 @@ const GATE_STYLE: Record<Gate["kind"], { label: string; bg: string; fg: string }
   script: { label: "script", bg: "var(--surface-sunken)", fg: "var(--text-strong)" },
   agent: { label: "agent", bg: "var(--tint-agent-bg)", fg: "var(--tint-agent-text)" },
   "owner-action": { label: "owner", bg: "var(--tint-warn-pill-bg)", fg: "var(--tint-warn-text)" },
+};
+
+const COMPARE_LABEL: Record<StepCompare["status"], string> = {
+  same: "same",
+  changed: "changed",
+  "only-here": "only here",
 };
 
 const ROLE_PREFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "", updates: "~" };
@@ -48,6 +55,9 @@ export function Flow({
   onDropArtifactAt,
   run,
   gateTextVisible = true,
+  readOnly = false,
+  compare,
+  compareAction,
 }: {
   steps: StepView[];
   selectedIndex: number;
@@ -67,7 +77,14 @@ export function Flow({
   onDropArtifactAt: (at: number, artifact: string) => void;
   run?: WorkstreamSummary;
   gateTextVisible?: boolean;
+  // No insert, append, move or delete controls, and artifact drops are ignored.
+  readOnly?: boolean;
+  // Compare mode: how each step compares with the other workflow, by index.
+  compare?: StepCompare[];
+  // Compare mode: an action on each step that differs from the other side.
+  compareAction?: { label: string; title: (id: string) => string; run: (index: number) => void };
 }) {
+  const locked = readOnly || !!run;
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
     onDragOver: (event: DragEvent) => {
@@ -135,7 +152,7 @@ export function Flow({
           />
           {steps.map((step, i) => (
             <div key={`${step.id}-${i}`}>
-              {run ? null : (
+              {locked ? null : (
                 <div
                   className={`step-seam${dropAt === i ? " is-drop-target" : ""}`}
                   onClick={() => onInsert(i)}
@@ -170,11 +187,18 @@ export function Flow({
                 onDropArtifact={(artifact) => onDropArtifact(i, artifact)}
                 runStep={run?.summary?.steps[step.id]}
                 runMode={!!run}
+                readOnly={readOnly}
+                compare={compare?.[i]}
+                compareAction={
+                  compareAction && compare?.[i] && compare[i].status !== "same"
+                    ? { label: compareAction.label, title: compareAction.title(step.id), run: () => compareAction.run(i) }
+                    : undefined
+                }
               />
             </div>
           ))}
         </div>
-        {!run && (
+        {!locked && (
           <button
             className={`append-step-btn${dropAt === steps.length ? " is-drop-target" : ""}`}
             onClick={onAppend}
@@ -219,6 +243,9 @@ function StepCard({
   onDropArtifact,
   runStep,
   runMode,
+  readOnly,
+  compare,
+  compareAction,
 }: {
   step: StepView;
   num: number;
@@ -239,7 +266,11 @@ function StepCard({
   onDropArtifact: (artifact: string) => void;
   runStep?: { status: string; activeMs: number; ownerWaitMs: number; visits: number; skipReason?: string };
   runMode: boolean;
+  readOnly: boolean;
+  compare?: StepCompare;
+  compareAction?: { label: string; title: string; run: () => void };
 }) {
+  const locked = runMode || readOnly;
   const hasProblems = problems.length > 0;
   const badConsumes = new Set(
     problems.filter((p) => p.field === "consumes" && p.itemIndex !== undefined).map((p) => step.consumes[p.itemIndex!]),
@@ -260,14 +291,14 @@ function StepCard({
   return (
     <div
       data-node={num}
-      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${stateInfo ? ` run-${stateInfo.className}` : ""}`}
+      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${stateInfo ? ` run-${stateInfo.className}` : ""}${compare ? ` compare-${compare.status}` : ""}`}
       onClick={onSelect}
       onDragOver={(event) => {
-        if (!runMode && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
+        if (!locked && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
       }}
       onDrop={(event) => {
         const artifact = event.dataTransfer.getData(ARTIFACT_DRAG);
-        if (artifact && !runMode) {
+        if (artifact && !locked) {
           event.preventDefault();
           onDropArtifact(artifact);
         }
@@ -367,6 +398,9 @@ function StepCard({
             {problems.length > 1 && `  +${problems.length - 1} more`}
           </div>
         )}
+        {compare?.status === "changed" && (
+          <div className="compare-fields">differs in {compare.fields.join(", ")}</div>
+        )}
         {runBits.length > 0 && (
           <div className="run-step-meta">
             {runBits.map((bit) => (
@@ -375,7 +409,16 @@ function StepCard({
           </div>
         )}
       </div>
-      {runMode ? (
+      {compare ? (
+        <div className="compare-card-side" onClick={(event) => event.stopPropagation()}>
+          <span className={`compare-pill compare-pill-${compare.status}`}>{COMPARE_LABEL[compare.status]}</span>
+          {compareAction && (
+            <button className="compare-copy-btn" title={compareAction.title} onClick={compareAction.run}>
+              {compareAction.label}
+            </button>
+          )}
+        </div>
+      ) : readOnly ? null : runMode ? (
         <span className={`run-state-pill ${stateInfo?.className ?? "pending"}`}>
           {stateInfo?.label ?? "not started"}
         </span>
