@@ -19,6 +19,8 @@
 #   confirmed, and cdk diff compares templates instead of creating a change set; without a
 #   confirmed account the check is recorded NOT RUN. Manual verification stays local unless the
 #   owner authorized a live target. The SOP ran plain cdk diff and named no target.
+# - A test suite that calls a deployed system runs only when the owner authorized that target;
+#   otherwise it is recorded NOT RUN. The SOP ran every suite.
 version: 1
 name: k-verify-sop
 description: Port of the former k-verify SOP, evidence that a finished change works, from the build,
@@ -48,8 +50,12 @@ steps:
       any package, before running tests.
       (3) Tests: npm test, cargo test, go test ./..., pytest, gradle test or mvn test, and also any
       separate integration test command or CI job. Run every package's tests and every distinct
-      test suite of a package. Record pass and fail counts per package or suite and an aggregate
-      total. Fix failing tests before going on.
+      test suite of a package, except a suite that calls a deployed system, such as a deployed
+      app, a cloud account or live endpoints: run that one, also through an aggregate command that
+      includes it, only when the owner authorized that target and what the tests change there;
+      otherwise record it as NOT RUN with that reason, and the verification as incomplete. Record
+      pass and fail counts per package or suite and an aggregate total. Fix failing tests before
+      going on.
       (4) Lint, when the project has a lint configuration or tool: npm run lint, cargo clippy,
       golangci-lint run or ruff check .; for Gradle and Maven, read the build configuration for the
       configured lint plugin (for example Checkstyle, Spotless or Detekt) before choosing the

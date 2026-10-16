@@ -191,8 +191,12 @@ steps:
   - id: ui-testing
     title: UI testing
     condition:
-      agent: the project has a user interface, and the owner has given a deployed URL or a way to run it locally
-    instruction: One end-to-end pass of each feature's user-facing flow; record the URL used.
+      agent: >-
+        the project has a user interface, and the owner has given a way to run it locally, or a
+        deployed URL together with authorization to run tests against it
+    instruction: >-
+      One end-to-end pass of each feature's user-facing flow; record the URL used. Against a
+      deployed URL, run only what the owner's authorization covers.
     consumes:
       - implementation-report
     produces:
