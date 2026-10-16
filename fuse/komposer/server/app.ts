@@ -182,13 +182,22 @@ export function startServer(options: ServerOptions): KomposerServer {
   // Workflow files outside the three locations, listed read-only: every file
   // in another project's own workflow folder, where fuse-flow looks up a name
   // in that project's runs first, and any other file a run follows. A file
-  // that cannot be read is left out.
+  // that cannot be read, and a project's workflow folder that cannot be
+  // searched, are listed as unavailable with the reason: fuse-flow still
+  // picks that file by its name, and fails a name looked up in that folder,
+  // so a link to such a name must not lead to a shared workflow instead.
   const runWorkflows = () => {
     const out = new Map<string, Record<string, unknown>>();
+    const unavailable = new Map<string, Record<string, unknown>>();
     const add = (path: string, project: string) => {
-      if (out.has(path) || inLocation(path) || !/\.ya?ml$/.test(path)) return;
-      const text = readText(path);
-      if (text === undefined) return;
+      if (out.has(path) || unavailable.has(path) || inLocation(path) || !/\.ya?ml$/.test(path)) return;
+      let text: string;
+      try {
+        text = readFileSync(path, "utf8");
+      } catch (e) {
+        unavailable.set(path, { location: "run", project, kind: "file", path, reason: (e as Error).message });
+        return;
+      }
       out.set(path, { location: "run", project, dir: "", file: basename(path), path, onDisk: true, text, hash: sha(text) });
     };
     for (const project of projects().paths.filter((p) => p !== root)) {
@@ -196,13 +205,13 @@ export function startServer(options: ServerOptions): KomposerServer {
       let files: string[] = [];
       try {
         files = isDirectory(folder) ? workflowFilesBelow(project, folder) : [];
-      } catch {
-        // an unreadable folder lists nothing
+      } catch (e) {
+        unavailable.set(folder, { location: "run", project, kind: "folder", path: folder, reason: (e as Error).message });
       }
       for (const path of files) add(path, project);
     }
     for (const run of runs()) if (run.workflowPath) add(run.workflowPath, run.project);
-    return [...out.values()];
+    return { files: [...out.values()], unavailable: [...unavailable.values()] };
   };
 
   const listWorkflows = () => {
@@ -244,7 +253,8 @@ export function startServer(options: ServerOptions): KomposerServer {
         });
       }
     }
-    return [...out, ...runWorkflows()];
+    const other = runWorkflows();
+    return { workflows: [...out, ...other.files], unavailable: other.unavailable };
   };
 
   const updateOriginal = (body: any) => {
@@ -546,7 +556,7 @@ export function startServer(options: ServerOptions): KomposerServer {
       case "GET /api/session":
         return Response.json({ root, locations });
       case "GET /api/workflows":
-        return Response.json({ workflows: listWorkflows() });
+        return Response.json(listWorkflows());
       case "PUT /api/workflows":
         return Response.json(updateOriginal(body));
       case "POST /api/workflows":

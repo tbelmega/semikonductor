@@ -477,7 +477,7 @@ function StepCard({
                     <span className="gate-num">{k + 1}</span>
                     <span className="gate-kind">{style.label}</span>
                     <span className="gate-text">{gate.text}</span>
-                    <span className="gate-extra">{link.ok ? "↗" : "not found"}</span>
+                    <span className="gate-extra">{link.ok ? "↗" : link.unavailable ? "unavailable" : "not found"}</span>
                     {gate.route_back_to.length > 0 && (
                       <span className="gate-route">↩ {gate.route_back_to.join(", ")}</span>
                     )}

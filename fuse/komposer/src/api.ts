@@ -3,6 +3,7 @@
 // location.hash (#token=...); we read it once, keep it in sessionStorage so a
 // reload does not lose it, and strip it from the URL bar.
 
+import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import type { Session, WorkflowFile } from "./workflowView.ts";
 
 const STORAGE_KEY = "komposer-token";
@@ -47,7 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   session: () => request<Session>("session"),
-  workflows: () => request<{ workflows: WorkflowFile[] }>("workflows"),
+  workflows: () => request<{ workflows: WorkflowFile[]; unavailable: UnavailableWorkflow[] }>("workflows"),
   updateWorkflow: (path: string, baseHash: string, text: string) =>
     request<{ path: string; hash: string }>("workflows", {
       method: "PUT",

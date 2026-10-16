@@ -54,8 +54,11 @@ serves the app with Vite on port 5173 and passes `/api` to the server started wi
   Projects adds every project with runs in a folder and up to four folder levels below it. A
   run whose workflow is the project's own file, outside the three folders above, opens that file
   read-only. A hand-off or workflow gate in such a run names a workflow of that project, as
-  fuse-flow reads it, and following it opens that file read-only too. A project whose runs cannot
-  be read says why in the list. Removing a project from the list leaves its runs where they are.
+  fuse-flow reads it, and following it opens that file read-only too. If that project's file of
+  that name cannot be read, or its workflow folder cannot be searched, the link shows it as
+  unavailable with the reason, as fuse-flow would fail there, rather than leading to a shared
+  workflow of the same name. A project whose runs cannot be read says why in the list. Removing a
+  project from the list leaves its runs where they are.
 - **Example runs.** The last project in the list, `example-runs`, holds five made-up runs of the
   `custom-example-small`, `-medium` and `-large` workflows, in `example-runs/.konductor/workstreams/`
   in this folder. They come with the clone, so Komposer has runs to show before you have any of

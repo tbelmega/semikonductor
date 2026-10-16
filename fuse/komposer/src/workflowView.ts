@@ -7,7 +7,7 @@ import YAML from "yaml";
 import type { Gate } from "../../flow/src/schemas/gate.ts";
 import type { HandOff, Workflow, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import { parseWorkflowText, type WorkflowIssue } from "../../flow/src/parse.ts";
-import { resolveWorkflowRef } from "./model/workflowLinks.ts";
+import { resolveWorkflowRef, type UnavailableWorkflow } from "./model/workflowLinks.ts";
 
 export type LocationId = "project" | "personal" | "fuse-flow";
 
@@ -315,12 +315,19 @@ export const delegationOf = (step: StepView): Gate | undefined => step.gates.fin
 
 // Where a hand-off or a workflow gate leads: the listed workflow it resolves
 // to, or why it does not resolve. `projectDir` is the workflow folder of the
-// project whose run the reference is read for.
-export type WorkflowLink = { ok: true; key: string; name: string; path: string } | { ok: false; reason: string };
+// project whose run the reference is read for. `unavailable` is set when it
+// leads to a file or folder that cannot be read.
+export type WorkflowLink = { ok: true; key: string; name: string; path: string } | { ok: false; reason: string; unavailable?: true };
 
-export function linkTo(ref: string, from: OpenWorkflow, all: OpenWorkflow[], projectDir: string): WorkflowLink {
-  const found = resolveWorkflowRef(ref, from.path, all, projectDir);
-  if (!found.ok) return found;
+export function linkTo(
+  ref: string,
+  from: OpenWorkflow,
+  all: OpenWorkflow[],
+  projectDir: string,
+  unavailable: UnavailableWorkflow[] = [],
+): WorkflowLink {
+  const found = resolveWorkflowRef(ref, from.path, all, projectDir, unavailable);
+  if (!found.ok) return { ok: false, reason: found.reason, ...(found.unavailable ? { unavailable: true as const } : {}) };
   const target = found.target;
   return { ok: true, key: workflowKey(target), name: target.parsed?.name || target.rawWorkflow.name || stem(target.file), path: target.path };
 }

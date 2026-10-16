@@ -9,6 +9,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { workflowDirs } from "../../../flow/src/project.ts";
+import { resolveWorkflowRef } from "../../src/model/workflowLinks.ts";
 import { type KomposerServer, startServer } from "../app.ts";
 
 const CLI = resolve(import.meta.dir, "..", "..", "..", "flow", "src", "cli.ts");
@@ -662,6 +664,62 @@ describe("projects", () => {
       ]);
     } finally {
       chmodSync(file, 0o644);
+    }
+  });
+
+  // fuse-flow picks a workflow name by the files that exist and only then
+  // reads the one it picked, so an unreadable file still wins over a shared
+  // workflow of the same name, and a folder it cannot search fails every
+  // name looked up there. A link must lead to that failure, not to the
+  // shared workflow.
+  const resolveIn = async (project: string, ref: string) => {
+    const { workflows, unavailable } = await json("/api/workflows");
+    const from = join(project, ".konductor", "workflows", "parent.yml");
+    return resolveWorkflowRef(ref, from, workflows, workflowDirs(project)[0], unavailable);
+  };
+
+  test("an unreadable workflow file of another project keeps its name from a shared one", async () => {
+    write(join(home, ".konductor", "workflows", "one.yml"), ONE);
+    const other = otherProject();
+    const file = join(other, ".konductor", "workflows", "one.yml");
+    chmodSync(file, 0o000);
+    try {
+      const { unavailable } = await json("/api/workflows");
+      expect(unavailable).toEqual([{ location: "run", project: other, kind: "file", path: file, reason: expect.stringContaining("EACCES") }]);
+      expect(() => flowIn(other, "start", "again", "--workflow", "one")).toThrow(/EACCES/);
+      const link = await resolveIn(other, "one");
+      expect(link).toMatchObject({ ok: false, unavailable: { path: file } });
+      expect(!link.ok && link.reason).toContain("EACCES");
+      // With a readable file of that name, the name is ambiguous, as fuse-flow says.
+      const copy = write(join(other, ".konductor", "workflows", "copy", "one.yml"), ONE);
+      const twice = await resolveIn(other, "one");
+      expect(!twice.ok && twice.reason).toBe(`workflow name "one" is ambiguous; rename one of: ${copy}, ${file}`);
+    } finally {
+      chmodSync(file, 0o644);
+    }
+  });
+
+  test("a workflow folder of another project that cannot be searched fails every name there", async () => {
+    write(join(home, ".konductor", "workflows", "child.yml"), ONE);
+    const other = otherProject();
+    const folder = join(other, ".konductor", "workflows");
+    const locked = join(folder, "review");
+    write(join(locked, "child.yml"), ONE);
+    chmodSync(locked, 0o000);
+    try {
+      const { unavailable } = await json("/api/workflows");
+      expect(unavailable).toEqual([{ location: "run", project: other, kind: "folder", path: folder, reason: expect.stringContaining("EACCES") }]);
+      expect(() => flowIn(other, "start", "again", "--workflow", "child")).toThrow(/EACCES/);
+      for (const ref of ["child", "one"]) {
+        const link = await resolveIn(other, ref);
+        expect(link).toMatchObject({ ok: false, unavailable: { path: folder } });
+        expect(!link.ok && link.reason).toContain(locked);
+      }
+      // fuse-flow cannot find the run's own workflow either; the run is still listed.
+      const { workstreams } = await json("/api/workstreams");
+      expect(workstreams.map((w: any) => [w.slug, w.workflowPath])).toEqual([["theirs", undefined]]);
+    } finally {
+      chmodSync(locked, 0o755);
     }
   });
 

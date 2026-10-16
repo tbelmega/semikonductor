@@ -9,7 +9,8 @@ import { RUN_STATE, runState } from "./runView.ts";
 import type { WorkflowLink } from "./workflowView.ts";
 
 // A workflow reference as written, opening the workflow it resolves to; one
-// that does not resolve is shown with the reason and does nothing.
+// that does not resolve is shown with the reason and does nothing, as
+// unavailable when it leads to a file or folder that cannot be read.
 export function WorkflowLinkButton({
   refText,
   link,
@@ -31,7 +32,7 @@ export function WorkflowLinkButton({
       }}
     >
       <span className="mono">{refText}</span>
-      <span aria-hidden="true">{link.ok ? "↗" : "not found"}</span>
+      <span aria-hidden="true">{link.ok ? "↗" : link.unavailable ? "unavailable" : "not found"}</span>
     </button>
   );
 }

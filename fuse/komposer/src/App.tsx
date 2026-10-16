@@ -16,6 +16,7 @@ import { applyEdit, type Edit, type OutputMode } from "./model/yamlEdit.ts";
 import { diskChangeWatcher } from "./model/diskChange.ts";
 import { mergeListed } from "./model/listedWorkflows.ts";
 import { givesWay } from "./model/readOnlyView.ts";
+import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
@@ -47,6 +48,9 @@ type DiskVersion = { text: string; hash: string; at: string };
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [workflows, setWorkflows] = useState<OpenWorkflow[]>([]);
+  // Another project's workflow files and folders that cannot be read; a link
+  // to a name they hold leads to them, shown as unavailable.
+  const [unavailable, setUnavailable] = useState<UnavailableWorkflow[]>([]);
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
   const [workstreams, setWorkstreams] = useState<WorkstreamSummary[]>([]);
   const [projects, setProjects] = useState<{ projects: ProjectSummary[]; error?: string }>({ projects: [] });
@@ -95,6 +99,7 @@ export function App() {
     const first = opened.find((x) => x.location !== "run");
     setSession(s);
     setWorkflows(opened);
+    setUnavailable(w.unavailable);
     setLibrary(l.entries);
     setWorkstreams(ws.workstreams);
     setProjects(p);
@@ -112,6 +117,7 @@ export function App() {
   const refreshProjects = async () => {
     const [w, ws, p] = await Promise.all([api.workflows(), api.workstreams(), api.projects()]);
     setWorkflows((all) => mergeListed(all, w.workflows, (file) => openWorkflow(file)));
+    setUnavailable(w.unavailable);
     setWorkstreams(ws.workstreams);
     setProjects(p);
   };
@@ -354,7 +360,7 @@ export function App() {
   // open run's project, else of the project the open file belongs to.
   const linkProject = run?.project ?? (readOnly ? workflow?.project : undefined) ?? session?.root;
   const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
-  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir);
+  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
   // A linked run (the run a run came after, its parent, a child) is named by
   // slug, so it is looked up in the open run's project.
   const findRun = (slug: string) =>

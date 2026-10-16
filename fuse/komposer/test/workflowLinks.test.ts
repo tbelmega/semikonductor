@@ -203,6 +203,47 @@ describe("which workflow a reference opens, as fuse-flow resolves it", () => {
       expect(from("missing", theirParent, OTHER)).toBe('no workflow named "missing"');
       expect(from("dup", theirParent, OTHER)).toContain("ambiguous");
     });
+
+    // fuse-flow picks a name by the files that exist and reads the one it
+    // picked afterwards; a folder it cannot search fails the lookup there.
+    describe("with files or folders that cannot be read", () => {
+      const lockedFile = { location: "run", path: `${OTHER}/review/child.yml`, kind: "file" as const, reason: "EACCES: permission denied" };
+      const lockedFolder = { location: "run", path: OTHER, kind: "folder" as const, reason: "EACCES: permission denied, scandir '/o/x'" };
+      const only = [...all, theirParent, foreign(`${OTHER}/next.yml`)];
+      const via = (ref: string, unavailable: (typeof lockedFile | typeof lockedFolder)[], workflows = only) => {
+        const link = linkTo(ref, theirParent, workflows, OTHER, unavailable);
+        return link.ok ? link.path : link;
+      };
+
+      test("an unreadable file keeps its name from the shared workflow of that name, and says why", () => {
+        expect(via("child", [lockedFile])).toEqual({
+          ok: false,
+          unavailable: true,
+          reason: `workflow "child" is ${OTHER}/review/child.yml, which cannot be read: EACCES: permission denied`,
+        });
+        expect(via(`${OTHER}/review/child.yml`, [lockedFile])).toMatchObject({ ok: false, unavailable: true });
+        // Komposer's own project does not see the other project's file.
+        expect(linkTo("child", parent, only, PROJECT, [lockedFile])).toMatchObject({ ok: true, path: `${PROJECT}/review/child.yml` });
+      });
+
+      test("an unreadable file with a readable one of the same name is ambiguous", () => {
+        expect(via("child", [lockedFile], withOther)).toEqual({
+          ok: false,
+          reason: `workflow name "child" is ambiguous; rename one of: ${OTHER}/deep/child.yml, ${OTHER}/review/child.yml`,
+        });
+      });
+
+      test("a folder that cannot be searched fails every name looked up in it", () => {
+        for (const ref of ["child", "next", "missing"]) {
+          expect(via(ref, [lockedFolder])).toEqual({
+            ok: false,
+            unavailable: true,
+            reason: `the workflows in ${OTHER} cannot be searched: EACCES: permission denied, scandir '/o/x'`,
+          });
+        }
+        expect(linkTo("next", parent, only, PROJECT, [lockedFolder])).toMatchObject({ ok: true, path: `${PACKAGE}/next.yml` });
+      });
+    });
   });
 
   test("normalizePath drops . and .. segments and repeated slashes", () => {
