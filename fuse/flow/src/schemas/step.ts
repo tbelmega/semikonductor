@@ -58,6 +58,15 @@ export const StepSchema = z
     phase: z.string().optional().meta({
       description: "A label that groups steps, such as Inception or Construction. Engine effect: none; shown by the viewer.",
     }),
+    mode: z.enum(["attended", "unattended"]).optional().meta({
+      description:
+        "How the step runs; a step without it is attended. Engine effect: the step block carries a MODE line. " +
+        "attended: the agent asks the owner often and the owner stays with the session. unattended: the agent " +
+        "decides on its own judgement and the owner can leave until the next owner gate. In both, the agent " +
+        "records the decisions it makes on its own in .konductor/decisions/<slug>.md, and the next hand-over " +
+        "block points the owner to that file.",
+      examples: ["unattended"],
+    }),
     instruction: z.string().trim().min(1).meta({
       description:
         "What this step must achieve, in this workflow. Engine effect: it opens the step block that fuse-flow " +

@@ -91,6 +91,16 @@ export function reviewsDir(root: string, slug: string): string {
   return join(root, ".konductor", "reviews", slug);
 }
 
+// Where the agent records the decisions it makes on its own; one file per
+// workstream. fuse-flow only creates the folder and prints the path.
+export function decisionsDir(root: string): string {
+  return join(root, ".konductor", "decisions");
+}
+
+export function decisionsFile(root: string, slug: string): string {
+  return join(decisionsDir(root), `${slug}.md`);
+}
+
 export function workstreamFile(root: string, slug: string): string {
   return join(workstreamsDir(root), `${slug}.yml`);
 }

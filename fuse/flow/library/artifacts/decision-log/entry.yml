@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The decisions the agent made on its own judgement in a workstream, recorded as it works so the owner can review them at the next owner gate."

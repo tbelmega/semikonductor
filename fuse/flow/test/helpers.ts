@@ -9,6 +9,23 @@ import { dirname, join, resolve } from "node:path";
 export const FLOW_DIR = resolve(import.meta.dir, "..");
 const CLI = join(FLOW_DIR, "src", "cli.ts");
 
+// The MODE line every step block carries; a step without a mode is attended.
+export const DECISION_GUIDE = join(FLOW_DIR, "library", "artifacts", "decision-log", "guide.md");
+const PRECEDENCE =
+  "Where the step's instruction sets how the whole step runs, such as an interactive or an automatic mode, " +
+  "follow it and treat the step as attended or unattended accordingly, also where a guide has a branch for " +
+  "unattended steps; a single question or decision the instruction names is an exception within this mode.";
+export function modeLine(slug: string, mode: "attended" | "unattended" = "attended"): string {
+  const record = `.konductor/decisions/${slug}.md, following ${DECISION_GUIDE}`;
+  return mode === "attended"
+    ? "MODE: attended. Ask the owner often, one question at a time, about anything you cannot settle from the work. " +
+        `Record each decision you make without asking in ${record}. The owner stays with the session during this step. ${PRECEDENCE}`
+    : "MODE: unattended. Decide on your own judgement, with the instruction and the documents this block names " +
+        "as the authority; ask the owner only before an irreversible action, one that reaches outside this " +
+        `checkout, or where the instruction asks for the owner. Record every decision the owner should see in ${record}. ` +
+        `The owner can leave until the next owner gate. ${PRECEDENCE}`;
+}
+
 export interface Result {
   code: number;
   out: string;

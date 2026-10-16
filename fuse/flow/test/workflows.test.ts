@@ -312,6 +312,24 @@ describe("the workflows shipped in fuse/flow/workflows", () => {
       }
     });
   }
+
+  // The steps that work alone are marked; every other step is attended by default.
+  test("the fuse workflows mark their unattended steps, and record decisions in the decisions file", () => {
+    const unattended = (file: string) =>
+      (Bun.YAML.parse(readFileSync(join(FLOW_DIR, "workflows", "fuse", file), "utf8")) as { steps: Array<{ id: string; mode?: string }> }).steps
+        .filter((s) => s.mode === "unattended")
+        .map((s) => s.id);
+    expect(unattended("fuse-feature-development.yml")).toEqual(["implementation", "code-review"]);
+    expect(unattended("fuse-system-development.yml")).toEqual(["system-design", "feature-splitting"]);
+    expect(unattended("fuse-rapid-prototyping.yml")).toEqual(["brief"]);
+    expect(unattended("fuse-dependency-migration.yml")).toEqual(["guardrails", "migration", "verification"]);
+    expect(unattended("fuse-pull-request.yml")).toEqual(["feedback", "merge"]);
+    for (const file of ["fuse-feature-development.yml", "fuse-dependency-migration.yml"]) {
+      const text = readFileSync(join(FLOW_DIR, "workflows", "fuse", file), "utf8").replace(/\s+/g, " ");
+      expect(text).not.toContain("list each decision");
+      expect(text).toContain("record each decision in the decisions file");
+    }
+  });
 });
 
 describe("the workflow JSON Schema", () => {

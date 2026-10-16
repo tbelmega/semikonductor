@@ -68,6 +68,15 @@ A workflow is YAML with `version: 1`, a `name`, an optional `description`, and o
 `steps`. Every step has a unique `id` and an `instruction`. `title`, `description` and `phase` are
 optional information for readers and the viewer.
 
+A step may carry `mode: attended` or `mode: unattended`; a step without it is attended. An attended
+step tells the agent to ask the owner often and the owner to stay with the session. An unattended
+step tells the agent to decide on its own judgement, asking only before an irreversible action, one
+outside the checkout, or where the instruction asks for the owner, and tells the owner it can leave
+until the next owner gate. Where the instruction sets how the whole step runs, such as an
+interactive or automatic mode, the instruction wins. In both modes the agent records the decisions
+it makes on its own in the workstream's decisions file (see [Decisions](#decisions)). Mark a step
+unattended when it is written for the agent to work alone; leave every other step unmarked.
+
 ```yaml
 version: 1
 name: feature
@@ -272,6 +281,8 @@ When it is the agent's turn, the step block uses these labels:
 
 - `STEP` gives the step identifier, position and instruction.
 - `CONDITION` explains why an optional step runs or how to skip it.
+- `MODE` says whether the step is attended or unattended, what that asks of the agent and the
+  owner, and where the agent records its decisions.
 - `DELEGATE` names the child workstream a step with a workflow gate waits for, and how to run it.
 - `READ` gives each consumed artifact's path and source step, input or returning child workstream.
 - `RETURNS` names a document the step's own child returns, once the child is complete.
@@ -286,7 +297,7 @@ When it is the agent's turn, the step block uses these labels:
 
 When the owner acts next, output begins with `OWNER'S TURN` and ends with a pre-filled hand-over
 block. The agent replaces placeholders, preserves the order, and ends its own message with these
-five lines:
+five lines, and a sixth when the agent has finished work since the owner's last decision:
 
 - `SUMMARY:` the task, workstream slug and step position.
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or
@@ -296,6 +307,12 @@ five lines:
 - `VERIFICATION:` mechanical gate results, review rounds used and required fixes still open, or
   `none`.
 - `NEXT STEP:` the owner's options, with the recommendation first and its reason.
+- `DECISIONS:` how many decisions are open, or `none recorded`, the decisions files they are in,
+  and the owner's four ways to respond. It names this workstream's file and the file of each
+  delegated workstream whose finished work the owner has not reviewed, with the step that
+  delegated it. It also says, in plain words, that a change goes back to the step whose work it
+  changes, so the gates run again, or after `workflow complete` into a new workstream; the
+  `decision-log` guide gives the agent the commands.
 
 fuse-flow pre-fills the block for `awaiting owner action`, `blocked` and `workflow complete`. On
 `workflow complete`, the lines after the block name the workflows this one hands off to, with
@@ -396,6 +413,21 @@ does. Review `max_rounds` uses local or project policy, then
 the gate, then user policy, then the engine default. A review guide uses local or project policy,
 the project's artifact `review.md`, the gate's `guide`, user policy, then the user and package
 artifact review guides.
+
+### Decisions
+
+`.konductor/decisions/<slug>.md` is where the agent records, as it works, every decision it made
+on its own judgement that the owner could object to. The `decision-log` guide in the artifact
+library gives the entry format, what counts as a decision, the owner's four responses (accept,
+comment inline, ask for changes in chat, or walk through the decisions one at a time) and how the
+agent closes a reviewed section. The directory is gitignored, so the owner's inline comments stay
+in this checkout. fuse-flow creates the directory and prints the path, but never reads the file:
+it decides when to print the `DECISIONS:` line from the workstream histories alone. The line
+appears when the latest finished stretch of the agent's work (a step completed, waiting for the
+owner, or blocked) is later than the owner's latest review, that is the latest decision the owner
+took on a step that was waiting for the owner or blocked. A decision taken while a step is still
+in progress, such as review rounds granted ahead of time, is not a review. For a delegated
+workstream, at any depth, a review in it or in any workstream above it counts.
 
 ### Workstream state
 

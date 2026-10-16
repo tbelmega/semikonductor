@@ -100,6 +100,7 @@ steps:
   - id: guardrails
     title: Guardrails
     phase: Build
+    mode: unattended
     condition:
       agent: the approved catalogue lists checks to add before the migration
     instruction: >
@@ -143,6 +144,7 @@ steps:
   - id: migration
     title: Migration
     phase: Build
+    mode: unattended
     instruction: >
       Do the migration in the increments the spec lays out. Commit each increment in this checkout
       when it reaches its checkpoint, so the history can be bisected. Do not do the migration in
@@ -164,9 +166,9 @@ steps:
       or the owner decides, and the decision goes into the spec. A behavior change announced by
       the release notes that the owner chose to preserve is preserved in code, not by changing
       the check. When something fails unexpectedly, find the root cause before you change code.
-      Decide ambiguities yourself, with the spec and the catalogue as the authority, and list
-      each decision for the report. Stop and ask only before an irreversible action or one that
-      reaches outside this checkout.
+      Decide ambiguities yourself, with the spec and the catalogue as the authority, and record
+      each decision in the decisions file. Stop and ask only before an irreversible action or one
+      that reaches outside this checkout.
     consumes: [migration-spec, check-catalogue]
     updates:
       - artifact: code
@@ -179,6 +181,7 @@ steps:
   - id: verification
     title: Verification
     phase: Review
+    mode: unattended
     instruction: >
       Record the result of the migration step's gate in the catalogue, with the commit it ran on.
       Then compare every check in the catalogue against the baseline, check by check, using for
@@ -190,8 +193,9 @@ steps:
       changed, from which versions to which; the checks before and after, side by side, each
       with the commit it ran on; the pre-existing defects and whether the migration touched them;
       the behavior changes accepted on purpose; the risks no check covers and what the owner
-      should try by hand; and the decisions you made alone. If the integration branch has moved,
-      rebase the work onto it first and run again the checks other than the full check. When
+      should try by hand; and where the decisions file records the decisions you made alone. If
+      the integration branch has moved, rebase the work onto it first and run again the checks
+      other than the full check. When
       the rebase or any fix changes the code after the migration step's gate, the report must
       not present that gate's result as the result for the final commit: run the full check
       again before the last review round when the report compares its captured outputs or

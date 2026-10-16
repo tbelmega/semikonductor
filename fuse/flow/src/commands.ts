@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { currentBase, resolveBase } from "./base.ts";
 import { FlowError } from "./errors.ts";
-import { EVENT, ownerNotes, SKIP_REASON, stamp } from "./history.ts";
+import { EVENT, ownerNotes, runEvents, SKIP_REASON, stamp } from "./history.ts";
 import { has, own } from "./own.ts";
 import {
   artifactPath,
@@ -34,7 +34,7 @@ import {
   reviewGuideSource,
   rulings,
 } from "./policy.ts";
-import { findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
+import { decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
 import { type Artifact, type Condition, describeGate, type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
 import {
   childGate,
@@ -569,6 +569,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
     const ran = state.history.findLast((h) => h.includes("handed out"));
     if (ran?.includes("condition")) lines.push(`CONDITION: ${ran.slice(ran.indexOf("condition"))}, so the step runs.`);
   }
+  lines.push(modeLine(c, step));
 
   const gate = childGate(step);
   const child = gate ? childOf(c, state, step) : undefined;
@@ -781,6 +782,116 @@ function stopEarly(c: Ctx, ws: Workstream, step: Step): string[] {
     "  PRODUCED: <the files written or changed so far, and why any artifact will not be written; or none>",
     `  VERIFICATION: <the check results so far${reviews ? ", the review rounds used of the cap, and any required fix still open" : ""}; or none>`,
     "  NEXT STEP: <two to four options for the owner, your recommendation first, with its reason>",
+  ];
+}
+
+// ---------------------------------------------------------------- decisions
+// The agent records the decisions it makes on its own in one file per
+// workstream. fuse-flow never reads that file: it prints the MODE line, and
+// works out from the history alone when the owner has not yet seen the
+// decisions of some finished work.
+
+const decisionPath = (c: Ctx, slug: string) => display(c.p, decisionsFile(c.root, slug));
+
+function decisionGuide(c: Ctx): string | undefined {
+  const guide = libraryEntry(c.p, "decision-log")?.guide;
+  return guide ? display(c.p, guide) : undefined;
+}
+
+// How the step runs. A step without a mode is attended.
+function modeLine(c: Ctx, step: Step): string {
+  const guide = decisionGuide(c);
+  const record = `${decisionPath(c, c.slug)}${guide ? `, following ${guide}` : ""}`;
+  const precedence =
+    "Where the step's instruction sets how the whole step runs, such as an interactive or an automatic mode, " +
+    "follow it and treat the step as attended or unattended accordingly, also where a guide has a branch for " +
+    "unattended steps; a single question or decision the instruction names is an exception within this mode.";
+  if (step.mode === "unattended") {
+    return (
+      "MODE: unattended. Decide on your own judgement, with the instruction and the documents this block names " +
+      "as the authority; ask the owner only before an irreversible action, one that reaches outside this " +
+      `checkout, or where the instruction asks for the owner. Record every decision the owner should see in ${record}. ` +
+      `The owner can leave until the next owner gate. ${precedence}`
+    );
+  }
+  return (
+    "MODE: attended. Ask the owner often, one question at a time, about anything you cannot settle from the work. " +
+    `Record each decision you make without asking in ${record}. The owner stays with the session during this step. ${precedence}`
+  );
+}
+
+// The latest time the agent finished a stretch of work, and the latest time
+// the owner acted on a hand-over: moved a step on from AWAITING_OWNER or
+// BLOCKED, where only the owner can. ISO timestamps; "" when there is none.
+function decisionTimes(ws: Workstream): { work: string; review: string } {
+  let work = "";
+  let review = "";
+  for (const e of runEvents(ws)) {
+    if (!e.time) continue;
+    if (e.kind === "awaiting-owner" || e.kind === "completed" || e.kind === "blocked") {
+      if (e.time > work) work = e.time;
+    } else if ((e.from === "AWAITING_OWNER" || e.from === "BLOCKED") && e.to !== e.from) {
+      if (e.time > review) review = e.time;
+    }
+  }
+  return { work, review };
+}
+
+interface OpenDecisions {
+  slug: string;
+  // For a descendant workstream: the step of this workstream that delegated
+  // to it, directly or through its own children.
+  via?: string;
+}
+
+// The decisions files with work the owner has not yet reviewed: this
+// workstream's own, and each descendant's whose latest work is later than the
+// latest review in it and in every workstream above it.
+function openDecisions(c: Ctx, ws: Workstream): OpenDecisions[] {
+  const own = decisionTimes(ws);
+  const open: OpenDecisions[] = own.work > own.review ? [{ slug: c.slug }] : [];
+  const seen = new Set([c.slug]);
+  const descend = (w: Workstream, floor: string, via: string | undefined) => {
+    for (const [stepId, state] of Object.entries(w.steps)) {
+      for (const ch of state.children ?? []) {
+        if (seen.has(ch.slug) || !workstreamExists(c.root, ch.slug)) continue;
+        seen.add(ch.slug);
+        let child: Workstream;
+        try {
+          child = readWorkstream(c.root, ch.slug);
+        } catch {
+          continue;
+        }
+        const t = decisionTimes(child);
+        const below = t.review > floor ? t.review : floor;
+        if (t.work > below) open.push({ slug: ch.slug, via: via ?? stepId });
+        descend(child, below, via ?? stepId);
+      }
+    }
+  };
+  descend(ws, own.review, undefined);
+  return open;
+}
+
+// The DECISIONS line, or nothing when no decisions await review. It is the
+// only line the decisions add to a hand-over block: the agent finds how to
+// carry out the owner's response in the decision-log guide, and the block's
+// existing send-back command does the rest.
+function decisionLines(c: Ctx, ws: Workstream, complete: boolean): string[] {
+  const open = openDecisions(c, ws);
+  if (!open.length) return [];
+  // The printing workstream's own file always comes first, also when only a
+  // descendant's work opened the line.
+  if (open[0].slug !== c.slug) open.unshift({ slug: c.slug });
+  const files = open
+    .map((o) => (o.via ? `${decisionPath(c, o.slug)} (workstream ${o.slug}, delegated by step ${o.via})` : decisionPath(c, o.slug)))
+    .join(", and ");
+  const change = complete
+    ? "A change is made in a new workstream that follows on from this one."
+    : "A change goes back to the step whose work it changes, or to the step that delegated that work, so its checks and reviews run again.";
+  return [
+    `DECISIONS: <how many decisions are open, or none recorded>, in ${files}. The owner can accept them as they ` +
+      `are, comment inline in the file, ask for changes here, or have you walk through them one by one. ${change}`,
   ];
 }
 
@@ -1060,6 +1171,7 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
           `\`${FUSE_FLOW} start ${ws.parent.slug}\` prints that step, with what this workstream returns to it.`,
       );
     }
+    const decisions = decisionLines(c, ws, true);
     return [
       intro,
       "",
@@ -1068,6 +1180,7 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       `PRODUCED: ${produced.join("; ") || "none"}`,
       `VERIFICATION: ${[...verified, ...reviews].join("; ") || "none"}`,
       next,
+      ...decisions,
       ...(forYou.length ? ["", "FOR YOU, NOT FOR THE OWNER:", ...forYou] : []),
     ];
   }
@@ -1155,7 +1268,13 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
     lines.push(`  - ${backOption}`);
     commands.push(`  - ${backCommand}`);
   }
-  return [...lines, "", "FOR YOU, NOT FOR THE OWNER: once the owner has decided, run the matching command.", ...commands];
+  return [
+    ...lines,
+    ...decisionLines(c, ws, false),
+    "",
+    "FOR YOU, NOT FOR THE OWNER: once the owner has decided, run the matching command.",
+    ...commands,
+  ];
 }
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

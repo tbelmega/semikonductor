@@ -73,6 +73,7 @@ steps:
   - id: implementation
     title: Implementation
     phase: Build
+    mode: unattended
     instruction: >
       Build the approved spec. Write the spec's acceptance tests from the spec's wording, not from
       your code, and see each one fail before the code makes it pass, or break the code briefly
@@ -81,7 +82,7 @@ steps:
       of a system, also use the system end to end, with the features landed so far, for the
       requirements this feature covers. Commit as you go. When something fails unexpectedly, find
       the root cause before you change code. Decide ambiguities yourself, with the spec as the
-      authority, and list each decision in the hand-over. Stop and ask only before an
+      authority, and record each decision in the decisions file. Stop and ask only before an
       irreversible action or one that reaches outside this checkout.
     consumes: [feature-spec]
     updates:
@@ -93,6 +94,7 @@ steps:
   - id: code-review
     title: Code review
     phase: Review
+    mode: unattended
     instruction: >
       Make the work ready for the owner to land. If the integration branch has moved, rebase the
       work onto it first. Get the work through review. Before the last round, fold fixups and

@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
 import { withLock } from "./lock.ts";
-import { findWorkflow, projectsFile, workstreamFile, workstreamsDir } from "./project.ts";
+import { decisionsDir, findWorkflow, projectsFile, workstreamFile, workstreamsDir } from "./project.ts";
 import { registerProject } from "./registry.ts";
 import { type StepState, type Workstream, WorkstreamSchema } from "./schemas/workstream.ts";
 
@@ -87,10 +87,11 @@ export function updateWorkstream(
   }
 }
 
-// Workstream state and the reviewers' findings files are private to the
-// engineer's checkout, so each directory carries its own .gitignore.
+// Workstream state, the reviewers' findings files and the decisions files are
+// private to the engineer's checkout, so each directory carries its own
+// .gitignore.
 function prepareWorkstreamsDir(root: string): void {
-  for (const dir of [workstreamsDir(root), join(root, ".konductor", "reviews")]) {
+  for (const dir of [workstreamsDir(root), join(root, ".konductor", "reviews"), decisionsDir(root)]) {
     mkdirSync(dir, { recursive: true });
     const gitignore = join(dir, ".gitignore");
     if (!existsSync(gitignore)) writeFileSync(gitignore, "*\n");

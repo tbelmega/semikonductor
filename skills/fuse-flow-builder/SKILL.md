@@ -91,6 +91,14 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
    several workflows, move the procedure into an artifact guide.
 2. **`title`, `description`, `phase`.** Information for readers, `status` and the Komposer viewer.
    They do not change what the engine does. A `phase` groups consecutive steps in the viewer.
+   **`mode`** does change the step block: a step is attended unless it says `mode: unattended`.
+   An attended step tells the agent to ask the owner often and the owner to stay; an unattended
+   one tells the agent to decide on its own judgement and the owner that it can leave until the
+   next owner gate. Mark a step unattended when it is written for the agent to work alone, such
+   as implementation, a review loop or a summary of work the owner already steered, and leave
+   steps that interview the owner or agree experiments unmarked. In both modes the agent records
+   its own decisions in the workstream's decisions file, and the next owner gate points the owner
+   to it, so place an owner gate after a run of unattended steps.
 3. **`produces`.** An artifact the step writes, as `artifact: <id>` and `path: <path>`. The engine
    refuses `continue` until the file exists, or the agent reports
    `--not-produced <id> "<reason>"`. Use it whenever the point of a step is a document someone

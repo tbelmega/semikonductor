@@ -48,6 +48,7 @@ steps:
   - id: feedback
     title: Answer the feedback
     phase: Pull request
+    mode: unattended
     condition:
       agent: the pull request has review feedback that is not yet answered, such as comments or a request for changes
     instruction: >
@@ -72,6 +73,7 @@ steps:
   - id: merge
     title: Wait for the merge
     phase: Pull request
+    mode: unattended
     instruction: >
       Wait until the pull request is merged or gets new feedback. If your harness can watch it
       for you, with a monitor or a scheduled check, use that, and tell the owner when either

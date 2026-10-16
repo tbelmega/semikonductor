@@ -73,6 +73,14 @@ script installs plain skills and an always-on instruction block that every suppo
     model for each author model and how the reviewer is launched, and the owner's rulings where
     fuse-flow and the house rules overlap. Reviewers write findings as JSON to
     `.konductor/reviews/`.
+  - A step runs attended or unattended, set with `mode` and attended when it is not set. The step
+    block's `MODE` line tells the agent to ask the owner often, or to decide on its own judgement,
+    and tells the owner whether to stay. In both, the agent records the decisions it makes on its
+    own in `.konductor/decisions/<slug>.md`, following the `decision-log` guide. Hand-over and
+    completion blocks gain a `DECISIONS:` line whenever finished work, in the workstream or in any
+    workstream it delegated to, has not been reviewed, with four ways for the owner to respond.
+    The shipped fuse workflows mark the steps that work alone as unattended, and Komposer shows
+    and sets the mode.
 - **Shipped workflows:**
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
     implementation and code review, with agent reviews before the owner approves the spec and

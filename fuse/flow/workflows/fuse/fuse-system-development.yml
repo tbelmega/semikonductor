@@ -93,6 +93,7 @@ steps:
   - id: system-design
     title: System design
     phase: Design
+    mode: unattended
     instruction: >
       Design how the system meets the approved requirements: its parts and the interfaces
       between them, the data it keeps, how it fails, and the acceptance tests that will show it
@@ -122,6 +123,7 @@ steps:
   - id: feature-splitting
     title: Feature splitting
     phase: Design
+    mode: unattended
     instruction: >
       Split the design into small features, each one a change that leaves the system working and
       testable end to end, and put them in a build order. Err on the side of small: do not try to

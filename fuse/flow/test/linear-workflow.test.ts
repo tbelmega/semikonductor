@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { FLOW_DIR, Repo } from "./helpers";
+import { FLOW_DIR, modeLine, Repo } from "./helpers";
 
 const LINEAR = `version: 1
 name: linear
@@ -37,6 +37,7 @@ test("start mints a workstream that records its workflow, hands out the first st
       `state:    ${join(repo.root, ".konductor/workstreams/feat.yml")}`,
       "",
       "STEP design (1 of 3): Write the design.",
+      modeLine("feat"),
       "PRODUCE docs/design.md (sketch).",
       "WHEN THE WORK IS DONE:",
       '  1. Run `fuse-flow continue feat`, with --not-produced sketch "<reason>" only if you rightly did not write sketch.',
@@ -66,7 +67,7 @@ test("work, continue, repeated until the workflow is complete, which prints the 
 
   repo.write("docs/design.md");
   const first = repo.ok("continue", "feat");
-  expect(first).toStartWith("design: COMPLETED\n\nSTEP build (2 of 3): Build it.\nPRODUCE src/app.ts (app).\n");
+  expect(first).toStartWith(`design: COMPLETED\n\nSTEP build (2 of 3): Build it.\n${modeLine("feat")}\nPRODUCE src/app.ts (app).\n`);
   // A step without an owner gate approves its artifacts when it completes.
   expect(repo.state("feat").steps.design.artifacts).toEqual([{ artifact: "sketch", path: "docs/design.md", status: "approved" }]);
 
@@ -76,7 +77,7 @@ test("work, continue, repeated until the workflow is complete, which prints the 
   expect(repo.state("feat").steps.build.files.filter((f: { kind: string }) => f.kind === "file")).toEqual([
     { path: "src/app.test.ts", kind: "file", pass: "this", status: "approved" },
   ]);
-  expect(second).toContain("STEP summary (3 of 3): Summarize what shipped.\nWHEN THE WORK IS DONE:\n  1. Run `fuse-flow continue feat`.\n");
+  expect(second).toContain(`STEP summary (3 of 3): Summarize what shipped.\n${modeLine("feat")}\nWHEN THE WORK IS DONE:\n  1. Run \`fuse-flow continue feat\`.\n`);
 
   const done = repo.ok("continue", "feat");
   expect(done).toStartWith("summary: COMPLETED\n\nOWNER'S TURN:");

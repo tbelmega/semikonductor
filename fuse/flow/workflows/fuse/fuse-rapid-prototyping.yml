@@ -88,6 +88,7 @@ steps:
   - id: brief
     title: Product brief
     phase: Explore
+    mode: unattended
     instruction: >
       Turn the draft into the product brief that the next workflow starts from. Say what to build
       and for whom; the ranked features, with what goes into a first release and what is deferred;

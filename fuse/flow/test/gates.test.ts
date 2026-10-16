@@ -55,7 +55,8 @@ test("an owner gate holds the step and prints the pre-filled hand-over block unt
   expect(recorded).toContain("PRODUCED: design.md (new)\n");
   expect(recorded).toContain("VERIFICATION: none\n");
   // The owner sees the options in plain words; the commands come after the block, for the agent only.
-  expect(recorded).toContain("NEXT STEP:\n  - Approve the design.\n  - Send the work back to an earlier step, with what to change.\n\nFOR YOU, NOT FOR THE OWNER:");
+  expect(recorded).toContain("NEXT STEP:\n  - Approve the design.\n  - Send the work back to an earlier step, with what to change.\nDECISIONS: ");
+  expect(recorded).toContain("so its checks and reviews run again.\n\nFOR YOU, NOT FOR THE OWNER:");
   const block = recorded.slice(0, recorded.indexOf("FOR YOU, NOT FOR THE OWNER:"));
   expect(block.split("\n").filter((l) => /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|  - )/.test(l)).join("\n")).not.toContain("fuse-flow");
   expect(recorded).toContain(

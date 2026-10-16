@@ -77,9 +77,10 @@ STATUS: <awaiting owner action, blocked, needs input, paused, or workflow comple
 PRODUCED: <new and updated files, plus not-produced and unchanged reasons>
 VERIFICATION: <mechanical results, review rounds used and cap, and open required fixes>
 NEXT STEP: <two to four owner options, recommendation first with its reason>
+DECISIONS: <open decisions, or none recorded, and the decisions files they are in>
 ```
 
-The engine pre-fills this block when an owner-action gate waits or a step is blocked. The agent writes it when pausing inside a step or announcing completion. Missing, malformed, or non-terminal hand-over blocks are Guidance friction when the process remains understandable, and Guidance failure when they hide the required owner action or let the agent bypass the process.
+The `DECISIONS:` line is present only when the engine printed it, which it does at an owner's turn or completion after finished work you have not yet reviewed. Its absence elsewhere is correct. The engine pre-fills this block when an owner-action gate waits or a step is blocked. The agent writes it when pausing inside a step or announcing completion. Missing, malformed, or non-terminal hand-over blocks are Guidance friction when the process remains understandable, and Guidance failure when they hide the required owner action or let the agent bypass the process.
 
 ## Verdict layers
 

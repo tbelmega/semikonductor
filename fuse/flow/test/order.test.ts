@@ -4,7 +4,7 @@
 // time, in file order.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Repo } from "./helpers";
+import { modeLine, Repo } from "./helpers";
 
 const FLOW = `version: 1
 name: inputs
@@ -35,7 +35,7 @@ test("a step lists what it consumes, with {slug} resolved, from the step that pr
   repo.ok("continue", "feat");
   repo.write("docs/feat/stories.md");
   const out = repo.ok("continue", "feat");
-  expect(out).toContain("STEP design (3 of 3): Design it.\nREAD docs/feat/map.md (from step analysis).\nREAD docs/feat/stories.md (from step stories).\n");
+  expect(out).toContain(`STEP design (3 of 3): Design it.\n${modeLine("feat")}\nREAD docs/feat/map.md (from step analysis).\nREAD docs/feat/stories.md (from step stories).\n`);
 });
 
 test("a missing input is reported with what to do about it, never refused", () => {
