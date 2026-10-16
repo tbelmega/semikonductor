@@ -26,6 +26,26 @@ location.
   guide on its own, or a small custom workflow.
 - Otherwise, do not bring it up.
 
+## House rules
+
+House rules are the ways of working that apply to this project and this owner beyond fuse: the
+project's `AGENTS.md`, steering or other agent instruction files; the harness's global
+instructions; the owner's earlier rulings, in fuse-flow's `rulings:` or anywhere else; what you
+remember of working on this project; and what the project shows, such as pull request links in
+earlier commit messages, or every commit made directly on the integration branch.
+
+- Where fuse-flow has a setting for something, such as a check command, an artifact path, a review
+  guide or how the reviewer is started, a value set in a policy file is the owner's deliberate
+  choice: fuse-flow applies it, and it wins. Where no policy file sets it, the house rules still
+  apply to it, as below.
+- Where a fuse workflow, guide or skill says in prose how to do something that a house rule also
+  covers, such as branching, how a change gets reviewed or merged, how a reviewer is started, or
+  where and in what format decision records are kept, do not let fuse win by default. Follow the
+  owner's ruling if there is one. Otherwise follow the house rule when it clearly applies, and say
+  that you did. When it is unclear which applies, ask the owner, with your recommendation. Record
+  the answer as the `fuse-workstream` skill says.
+- When both ask for the same work, such as two reviews of one change, do it once.
+
 ## While a workstream runs
 
 - Follow the complete block fuse-flow prints, and run the continuation command it gives, until it
@@ -34,9 +54,6 @@ location.
 - Run `--from`, `--forward-to`, `--back-to`, or `--skip` on a step without a condition only when
   the owner explicitly asked for that jump or skip. If one would help, recommend it with a reason
   and wait. Run any owner-decision command only after the owner has decided.
-- When another installed rule covers the same ground as a step, such as a second review mechanism,
-  do the work once. When the two differ, follow the owner's ruling, or ask the owner which takes
-  precedence and record the answer as the `fuse-workstream` skill says.
 - Run a test suite or check that calls a deployed system, such as a deployed app, a cloud account
   or live endpoints, only when the owner authorized that target, even when a step says to run
   every test. Otherwise record it as not run, never as passing. A check bound in the project's

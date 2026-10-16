@@ -85,12 +85,13 @@ covers that.
 
 - **Pick a slug:** short, lower-case letters, digits and hyphens, named for the work, such as
   `checkout-redesign`. It must not be the slug of an existing workstream.
-- **Where the work goes.** The workflows leave branching to the project. If the project's agent
-  instructions or house rules define a branching strategy, follow it. If they do not and the
-  checkout is on the integration branch, ask the owner once, before starting, whether to create a
-  branch for the workstream or to work where you are; do not ask again for that workstream.
-  Either way, fuse-flow records the commit the workstream starts from, and reviews of code cover
-  the changes since then.
+- **Where the work goes.** The workflows leave branching to the house rules (section 5). Follow
+  the way of working they show, such as a feature branch per change, a fixed branch per worktree,
+  or commits directly on the integration branch. If they show none and the checkout is on the
+  integration branch, ask the owner once, before starting, whether to create a branch for the
+  workstream or to work where you are; do not ask again for that workstream. Either way,
+  fuse-flow records the commit the workstream starts from, and reviews of code cover the changes
+  since then.
 - **Run** `fuse-flow start <slug> --workflow <name>`, with the name `list` printed. When `list` says
   a workflow can only be started by its path, pass the path.
 - **Starting later in the workflow.** If the owner says earlier steps are already done, for example
@@ -112,17 +113,36 @@ covers that.
   help, recommend it with a reason and wait.
 - **`fuse-flow status <slug>`** shows every step with its state, when you need the whole picture.
 
-## 5. When other installed rules overlap
+## 5. House rules
 
-Other installed skills and always-on instructions may cover the same ground as a step, such as a
-second review mechanism, commit rules or a testing policy.
+House rules are the ways of working that apply to this project and this owner beyond fuse:
+
+- the project's `AGENTS.md`, `CLAUDE.md`, steering or other agent instruction files;
+- the harness's global instructions and other installed skills;
+- the owner's earlier rulings: the `RULINGS` lines of the step block, and decisions recorded
+  anywhere else;
+- what you remember of working on this project;
+- what the project shows: pull request or code review links in earlier commit messages, merge
+  commits, every commit made directly on the integration branch, an existing folder of decision
+  records.
+
+A step may say in prose how to do something a house rule also covers: branching, how a change gets
+reviewed or merged, how a reviewer is started, commit rules, a testing policy, where and in what
+format a document is kept. The step says how fuse would do it; it does not override the house rule.
 
 - When they agree, do the work once. Never run two reviews of the same work because two rule sets
   each ask for one.
-- When they differ, look for the owner's ruling: the `RULINGS` lines of the step block, the
-  project's `AGENTS.md`, and your harness's memory. If there is none, ask the owner which takes
-  precedence, with your recommendation, before you do the overlapping part.
-- Record the ruling as one plain sentence under `rulings:` in a fuse-flow policy file:
+- When they differ, follow the owner's ruling if there is one. Otherwise follow the house rule
+  when it clearly applies to this situation, and say in your next message to the owner that you
+  did. When it is unclear whether it applies, or two house rules disagree, ask the owner which
+  takes precedence, with your recommendation, before you do that part of the step.
+- A fuse-flow setting is the deterministic form of a house rule. When a policy file sets one, such
+  as a check command, an artifact path, a review guide or the reviewer's launch, follow it as the
+  step block prints it. When none is set, the step block prints fuse's default, and the house
+  rules apply to it like to any other prose. When you follow a house rule that a setting could
+  capture, such as starting reviewers with a command on the terminal, offer the owner to record it
+  as that setting.
+- Record a ruling the owner gives as one plain sentence under `rulings:` in a fuse-flow policy file:
   `.konductor/policy-overrides.local.yml` for this owner in this project (the default),
   `.konductor/policy-overrides.yml` for the team, or `~/.konductor/policy-overrides.yml` for all of
   the owner's projects. fuse-flow then prints it in every step block. Save it to your harness's

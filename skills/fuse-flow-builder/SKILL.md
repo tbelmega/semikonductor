@@ -462,6 +462,12 @@ hooks fuse-flow offers, instead of writing one project's rules into the workflow
 - Library entries a project can override with its own guide or template, by the same id.
 - A `condition` where a step does not apply everywhere, instead of a second copy of the workflow.
 
+Where fuse-flow has no setting for something, such as branching, how a change gets reviewed or
+merged, or the format of a record, write the instruction so the house rules decide: "commit the
+way the house rules ask", "open the review the way the project does". Do not assume one way of
+working, such as a feature branch per change and a pull request to merge it. The always-on fuse
+block defines house rules and says what the agent does when they and a step differ.
+
 ### Embrace change
 
 Models and harness features change every few months. Do not tailor a workflow to one model, one

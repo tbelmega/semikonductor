@@ -26,7 +26,7 @@ inputs:
 hands_off_to:
   - workflow: fuse-pull-request
     when: >-
-      only when the owner approved the branch for a pull request or similar code review process at
+      only when the owner approved the work for a pull request or similar code review process at
       the last gate; take that approval as their agreement, and say which mechanism you will use
 steps:
   - id: intake

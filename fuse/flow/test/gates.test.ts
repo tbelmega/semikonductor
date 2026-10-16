@@ -4,13 +4,15 @@
 // blocked, and the owner's decisions on them.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { FLOW_DIR, Repo } from "./helpers";
 
 // What every agent gate says about starting the reviewer and where its findings go.
 const SCHEMA = join(FLOW_DIR, "workflows", "schemas", "review-findings.schema.json");
 const subagent = (findings: string) =>
-  "Start the reviewer as a fresh subagent in your own harness, with none of your context. The reviewer writes " +
+  "Start the reviewer the way the house rules ask, such as a review command they name, or else as a fresh " +
+  "subagent in your own harness, with none of your context. The reviewer writes " +
   `its findings to ${findings}, where <n> is the round, following ${SCHEMA}; read them from there. `;
 
 const GATED = `version: 1
@@ -329,7 +331,7 @@ steps:
   }
 });
 
-test("where the step instruction and a guide disagree, the author and the reviewer follow the instruction", () => {
+test("where the step instruction and a shipped guide disagree, the instruction wins; the project's own guide is a house rule", () => {
   const r = new Repo();
   try {
     r.start(
@@ -347,30 +349,141 @@ steps:
   - id: notes
     instruction: Write notes.
     produces:
-      - artifact: scribble
+      - artifact: research-note
         path: notes.md
     gates:
       - agent: review the notes
+  - id: scribble
+    instruction: Scribble.
+    produces:
+      - artifact: scribble
+        path: scribble.md
+    gates:
+      - agent: review the scribble
 `,
     );
     r.write(".konductor/library/artifacts/essay/guide.md", "# guide\n");
     const guided = r.ok("start", "feat");
+    // A guide in the project's own library is a house rule: the shipped instruction does not win by default.
     expect(guided).toContain(
+      "GUIDES: The guide .konductor/library/artifacts/essay/guide.md comes from this project's or the owner's own library or " +
+        "policy, so it is a house rule: where the step instruction disagrees with it, follow the owner's ruling, else " +
+        "the guide when it clearly applies, and ask the owner when it is unclear. Name each disagreement in your " +
+        "hand-over block.",
+    );
+    expect(guided).toContain(
+      "Give the reviewer the step instruction as well: The guide .konductor/library/artifacts/essay/guide.md comes from this " +
+        "project's or the owner's own library or policy, so it is a house rule: where the instruction disagrees with " +
+        "it, report the disagreement, and the author settles it with the owner's ruling or the house rules; it is not " +
+        "a required fix by itself.",
+    );
+    expect(guided).not.toContain("the instruction wins");
+
+    // A guide that ships with fuse: the instruction wins.
+    r.write("essay.md", "# essay\n");
+    r.ok("continue", "feat");
+    const shipped = r.ok("start", "feat");
+    expect(shipped).toContain("STEP notes");
+    expect(shipped).toContain(
       "GUIDES: where the step instruction above and a guide disagree, follow the instruction, and name each " +
         "disagreement in your hand-over block.",
     );
-    expect(guided).toContain(
+    expect(shipped).toContain(
       "Give the reviewer the step instruction as well: where it and a guide disagree, the instruction wins, so " +
         "following the instruction is not a required fix.",
     );
 
     // A step whose artifacts have no guide gets neither line.
-    r.write("essay.md", "# essay\n");
+    r.write("notes.md", "# notes\n");
     r.ok("continue", "feat");
     const unguided = r.ok("start", "feat");
-    expect(unguided).toContain("STEP notes");
+    expect(unguided).toContain("STEP scribble");
     expect(unguided).not.toContain("GUIDES:");
     expect(unguided).not.toContain("Give the reviewer the step instruction");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a project guide stays a house rule when it is a symlink, and when a shipped review guide checks the artifact", () => {
+  const r = new Repo();
+  try {
+    r.start(
+      "feat",
+      `version: 1
+name: w
+steps:
+  - id: write
+    instruction: Write it without a plan section.
+    produces:
+      - artifact: essay
+        path: essay.md
+    gates:
+      - agent: review the essay
+        guide: shipped-review.md
+`,
+    );
+    r.write("shipped-review.md", "# review\n");
+    // The project's guide is a symlink to a skill outside the library; where it leads does not make it shipped.
+    r.write("skills/essay-writing/SKILL.md", "# guide\n");
+    r.write(".konductor/library/artifacts/essay/.keep");
+    symlinkSync("../../../../skills/essay-writing/SKILL.md", join(r.root, ".konductor/library/artifacts/essay/guide.md"));
+    const out = r.ok("start", "feat");
+    expect(out).toContain("GUIDES: The guide skills/essay-writing/SKILL.md comes from this project's or the owner's own library or policy, so it is a house rule");
+    // The reviewer checks against the gate's shipped guide, and still hears that the project's guide is a house rule.
+    expect(out).toContain(
+      "Give the reviewer the step instruction as well: where it and a guide that ships with fuse disagree, the " +
+        "instruction wins, so following the instruction is not a required fix. The guide skills/essay-writing/SKILL.md comes " +
+        "from this project's or the owner's own library or policy, so it is a house rule: where the instruction " +
+        "disagrees with it, report the disagreement",
+    );
+
+    // A project review guide that is a symlink is a house rule too.
+    r.write("skills/essay-review/SKILL.md", "# review\n");
+    symlinkSync("../../../../skills/essay-review/SKILL.md", join(r.root, ".konductor/library/artifacts/essay/review.md"));
+    const reviewed = r.ok("start", "feat");
+    expect(reviewed).toContain("It reviews essay.md against skills/essay-review/SKILL.md.");
+    expect(reviewed).toContain(
+      "Give the reviewer the step instruction as well: The guides skills/essay-writing/SKILL.md, skills/essay-review/SKILL.md " +
+        "come from this project's or the owner's own library or policy, so they are house rules",
+    );
+    expect(reviewed).not.toContain("the instruction wins");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a gate guide in the project's own library is a house rule, even for another artifact; a gate's own guide is not", () => {
+  const r = new Repo();
+  try {
+    const workflow = (guide: string) => `version: 1
+name: w
+steps:
+  - id: build
+    instruction: Build it.
+    updates:
+      - artifact: patch
+        path: src/
+    gates:
+      - agent: review the patch
+        guide: ${guide}
+`;
+    r.write(".konductor/library/artifacts/team-review/guide.md", "# team review\n");
+    r.write(".konductor/workflows/w.yml", workflow("../library/artifacts/team-review/guide.md"));
+    const owned = r.ok("start", "feat", "--workflow", "w");
+    expect(owned).toContain(
+      "Give the reviewer the step instruction as well: The guide .konductor/library/artifacts/team-review/guide.md " +
+        "comes from this project's or the owner's own library or policy, so it is a house rule",
+    );
+    expect(owned).not.toContain("the instruction wins");
+
+    // A guide next to the workflow is part of the workflow, so the instruction wins over it.
+    r.write(".konductor/workflows/review.md", "# review\n");
+    r.write(".konductor/workflows/w.yml", workflow("review.md"));
+    expect(r.ok("start", "feat")).toContain(
+      "Give the reviewer the step instruction as well: where it and a guide disagree, the instruction wins, so " +
+        "following the instruction is not a required fix.",
+    );
   } finally {
     r.cleanup();
   }

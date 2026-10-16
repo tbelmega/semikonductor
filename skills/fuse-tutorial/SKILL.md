@@ -145,8 +145,9 @@ lines what the command will change, and go straight to running it.
 2. **Explain** at the run's level why to install (without it, only sessions in the clone know
    fuse), what it writes, what it leaves alone, and how `--uninstall` undoes it. Then report what
    you found, a line each. A skill whose name collides stays the user's own, because `install.sh`
-   skips it. An overlapping rule is settled when it meets a fuse step: the agent asks which takes
-   precedence and records the ruling, as the `fuse-workstream` skill describes; offer to settle the
+   skips it. An overlapping rule is settled when it meets a fuse step: the agent follows the
+   owner's ruling, or the house rule when it clearly applies, asks when it is unclear, and records
+   the ruling, as the `fuse-workstream` skill describes; offer to settle the
    ones you can see now. Summarise private instruction files; do not quote them.
 3. **Decide** with one question, your recommendation first: global for a user trying fuse on their
    own machine, with one instruction file for each supported harness they use; a project install

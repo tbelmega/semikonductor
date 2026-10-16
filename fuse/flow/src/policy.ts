@@ -109,10 +109,16 @@ export function reviewers(p: Project): Reviewers {
 }
 
 export function launch(p: Project): Launch {
+  return launchSetting(p) ?? "subagent";
+}
+
+// The launch a policy file sets, if any. Without one, the house rules may
+// still say how reviewers are started.
+export function launchSetting(p: Project): Launch | undefined {
   for (const layer of [p.local, p.team, p.user]) {
     if (layer?.policy.review?.launch) return layer.policy.review.launch;
   }
-  return "subagent";
+  return undefined;
 }
 
 // Every layer's rulings, the user's first and the local file's last.
@@ -166,6 +172,21 @@ export function reviewGuideSource(
 
 export function reviewGuide(p: Project, gate: Gate, artifactId: string | undefined): string | undefined {
   return reviewGuideSource(p, gate, artifactId)?.path;
+}
+
+// Whether a review guide comes from where the owner or the project put it, in
+// their own library or a policy file, rather than shipping with fuse or with
+// the workflow. Such a guide is a house rule: a shipped step instruction does
+// not win over it by default. Decided by where the guide was found, not where
+// a symlinked file leads. A gate's guide is the owner's when the gate names a
+// file in the project's or the user's library, by the path the gate gives.
+export function ownersReviewGuide(p: Project, found: { path: string; source: ReviewGuideSource }, gate?: Gate): boolean {
+  if (found.source === "package library") return false;
+  if (found.source !== "gate") return true;
+  const named = gate?.guide;
+  if (!named) return false;
+  const dirs = libraryDirs(p.root);
+  return [dirs.project, dirs.user].some((dir) => named.startsWith(join(dir, "artifacts") + sep));
 }
 
 // ------------------------------------------------------------------ artifacts
@@ -241,12 +262,14 @@ function entryFolder(libraryDir: string, id: string): string | undefined {
 export function libraryEntry(
   p: Project,
   id: string,
-): { folder: string; guide?: string; guideMissing?: string; template?: string } | undefined {
+): { folder: string; level: LibraryLevel; guide?: string; guideMissing?: string; template?: string } | undefined {
   const dirs = libraryDirs(p.root);
   // The first library that has the id wins; the ones it replaces are not looked at.
   let folder: string | undefined;
-  for (const dir of [dirs.project, dirs.user, dirs.package]) {
+  let level: LibraryLevel = "package";
+  for (const [l, dir] of [["project", dirs.project], ["user", dirs.user], ["package", dirs.package]] as const) {
     folder = entryFolder(dir, id);
+    level = l;
     if (folder) break;
   }
   if (!folder) return undefined;
@@ -256,7 +279,7 @@ export function libraryEntry(
   const guidePath = join(folder, "guide.md");
   const guide = existing(guidePath);
   const linked = !guide && isSymlink(guidePath);
-  return { folder, guide, guideMissing: linked ? guidePath : undefined, template: template && existing(join(folder, template)) };
+  return { folder, level, guide, guideMissing: linked ? guidePath : undefined, template: template && existing(join(folder, template)) };
 }
 
 export type LibraryLevel = "project" | "user" | "package";

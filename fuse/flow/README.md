@@ -363,14 +363,15 @@ artifacts:
     path: docs/specs/{date}-{slug}.md
 ```
 
-`launch` says how the agent starts a reviewer: `subagent`, a fresh subagent in its own harness
-(the default), or a shell command such as another harness on the terminal. In the command,
+`launch` says how the agent starts a reviewer: `subagent`, a fresh subagent in its own harness,
+or a shell command such as another harness on the terminal. When no policy file sets it, the agent
+starts the reviewer the way the house rules ask, and else as a subagent. In the command,
 `{model}`, `{effort}`, `{prompt_file}` and `{findings_file}` are replaced. Whichever way it is
 started, the reviewer writes its findings to `.konductor/reviews/<slug>/<step>-round-<n>.json`,
 following `workflows/schemas/review-findings.schema.json`, and the agent reads them from there; the
 directory is gitignored. A row of `reviewers` may carry its own `launch`, for a reviewer model the
-author's harness cannot run. `rulings` are the owner's decisions where fuse-flow and another installed
-skill or always-on instruction overlap; fuse-flow prints them with every step.
+author's harness cannot run. `rulings` are the owner's decisions where fuse-flow and the house rules,
+such as another installed skill or always-on instruction, overlap; fuse-flow prints them with every step.
 
 The complete override order, from general to specific, is: engine and package defaults, user
 policy, workflow and gates, project policy, project-local policy, workstream state, then the

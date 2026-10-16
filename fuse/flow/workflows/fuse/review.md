@@ -6,19 +6,22 @@ The goal is that the owner only sees work that an agent has already tried hard t
 ## The reviewer
 
 Use a fresh agent that has none of this session's context. When the step names the reviewer's
-model for the model you run on, use it. Otherwise use a model of similar cost from a different
+model for the model you run on, use it. Otherwise use the reviewer the house rules name, if they
+name one. Otherwise use a model of similar cost from a different
 family than yours if your harness offers one, or else your own model; do not pick a more expensive
-model than yours unless the owner asks. Start it the way the step says: a subagent in your own
-harness by default, or the project's launch command. Give it the artifact, what the artifact must
+model than yours unless the owner asks. Start it the way the step says: the project's launch
+command when its policy sets one, else the way the house rules ask, such as another harness on the
+command line, else a subagent in your own harness. Give it the artifact, what the artifact must
 satisfy (the owner's request, the approved requirements or spec), read access to the repository,
 and the path of its findings file. It writes its findings there as JSON, following the schema the
 step names, and changes no other file. Do not tell it what you expect it to find. If the harness
 cannot start another agent and no launch command is set, review the artifact yourself in a
 separate pass and say so in the hand-over.
 
-Run one review of the work, not one for each rule set that asks for it. If another installed
-skill or always-on instruction also requires a review here, follow the owner's ruling on which one
-runs, or ask the owner when there is none.
+Run one review of the work, not one for each rule set that asks for it. If a house rule also
+requires a review here, or says how reviewers are started, follow the owner's ruling on which one
+runs. Without a ruling, follow the house rule when it clearly applies, and say so in the hand-over;
+ask the owner when it is unclear.
 
 ## What it looks at
 

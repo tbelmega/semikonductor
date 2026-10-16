@@ -34,8 +34,10 @@ script installs plain skills and an always-on instruction block that every suppo
     or a check fails. It hands over to the owner at owner gates and when a review reaches its
     round cap, with the owner's options in plain words.
   - Where a step's instruction and an artifact's guide disagree, the step block says the
-    instruction wins and asks the agent to name each disagreement; the review request tells the
-    reviewer the same.
+    instruction wins over a guide that ships with fuse, and asks the agent to name each
+    disagreement; the review request tells the reviewer the same. A guide from the project's or
+    the owner's own library or policy is a house rule instead: the agent follows the owner's
+    ruling, else the guide when it clearly applies, and asks when it is unclear.
   - When the owner sends work back, from the current step in any status, the files the steps
     wrote stay recorded as draft and each reopened step's next pass lists them to keep, update or
     redo. Review rounds count per pass, with the pass in the findings file names from the second
@@ -69,7 +71,7 @@ script installs plain skills and an always-on instruction block that every suppo
   - Policy files (`~/.konductor/policy-overrides.yml`, the project's `.konductor/policy-overrides.yml`
     and `.konductor/policy-overrides.local.yml`) set check commands, artifact paths, the reviewer
     model for each author model and how the reviewer is launched, and the owner's rulings where
-    fuse-flow and other installed rules overlap. Reviewers write findings as JSON to
+    fuse-flow and the house rules overlap. Reviewers write findings as JSON to
     `.konductor/reviews/`.
 - **Shipped workflows:**
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
@@ -77,12 +79,13 @@ script installs plain skills and an always-on instruction block that every suppo
     lands the work. The shipped workflows leave branching to the project's own rules: when there
     are none and the checkout is on the integration branch, the agent asks the owner once whether
     to create a branch.
-  - `fuse-pull-request`, a branch through the project's pull request or code review process, the
+  - `fuse-pull-request`, a change through the project's pull request or code review process, the
     way the project runs it: open the request, answer each round of reviewer feedback with fixes
     that pass an agent review first, and finish once the change is merged.
     `fuse-feature-development` offers a pull request at its last gate only where the house rules,
     the project's history or the agent's memory show such a process, and hands off to it when the
-    owner approves the branch for one; it can also be started on its own.
+    owner approves the work for one; it can also be started on its own. The change may be on a
+    feature branch, a fixed branch per worktree or the integration branch itself.
   - `fuse-system-development`, a new system or a module with its own architecture: intake,
     requirements, optional prototypes, a system design with a principal engineer review
     rehearsal by an agent, and a build order whose features are then built with
@@ -127,6 +130,14 @@ script installs plain skills and an always-on instruction block that every suppo
 - **The always-on block** `AGENTS.fuse.md`, which `install.sh` writes into instruction files. It
   says when fuse applies, the rules that hold while a workstream runs, and how to write for the
   owner: self-explaining headings, decisions and commit messages, without bare labels such as `D1`.
+  It defines house rules: the project's and the harness's agent instructions, the owner's earlier
+  rulings, what the agent remembers of the project, and what the project's history shows. Where
+  a step says in prose how to do something a house rule covers, such as branching, getting a
+  change reviewed, starting a reviewer or keeping decision records, fuse does not win by default:
+  the agent follows the owner's ruling, else the house rule when it clearly applies, and asks when
+  it is unclear. A value set in a fuse-flow policy file is the deterministic form and always wins;
+  without one, the step block's default defers to the house rules, as for how a reviewer is
+  started.
 - **`install.sh` and `INSTALL.md`.** `--project <dir>` copies the skills into the project's
   `.agents/skills/`, links `.claude/skills` and `.kiro/skills` to it, and adds the block to the
   project's `AGENTS.md`, for the team to commit. `--global <file>...` adds the block to each

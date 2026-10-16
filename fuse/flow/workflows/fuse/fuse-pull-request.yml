@@ -1,12 +1,14 @@
 # $schema: ../schemas/workflow.schema.json
 # yaml-language-server: $schema=../schemas/workflow.schema.json
 #
-# A branch through the project's pull request or code review process, the way the project runs it:
+# A change through the project's pull request or code review process, the way the project runs it:
 # open the request, answer the reviewers' feedback with fixes that an independent agent review
 # checks first, and finish once the change is merged. It is its own workstream, so a project with
 # no such process never runs it: fuse-feature-development offers a pull request at its last gate
-# only where it finds evidence of one, and hands off here only when the owner approves the branch
-# for it. It can also be started on its own, for a branch or pull request that already exists.
+# only where it finds evidence of one, and hands off here only when the owner approves the work
+# for it. It can also be started on its own, for a change or pull request that already exists.
+# The change may be on a feature branch, on a fixed branch per worktree, or committed directly on
+# the integration branch; the house rules decide how it reaches review.
 # review.md next to this file is the review guide for its agent gate.
 #
 # Start a workstream with:  fuse-flow start <slug> --workflow fuse-pull-request
@@ -14,23 +16,27 @@
 version: 1
 name: fuse-pull-request
 description: >
-  A branch through the project's pull request or code review process, the way the project runs
+  A change through the project's pull request or code review process, the way the project runs
   it: open the request, answer each round of reviewer feedback with fixes that pass an agent review
   first, and finish once the change is merged.
 inputs:
   - artifact: feature-spec
-    description: The approved spec of the feature, when the branch comes from fuse-feature-development.
+    description: The approved spec of the feature, when the change comes from fuse-feature-development.
 steps:
   - id: open
     title: Open the pull request
     phase: Pull request
     instruction: >
-      Find how pull requests or code reviews work in this project: in the project's and the
-      user's house rules, the history of the integration branch, and what you remember of this
-      project. Find the tool, such as gh, glab or the team's own, the target branch, what the
-      description must contain, who reviews, and who merges. If you find no such process, tell the
-      owner and ask how to proceed before you push anything. If a pull request for this branch
-      already exists, use it; otherwise push the branch and open one that way. Write a
+      Find how pull requests or code reviews work in this project, from the house rules,
+      including the history of the integration branch and what you remember of this project. Find
+      the tool, such as gh, glab or the team's own, where a request is opened from and to, what the
+      description must contain, who reviews, and who merges. Some processes review a branch
+      pushed for the change; others review commits made on the integration branch itself or on a
+      fixed branch, as a code review raised from the local integration branch does. Open the
+      request from where the work already is when the process allows it; create or push a branch
+      only when the process needs one and the house rules do not say otherwise. If you find no
+      such process, tell the owner and ask how to proceed before you push anything. If a request
+      for this change already exists, use it; otherwise open one that way. Write a
       description that a reviewer without this session's context can follow: what the change
       does and why, how it was verified, and which agent reviews it passed, with the reviewers'
       models where you know them. Do not merge it yourself unless the house rules say the author
@@ -49,7 +55,9 @@ steps:
       before you act on it: fix what is right, and reply with your reasons where it is wrong or
       out of scope. Find the root cause of each confirmed finding and look for other instances of
       it in the change. Start each code fix with a test that fails because of the finding. Commit
-      the fixes the way the house rules ask, push them, and reply to each comment with what you
+      the fixes the way the house rules ask, and publish them to the request the way the process
+      found in the first step does, such as a new revision of a code review or a push to the
+      request's branch; push only when that process needs it. Reply to each comment with what you
       did. Do not resolve a reviewer's thread unless the house rules say the author does.
     consumes: [feature-spec]
     updates:

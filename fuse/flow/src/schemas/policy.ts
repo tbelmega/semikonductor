@@ -95,7 +95,7 @@ export const PolicySchema = z
       .optional()
       .meta({
         description:
-          "The owner's rulings where fuse-flow and another installed skill or always-on instruction overlap, " +
+          "The owner's rulings where fuse-flow and the house rules, such as another installed skill or always-on instruction, overlap, " +
           "in plain sentences, such as which of two review mechanisms runs. Every layer's rulings apply, the more " +
           "specific file's last. Engine effect: printed with every step.",
         examples: [["In fuse-flow workstreams, the workflow's review gates replace the code-review skill's own review loop."]],

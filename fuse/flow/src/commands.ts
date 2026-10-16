@@ -26,9 +26,12 @@ import {
   type Project,
   type Launch,
   launch,
+  launchSetting,
   reviewer,
   reviewers,
+  ownersReviewGuide,
   reviewGuide,
+  reviewGuideSource,
   rulings,
 } from "./policy.ts";
 import { findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
@@ -505,7 +508,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   const lines = [`STEP ${step.id} (${position(c, step)}): ${step.instruction.replace(/\s+/g, " ").trim()}`];
   const owned = rulings(c.p);
   if (owned.length) {
-    lines.push("RULINGS: where this workflow and other installed rules overlap, the owner ruled:", ...owned.map((r) => `  - ${r}`));
+    lines.push("RULINGS: where this workflow and the house rules overlap, the owner ruled:", ...owned.map((r) => `  - ${r}`));
   }
   const ff = `${FUSE_FLOW} continue ${c.slug}`;
 
@@ -642,14 +645,11 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   }
 
   const reviewed = place(c, [...step.produces, ...step.optional_produces, ...step.updates]);
-  const guided = reviewed.some((a) => libraryEntry(c.p, a.artifact.artifact)?.guide);
-  // A step instruction may deliberately depart from a shared guide; say which wins.
-  if (guided) {
-    lines.push(
-      "GUIDES: where the step instruction above and a guide disagree, follow the instruction, and name each " +
-        "disagreement in your hand-over block.",
-    );
-  }
+  const guides = new Guides();
+  for (const a of reviewed) guides.addAuthoring(libraryEntry(c.p, a.artifact.artifact));
+  // A step instruction may deliberately depart from a shared guide; say which
+  // wins. A guide the owner or the project put in place is a house rule.
+  if (guides.any()) lines.push(`GUIDES: ${guidePrecedence(c, guides, "author")}`);
   lines.push("WHEN THE WORK IS DONE:");
   let n = 0;
   for (const g of gatesInOrder(step)) {
@@ -730,24 +730,78 @@ function capOf(c: Ctx, g: Gate, state: StepState): string {
   return granted ? `${cap + granted} (${cap} plus ${granted} granted by the owner)` : `${cap}`;
 }
 
+// The guides that apply to a step, split by where each was found: in the
+// owner's or the project's own library or policy, or shipped with fuse or the
+// workflow.
+class Guides {
+  readonly owned: string[] = [];
+  readonly shipped: string[] = [];
+  private add(path: string, owners: boolean) {
+    const list = owners ? this.owned : this.shipped;
+    if (!list.includes(path)) list.push(path);
+  }
+  addAuthoring(entry: { level: string; guide?: string } | undefined) {
+    if (entry?.guide) this.add(entry.guide, entry.level !== "package");
+  }
+  addReview(p: Project, found: Parameters<typeof ownersReviewGuide>[1] | undefined, gate: Gate) {
+    if (found) this.add(found.path, ownersReviewGuide(p, found, gate));
+  }
+  any() {
+    return this.owned.length + this.shipped.length > 0;
+  }
+}
+
+// Which wins where a step instruction and a guide disagree: the instruction,
+// over a guide that ships with fuse or the workflow; a guide the owner or the
+// project put in place is a house rule, settled as the always-on block says.
+function guidePrecedence(c: Ctx, guides: Guides, who: "author" | "reviewer"): string {
+  const owned = guides.owned;
+  const shipped = guides.shipped.length > 0;
+  if (!owned.length) {
+    return who === "author"
+      ? "where the step instruction above and a guide disagree, follow the instruction, and name each disagreement in your hand-over block."
+      : "where it and a guide disagree, the instruction wins, so following the instruction is not a required fix.";
+  }
+  const names = owned.map((g) => display(c.p, g)).join(", ");
+  const they = owned.length > 1 ? `The guides ${names} come from this project's or the owner's own library or policy, so they are house rules` : `The guide ${names} comes from this project's or the owner's own library or policy, so it is a house rule`;
+  if (who === "author") {
+    return (
+      `${shipped ? "where the step instruction above and a guide that ships with fuse disagree, follow the instruction. " : ""}` +
+      `${they}: where the step instruction disagrees with ${owned.length > 1 ? "one" : "it"}, follow the owner's ruling, ` +
+      "else the guide when it clearly applies, and ask the owner when it is unclear. Name each disagreement in your hand-over block."
+    );
+  }
+  return (
+    `${shipped ? "where it and a guide that ships with fuse disagree, the instruction wins, so following the instruction is not a required fix. " : ""}` +
+    `${they}: where the instruction disagrees with ${owned.length > 1 ? "one" : "it"}, report the disagreement, and the ` +
+    "author settles it with the owner's ruling or the house rules; it is not a required fix by itself."
+  );
+}
+
 function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepState, reviewed: Placed[]): string {
   let text = `Have an independent agent ${g.text.replace(/\.$/, "")}.`;
   const guided: string[] = [];
   const parts: string[] = [];
-  let ownGuide = false;
+  const authoring: string[] = [];
+  const precedence = new Guides();
   for (const a of reviewed) {
+    // Every artifact's authoring guide counts for precedence, whether or not a
+    // review guide replaces it as the reviewer's checklist.
+    precedence.addAuthoring(libraryEntry(c.p, a.artifact.artifact));
+    precedence.addReview(c.p, reviewGuideSource(c.p, g, a.artifact.artifact), g);
     const guide = reviewGuide(c.p, g, a.artifact.artifact);
     if (guide) {
       guided.push(guide);
       parts.push(`${a.path} against ${display(c.p, guide)}`);
     } else {
       const own = libraryEntry(c.p, a.artifact.artifact)?.guide;
-      if (own) ownGuide = true;
+      if (own) authoring.push(own);
       parts.push(own ? `${a.path}, with its guide ${display(c.p, own)} as the definition of a good artifact` : a.path);
     }
   }
   if (reviewed.length === 0) {
     const guide = reviewGuide(c.p, g, undefined);
+    precedence.addReview(c.p, reviewGuideSource(c.p, g, undefined), g);
     if (guide) {
       guided.push(guide);
       text += ` Follow the review guide ${display(c.p, guide)}.`;
@@ -761,16 +815,26 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
   const how = launch(c.p);
   const table = Object.entries(reviewers(c.p));
   const same = (a: Launch, b: Launch) => JSON.stringify(a) === JSON.stringify(b);
+  // A row's launch goes without saying only when a policy file sets the same
+  // launch for every reviewer; without one, the default defers to the house
+  // rules, so a row's explicit launch, even subagent, is printed.
+  const set = launchSetting(c.p);
+  const ownLaunch = (l: Launch | undefined): l is Launch => l !== undefined && !(set !== undefined && same(l, set));
   const startedBy = (l: Launch) => (l === "subagent" ? "as a fresh subagent in your own harness" : `with \`${l.command}\``);
+  // No policy file sets the launch: the house rules may name another way,
+  // such as another harness on the command line.
+  const defaultStart = launchSetting(c.p) === undefined
+    ? "the way the house rules ask, such as a review command they name, or else as a fresh subagent in your own harness"
+    : startedBy(how);
   if (table.length) {
     const rows = table.map(([author, r]) => {
       const row = `if you run on ${author}, ${r.model}${r.effort ? ` at ${r.effort} effort` : ""}`;
-      return r.launch && !same(r.launch, how) ? `${row}, started ${startedBy(r.launch)}` : row;
+      return ownLaunch(r.launch) ? `${row}, started ${startedBy(r.launch)}` : row;
     });
     text += ` Pick the reviewer's model by the model you run on: ${rows.join("; ")}. If yours is not listed, follow the review guide.`;
   }
-  const rowLaunches = table.flatMap(([, r]) => (r.launch && !same(r.launch, how) ? [r.launch] : []));
-  text += ` ${rowLaunches.length ? "Unless its row says otherwise, start" : "Start"} the reviewer ${startedBy(how)}, with none of your context.`;
+  const rowLaunches = table.flatMap(([, r]) => (ownLaunch(r.launch) ? [r.launch] : []));
+  text += ` ${rowLaunches.length ? "Unless its row says otherwise, start" : "Start"} the reviewer ${defaultStart}, with none of your context.`;
   if (how !== "subagent" || rowLaunches.some((l) => l !== "subagent")) {
     text +=
       " In a launch command, replace {model} and {effort} with the reviewer's, {prompt_file} with a file you " +
@@ -788,10 +852,8 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
     "accepted or deferred is not a required fix. Fix what is required and review again, until a round ends with " +
     "no required fix.";
   if (guided.length) text += " The review guide decides what counts as a required fix and when a round passes.";
-  if (guided.length || ownGuide) {
-    text +=
-      " Give the reviewer the step instruction as well: where it and a guide disagree, the instruction wins, so " +
-      "following the instruction is not a required fix.";
+  if (guided.length || authoring.length) {
+    text += ` Give the reviewer the step instruction as well: ${guidePrecedence(c, precedence, "reviewer")}`;
   }
   if (state.pass) {
     text +=
