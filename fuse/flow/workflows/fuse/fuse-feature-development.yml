@@ -11,9 +11,9 @@
 version: 1
 name: fuse-feature-development
 description: >
-  One feature in an existing codebase: a spec agreed with the owner, a build on a branch against
-  acceptance tests taken from the spec, and independent agent review of both, before the owner
-  approves the spec and lands the branch or approves it for a pull request.
+  One feature in an existing codebase: a spec agreed with the owner, a build against acceptance
+  tests taken from the spec, and independent agent review of both, before the owner approves the
+  spec and lands the work or approves it for a pull request.
 inputs:
   - artifact: build-order
     description: The system's build order, when the feature is part of a system.
@@ -33,9 +33,8 @@ steps:
     title: Intake
     phase: Design
     instruction: >
-      If this checkout is on the integration branch, first create a feature branch named after the
-      workstream. Find out what the owner wants to build: get them to share their vision, however
-      rough or detailed it is, and what problem it solves for whom. Read the code before you ask
+      Find out what the owner wants to build: get them to share their vision, however rough or
+      detailed it is, and what problem it solves for whom. Read the code before you ask
       anything. While the purpose and rough scope are still unclear, ask rather than propose, one
       or a few questions at a time. If the request names one or more features from a system's
       build order, build them as one feature: take the scope from their briefs, read the system's
@@ -61,8 +60,7 @@ steps:
       as your decisions so the owner can object. Record what is deferred. Keep the spec as short
       as the feature allows. When nothing material is open, order the spec for review: the
       decisions the owner must make or check, and your own decisions and assumptions, come first,
-      most important first. Do not change code until the owner approves the spec. Commit the spec
-      on the branch.
+      most important first. Do not change code until the owner approves the spec. Commit the spec.
     updates:
       - artifact: feature-spec
         path: docs/specs/{date}-{slug}.md
@@ -96,15 +94,15 @@ steps:
     title: Code review
     phase: Review
     instruction: >
-      Make the branch ready for the owner to land. If the integration branch has moved, rebase the
-      branch onto it first. Get the branch through review. Before the last round, fold fixups and
+      Make the work ready for the owner to land. If the integration branch has moved, rebase the
+      work onto it first. Get the work through review. Before the last round, fold fixups and
       review fixes into the commits it should land as, normally one commit for the feature, with a
       subject that stands on its own. Do not merge it into the integration branch or push it to a
       shared branch; the owner lands it. Then find out whether this project uses pull requests or
       a similar code review process: look in the project's and the user's house rules, the
       history of the integration branch, such as merge commits of pull requests or review links
       in commit messages, and what you remember of this project. Only if you find such evidence,
-      tell the owner at the last gate that instead of landing the branch they can approve it for
+      tell the owner at the last gate that instead of landing the work they can approve it for
       that process, name the mechanism you found and where, and record which the owner chose in
       the gate's note; that approval passes the gate. Without evidence, do not mention pull
       requests at all.
@@ -114,9 +112,9 @@ steps:
         path: .
     gates:
       - check: default
-      - agent: review the branch's diff from its merge-base with the integration branch to HEAD, against the approved spec
+      - agent: review the workstream's changes since its base commit, against the approved spec
         guide: review.md
         max_rounds: 3
         route_back_to: implementation
-      - owner-action: land the branch, or send it back
+      - owner-action: land the work, or send it back
         route_back_to: [design, implementation]

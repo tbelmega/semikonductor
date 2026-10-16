@@ -27,7 +27,7 @@ runs, or ask the owner when there is none.
   source? Could the next step be done from it without guessing? Can a reader without the author's
   context follow every heading and reference, or does one lean on a label, such as `D1`, that is
   only explained further down or elsewhere?
-- Code: the branch's whole diff from its merge-base with the integration branch, against the
+- Code: the workstream's whole change since its base commit, as fuse-flow names it in the step, against the
   approved spec. Behavior the spec asks for that is missing or wrong, tests that do not prove
   what they claim, security and data loss risks, and departures from the project's conventions. Check the tests against the spec,
   not only the code: each behavior the spec requires has a test that would fail without it, and

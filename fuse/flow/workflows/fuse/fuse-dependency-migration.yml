@@ -25,8 +25,7 @@ steps:
     title: Intake
     phase: Design
     instruction: >
-      If this checkout is on the integration branch, first create a branch named after the
-      workstream. Find out what the owner wants to migrate and why: what moves from what to what,
+      Find out what the owner wants to migrate and why: what moves from what to what,
       what prompted it, what must keep working, and how the owner will judge that it does. Read
       the code, the build and the dependency manifests before you ask anything. While the purpose
       and rough scope are still unclear, ask rather than propose, one or a few questions at a
@@ -192,7 +191,7 @@ steps:
       with the commit it ran on; the pre-existing defects and whether the migration touched them;
       the behavior changes accepted on purpose; the risks no check covers and what the owner
       should try by hand; and the decisions you made alone. If the integration branch has moved,
-      rebase the branch onto it first and run again the checks other than the full check. When
+      rebase the work onto it first and run again the checks other than the full check. When
       the rebase or any fix changes the code after the migration step's gate, the report must
       not present that gate's result as the result for the final commit: run the full check
       again before the last review round when the report compares its captured outputs or
@@ -200,7 +199,7 @@ steps:
       step's gate, whose result the owner sees in the hand-over. After any fix that changes code,
       from review or for a failed gate, run again the checks other than the full check that it
       could affect, update the comparison and the report, and have the change reviewed before
-      you finish again. Get the branch and the report through review. Before the last round,
+      you finish again. Get the work and the report through review. Before the last round,
       fold fixups into the commits it should land as, keeping the increments. When you finish
       this step, its gate runs the full check on the code as it is, so commit everything first,
       the report and the catalogue included, and do not run the full check yourself just before
@@ -216,9 +215,9 @@ steps:
         path: .
     gates:
       - check: default
-      - agent: review the branch's diff from its merge-base with the integration branch to HEAD, and the report, against the spec and the catalogue; verify that no must-pass check was weakened, that every adapted check still protects the behavior it did, and that the report's claims match the check results
+      - agent: review the workstream's changes since its base commit, and the report, against the spec and the catalogue; verify that no must-pass check was weakened, that every adapted check still protects the behavior it did, and that the report's claims match the check results
         guide: review.md
         max_rounds: 3
         route_back_to: migration
-      - owner-action: review the report, run the checks only you can run, then land the branch or send it back
+      - owner-action: review the report, run the checks only you can run, then land the work or send it back
         route_back_to: [check-catalogue, migration]

@@ -389,8 +389,12 @@ artifact review guides.
 `.konductor/workstreams/<slug>.yml` records the workflow reference, each step's state, artifacts,
 reported files and reasons, verification, granted rounds, skip reason and timestamped history. It
 also records the workstream it was started after (`after`), its parent workstream and step
-(`parent`), the inputs bound when it started (`inputs`), and each delegating step's child per
-pass (`children`).
+(`parent`), the inputs bound when it started (`inputs`), each delegating step's child per
+pass (`children`), and its base (`base`): the commit HEAD was at when it started, with its
+subject. An agent gate tells the reviewer that code changes are those since the base. When a
+rebase or squash has rewritten the base, fuse-flow finds it by its subject, else uses the newest
+commit made before the workstream started, else the first commit of the history, and says which;
+outside a git repository there is no base, and nothing is refused.
 Only fuse-flow writes it. The directory is gitignored.
 
 ## Rules

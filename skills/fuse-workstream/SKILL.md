@@ -85,6 +85,12 @@ covers that.
 
 - **Pick a slug:** short, lower-case letters, digits and hyphens, named for the work, such as
   `checkout-redesign`. It must not be the slug of an existing workstream.
+- **Where the work goes.** The workflows leave branching to the project. If the project's agent
+  instructions or house rules define a branching strategy, follow it. If they do not and the
+  checkout is on the integration branch, ask the owner once, before starting, whether to create a
+  branch for the workstream or to work where you are; do not ask again for that workstream.
+  Either way, fuse-flow records the commit the workstream starts from, and reviews of code cover
+  the changes since then.
 - **Run** `fuse-flow start <slug> --workflow <name>`, with the name `list` printed. When `list` says
   a workflow can only be started by its path, pass the path.
 - **Starting later in the workflow.** If the owner says earlier steps are already done, for example

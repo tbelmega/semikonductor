@@ -131,9 +131,9 @@ steps:
       own fuse-feature-development workstream, with its own spec, review and landing, so the split
       is a proposal, not a rule: tell the owner that features too small to be worth that
       ceremony can be combined, now in the build order or later when a feature workstream starts,
-      and point out the ones you would combine. If this checkout is on the integration branch,
-      create a branch named after the workstream, and commit the requirements, the design and the
-      build order on it. Do not merge it or push it to a shared branch; the owner lands it.
+      and point out the ones you would combine. Commit the requirements, the design and the build
+      order. Do not merge them into the integration branch or push them to a shared branch; the
+      owner lands them.
     consumes: [requirements, design]
     produces:
       - artifact: build-order

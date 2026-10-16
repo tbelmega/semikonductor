@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { currentBase, resolveBase } from "./base.ts";
 import { FlowError } from "./errors.ts";
 import { EVENT, SKIP_REASON, stamp } from "./history.ts";
 import { has, own } from "./own.ts";
@@ -277,6 +278,34 @@ function handOut(c: Ctx): void {
 
 // ------------------------------------------------------------------ output
 
+// The base to record for a workstream that starts now, as fields to spread
+// into its state; none outside a git repository or before its first commit.
+function baseNow(root: string): { base?: { sha: string; subject: string } } {
+  const base = currentBase(root);
+  return base ? { base } : {};
+}
+
+// The base for printing, as "<short sha> (<subject>)", with how it was found
+// when it is not the recorded one.
+function baseText(root: string, ws: Workstream, withHow: boolean): string | undefined {
+  const b = resolveBase(root, ws);
+  if (!b) return undefined;
+  const text = `${b.sha.slice(0, 12)}${b.subject ? ` (${b.subject})` : ""}`;
+  return withHow && !b.how.startsWith("recorded") ? `${text}, ${b.how}` : text;
+}
+
+// What the review text says about the code changes under review.
+function baseSentence(c: Ctx, ws: Workstream): string {
+  const b = resolveBase(c.root, ws);
+  if (!b) return "";
+  return (
+    ` When the review covers code, the workstream's changes are everything since its base commit ` +
+    `${b.sha.slice(0, 12)}${b.subject ? ` (${b.subject})` : ""}: the commits from there to HEAD, and any changes ` +
+    `not committed yet. The base was ${b.how}. Use it as it is, even if the range is a little wider or narrower ` +
+    "than the work; do not ask the owner about it."
+  );
+}
+
 function present(c: Ctx): string[] {
   handOut(c);
   const ws = readWorkstream(c.root, c.slug);
@@ -439,7 +468,7 @@ function ensureChild(c: Ctx, step: Step): void {
       (child) => {
         for (const s of target.steps) stateOf(child, s.id);
       },
-      { workflow: gate.text, started: localDate(), parent: { slug: c.slug, step: step.id }, ...(Object.keys(inputs).length ? { inputs } : {}), steps: {} },
+      { workflow: gate.text, started: localDate(), ...baseNow(c.root), parent: { slug: c.slug, step: step.id }, ...(Object.keys(inputs).length ? { inputs } : {}), steps: {} },
     );
   }
   if (state.children?.some((ch) => ch.pass === pass)) return;
@@ -638,7 +667,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
         lines.push(`  ${++n}. ${bindInstruction(c, m.check)} Then run it and fix the work until it passes. ${again}`);
       }
     } else if (g.kind === "agent") {
-      lines.push(`  ${++n}. ${reviewText(c, g, step, state, reviewed)}`);
+      lines.push(`  ${++n}. ${reviewText(c, ws, g, step, state, reviewed)}`);
     }
   }
 
@@ -701,7 +730,7 @@ function capOf(c: Ctx, g: Gate, state: StepState): string {
   return granted ? `${cap + granted} (${cap} plus ${granted} granted by the owner)` : `${cap}`;
 }
 
-function reviewText(c: Ctx, g: Gate, step: Step, state: StepState, reviewed: Placed[]): string {
+function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepState, reviewed: Placed[]): string {
   let text = `Have an independent agent ${g.text.replace(/\.$/, "")}.`;
   const guided: string[] = [];
   const parts: string[] = [];
@@ -726,6 +755,7 @@ function reviewText(c: Ctx, g: Gate, step: Step, state: StepState, reviewed: Pla
   } else {
     text += ` It reviews ${parts.join("; ")}.`;
   }
+  text += baseSentence(c, ws);
   const who = reviewer(c.p);
   if (who) text += ` The reviewer: ${who}.`;
   const how = launch(c.p);
@@ -989,6 +1019,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
     {
       workflow: ref,
       started: localDate(),
+      ...baseNow(root),
       ...(given.after !== undefined ? { after: given.after } : {}),
       ...(Object.keys(inputs).length ? { inputs } : {}),
       steps: {},
@@ -997,6 +1028,8 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   const ws = readWorkstream(root, slug);
   const c: Ctx = { root, slug, wf, p, date: startedOn(ws) };
   const header = [`${resumed ? "resumed" : "minted"} workstream ${slug}`, `workflow: ${path}`, `state:    ${workstreamFile(root, slug)}`];
+  const base = baseText(root, ws, true);
+  if (base) header.push(`base:     ${base}`);
   if (ws.after) header.push(`after:    ${ws.after}`);
   if (ws.parent) header.push(`parent:   step ${ws.parent.step} of workstream ${ws.parent.slug}, which waits for this one`);
   if (wf.inputs.length) header.push(`inputs:   ${inputsSummary(c, ws)}`);
@@ -1464,6 +1497,8 @@ export function status(root: string, slug: string): string[] {
   const footer = current ? `current step: ${current.id}; ${FUSE_FLOW} start ${slug} prints what to do` : "workflow complete";
   const related = links(root, slug, ws);
   const header = [`workstream ${slug} (${c.wf.name})`];
+  const base = baseText(root, ws, true);
+  if (base) header.push(`  base: ${base}`);
   if (related.after) header.push(`  after: ${related.after}`);
   if (related.parent) header.push(`  child of: step ${related.parent.step} of workstream ${related.parent.slug}, which waits for it`);
   if (c.wf.inputs.length) header.push(`  inputs: ${inputsSummary(c, ws)}`);

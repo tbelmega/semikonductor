@@ -53,6 +53,12 @@ script installs plain skills and an always-on instruction block that every suppo
     one stays as history. `validate` checks these references across workflow files, including
     loops of workflows waiting for each other. Komposer shows hand-offs and workflow gates as
     links to the target workflow, and links each run to the runs it came from or waits for.
+  - A workstream records its base, the commit HEAD was at when it started, with that commit's
+    subject. Agent reviews of code cover the changes since the base, so they work on any
+    branching strategy, including on the integration branch itself. After a rebase or squash
+    rewrites the base, fuse-flow finds it again by its subject, or else uses the newest commit
+    made before the workstream started, or the first commit of the history; it never refuses for
+    want of a base. `start` and `status` show it.
   - Workflows are found by name in the project's `.konductor/workflows/`, then
     `~/.konductor/workflows/`, then the shipped ones, at any folder depth, so personal and team
     workflows can sit in their own folders or symlinked repositories.
@@ -68,7 +74,9 @@ script installs plain skills and an always-on instruction block that every suppo
 - **Shipped workflows:**
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
     implementation and code review, with agent reviews before the owner approves the spec and
-    lands the branch.
+    lands the work. The shipped workflows leave branching to the project's own rules: when there
+    are none and the checkout is on the integration branch, the agent asks the owner once whether
+    to create a branch.
   - `fuse-pull-request`, a branch through the project's pull request or code review process, the
     way the project runs it: open the request, answer each round of reviewer feedback with fixes
     that pass an agent review first, and finish once the change is merged.

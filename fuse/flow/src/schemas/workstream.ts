@@ -106,6 +106,16 @@ export const WorkstreamSchema = z
           "The local date the workstream was started, YYYY-MM-DD; artifact paths use it for `{date}`. Absent in " +
           "state files written before it existed; the date of the earliest history line stands in then.",
       }),
+    base: z
+      .object({ sha: z.string(), subject: z.string() })
+      .strict()
+      .optional()
+      .meta({
+        description:
+          "The commit HEAD was at when the workstream started, with its subject, so the base can be found again " +
+          "after a rebase rewrites it. Code reviews cover the commits from the base to HEAD. Absent outside a git " +
+          "repository, in a repository with no commits, and in state files written before it existed.",
+      }),
     after: z.string().optional().meta({
       description: "The workstream this one was started after, with `start --after`, which gave it its inputs.",
     }),
