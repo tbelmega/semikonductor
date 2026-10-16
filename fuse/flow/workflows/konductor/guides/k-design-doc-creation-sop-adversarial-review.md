@@ -13,10 +13,10 @@ AWS validation and trade-off reports, the design adversarial review guide
 argumentation reference beside it, read access to the repository, the path of its findings file, and
 the value of `consent_confirmed` that the owner gave before the first round. With
 `consent_confirmed=true` it may use the panel path through the deliberation-panel skill; otherwise
-it runs the guide's single-voice path. It writes its findings as JSON, following the review findings
-schema the step names, and changes no other file. Do not tell it what you expect it to find. If the
-harness cannot start another agent and no launch command is set, run the review yourself in a
-separate pass and say so in the hand-over.
+it runs the guide's single-voice path, and it does not ask the owner. It writes its findings as
+JSON, following the review findings schema the step names, and changes no other file. Do not tell
+it what you expect it to find. If the harness cannot start another agent and no launch command is
+set, run the review yourself in a separate pass and say so in the hand-over.
 
 ## What it looks at
 
@@ -50,10 +50,11 @@ recorded in the adversarial review summary with your reason, marked for the owne
 engineer override. For a broken pattern, fix every occurrence in the same pass.
 
 1. **Stop for the owner first.** In round 2 or any later round, if an accepted finding is CRITICAL
-   (architectural), stop the loop at once, before applying corrections. Present the finding to the
-   owner, ask whether to redesign or override it, and report the step as blocked. Redesign is the
-   owner's decision to send the work back to the `draft` step; an override is the owner's approval
-   as is, with the finding recorded as an engineer override.
+   (architectural), stop the loop at once, before applying corrections. Write the adversarial
+   review summary with the finding, present the finding to the owner, ask whether to redesign or
+   override it, and report the step as blocked. Redesign is the owner's decision to send the work
+   back to the `draft` step; an override is the owner's approval as is, with the finding recorded
+   as an engineer override.
 2. **Otherwise correct.** Apply the corrections for every accepted finding. Then check the
    document against the maker-checker rules in `k-design-doc-creation-sop-checklist-review.md`
    next to this guide, and fix every CRITICAL finding, before the next round.
@@ -62,8 +63,8 @@ engineer override. For a broken pattern, fix every occurrence in the same pass.
    findings, ends with required fixes, and the next round starts with a fresh reviewer on the
    whole document, told how each earlier finding was handled.
 4. **At the cap.** When the exit condition is not met after the printed number of rounds, stop,
-   present the remaining issues to the owner for manual resolution, and report the step as
-   blocked.
+   write the adversarial review summary with the remaining issues, present them to the owner for
+   manual resolution, and report the step as blocked.
 
 Record each round in the adversarial review summary: its findings by class, the corrections
 applied, and the findings marked for engineer override.

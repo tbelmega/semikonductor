@@ -94,16 +94,20 @@ Logical soundness:
 2. **Challenge each decision.** Apply the checklist, the fallacy checking and the classification
    to each decision from step 1, and evaluate each justification against the Toulmin model. This
    is the single-voice review, and it is the default.
-3. **Use the deliberation panel where it pays.** The panel costs a few minutes and several agent
-   calls per decision. When the caller says whether it may be used, for example by passing the
-   owner's `consent_confirmed` answer, follow that. When the caller says nothing, the reviewer may
-   use the `deliberation-panel` skill for a high-stakes decision with several options, without
-   asking anyone first. Either way the reviewer, as the panel's caller, passes
-   `decision_domain=design`, `stance=adversarial` and `consent_confirmed=true`, with the parsed
-   decision and its trade-offs as the subject. The panel derives three to six axes from the
-   decision, has each axis argue why the currently favored option fails on it, cross-examines the
-   arguments anonymously, and returns an axis-weighted confidence. In the adversarial stance,
-   axes converging means they agree the favored option fails. Map the panel's result to a class:
+3. **Use the deliberation panel only with the owner's consent.** The panel costs roughly 2 to 3
+   minutes and several agent calls per review round, scaling with the number of axes it derives
+   (typically 3 to 6). The calling workflow asks the owner and passes the answer as
+   `consent_confirmed`. Use the panel only when that value is `true`; when it is `false`, missing
+   or unclear, stay with the single-voice review, and a reviewer started by a calling workflow
+   does not ask the owner itself. Used on its own, ask the owner once before the first round,
+   with that cost, whether to convene the panel, and use it only after an explicit yes. Never set
+   `consent_confirmed=true` on your own judgment. With consent, invoke the `deliberation-panel`
+   skill once per review round, with `decision_domain=design`, `stance=adversarial` and
+   `consent_confirmed=true`, and with every decision from step 1 and its trade-offs together as
+   the subject. The panel derives three to six axes from the document's decisions, has each axis
+   argue why the currently favored option fails on it, cross-examines the arguments anonymously,
+   and returns an axis-weighted confidence. In the adversarial stance, axes converging means they
+   agree the favored option fails. Map the panel's result to a class:
    - a HIGH-confidence architectural flaw is CRITICAL (architectural);
    - a HIGH-confidence error in a factual claim is CRITICAL (factual);
    - a MEDIUM-confidence architectural or factual flaw is IMPORTANT, because it is not corroborated

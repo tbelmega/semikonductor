@@ -19,6 +19,8 @@
 #   draft for the owner's approval.
 # - The traceability summary is written to a file under .konductor/{slug}/, so it stays readable
 #   after the session ends.
+# - A failed completeness or traceability check reports the validate step blocked, so the owner
+#   can send the work back to the step that needs fixing before the workflow completes.
 # As in the SOP, design.md gets only the author's self-check: no agent gate was added.
 version: 1
 name: kiro-spec-workflow-sop
@@ -111,7 +113,9 @@ steps:
       that every requirement has at least one task in tasks.md. Write the traceability summary to
       the path below, one row per requirement: requirement, design section, task or tasks. End it
       with the confirmation that the spec is ready for execution, or, when a check fails, with what
-      fails, and suggest to the owner the step to send the work back to.
+      fails. When any check fails, do not finish the step: tell the owner what fails and which step
+      to send the work back to, and report this step as blocked, so the owner can send it back.
+      Finish the step normally only when every check passes.
     consumes:
       - kiro-requirements
       - kiro-design

@@ -173,15 +173,16 @@ steps:
       Check the final version against the draft step's maker-checker rules once more. Compute the
       confidence score with Part 2 of the design review guide
       (fuse/flow/library/artifacts/design/review.md in the fuse-konductor clone): the average of
-      its ten dimension scores, 1 to 5 each, and flag every dimension below 3 for revision. Write
-      the readiness result: each condition of the quality gate with its result, the confidence
-      score and the dimensions below 3, the findings marked for engineer override, and the open
-      issues from the adversarial review. The document is ready for principal engineer review only
-      when all of these hold: the design guide's checklist has 0 CRITICAL findings;
+      its ten dimension scores, 1 to 5 each. Score each section of the document as well, as the
+      average of the dimension scores that apply to it, and flag every section below 3 for
+      revision. Write the readiness result: each condition of the quality gate with its result, the
+      confidence score and the sections below 3, the findings marked for engineer override, and the
+      open issues from the adversarial review. The document is ready for principal engineer review
+      only when all of these hold: the design guide's checklist has 0 CRITICAL findings;
       doc-accuracy-analyzer has 0 INCORRECT findings (UNVERIFIED with a callout is acceptable);
       the adversarial review has 0 CRITICAL, 0 IMPORTANT and fewer than 3 MINOR findings; the
       confidence score averages 3.0 or more. Do not present the document inline. Tell the owner
-      its path, the confidence score with any dimension below 3, and one line on the issues still
+      its path, the confidence score with any section below 3, and one line on the issues still
       open. If any condition is not met, do not present the document as ready for principal
       engineer review: present the remaining issues and ask "Fix these before submission? [y/n]".
     consumes:

@@ -22,8 +22,9 @@
 #   workflow scores the SOP's ten, with Part 2's method.
 # - The adversarial loop is an agent gate, so an independent reviewer runs each round rather than
 #   the author alone; the author classifies each finding and records a rejected one with the
-#   reason. The round-2 escalation and the 5-round cap report the step blocked; the owner's
-#   approval as is then lets the report record the verdict.
+#   reason. The round-2 escalation and the 5-round cap report the step blocked, after the review
+#   report is written with its verdict; the owner's approval as is then lets the output step
+#   bring the report up to date.
 version: 1
 name: k-principal-engineer-design-review-sop
 description: Port of the former k-principal-engineer-design-review SOP. A pre-submission quality
@@ -103,7 +104,9 @@ steps:
       still 3 or more, and fix the writing first if it is not. Keep the round history: the round
       number, the finding counts by severity, and the corrections applied, plus each finding you
       rejected and why. When the loop ends, whether it passed, escalated or reached the cap, write
-      the history and the remaining findings to the path below.
+      the history and the remaining findings to the path below. When it escalated or reached the
+      cap, also write the review report to its optional path below before you report the step
+      blocked, as the guide says, so the owner has the verdict and the evidence.
     consumes:
       - design-claims
       - design-quality-score
@@ -114,6 +117,9 @@ steps:
     produces:
       - artifact: adversarial-review
         path: .konductor/{slug}/adversarial-review.md
+    optional_produces:
+      - artifact: pe-review-report
+        path: docs/design/{slug}-principal-engineer-review.md
     gates:
       - agent: >
           challenge every design decision, trade-off and architectural choice with the
@@ -125,7 +131,9 @@ steps:
   - id: output
     title: 4. Output
     instruction: >
-      Write the report to the path below, in this structure. Its title is "# PE Review Report",
+      Write the report to the path below, in this structure. When the adversarial-review step
+      already wrote it at the escalation or the round cap, bring it up to date with the current
+      state instead of starting over. Its title is "# PE Review Report",
       followed by four lines: "Date: {date}", "Document: {doc title and path}", "Verdict: {PE-READY |
       REVISIONS NEEDED | FUNDAMENTAL REDESIGN REQUIRED}" and "Rounds: {N} adversarial rounds
       completed". Then these sections, in order: "## Quality Score", holding "{N}/5 — {summary}";

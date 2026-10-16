@@ -23,6 +23,21 @@ Use the paths the step or its consumed artifacts give you; search only for what 
 
 When the scope is not given, ask the owner, unless the step or its inputs already say.
 
+## Confirmations
+
+The model rests on your reading of the design, so the owner checks that reading at three points.
+A calling workflow handles these confirmations with its own gates and steps; used on its own, ask
+the owner yourself and wait for the answer each time:
+
+- after documenting the architecture (method step 6) and before identifying threats: confirm the
+  summarized scope, the architecture components, the trust boundaries and the security controls
+  as you understood them;
+- after defining the mitigations (method step 8) and before assembling the document: confirm the
+  threat assessment and the mitigations, including each mitigation's implementation status;
+- before handing over the document: confirm that the final document is accurate.
+
+Correct the model with each answer before you go on.
+
 ## Principles
 
 The model is only as accurate as its evidence. Follow these principles throughout:
@@ -105,7 +120,8 @@ test cases, their coverage and the test types.
 Organize the sections by the template, complete every required section, and add the appendices.
 Keep the STRIDE threats and system-specific mitigations in the main document, separate from
 supplementary guidance. Check the result against the "Quality gate" below. Write it to the step's
-artifact path; for standalone use, put it next to the design documents it models.
+artifact path; used on its own, put it next to the design documents it models, and confirm it
+with the owner as "Confirmations" says.
 
 ## Working with large inputs
 
