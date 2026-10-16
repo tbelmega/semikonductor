@@ -50,10 +50,15 @@ From a **gap analysis**, take:
   automated;
 - which features have end-to-end coverage and which do not.
 
-Count test cases from the test runner's output (for example `npm test` or `pytest
---collect-only`), never from the file system: one file often holds ten to fifty tests, and 123
-files can be 1,236 cases. Report both numbers. Definitions of "integration test" differ, so say
-which classification you used.
+Count test cases from the test runner, never from the file system: from the output of an existing
+run when there is one, otherwise from a command that lists the tests without running them, such
+as `pytest --collect-only` or `playwright test --list`. One file often holds ten to fifty tests,
+and 123 files can be 1,236 cases. Report both numbers. Definitions of "integration test" differ,
+so say which classification you used. Planning needs no test run. Take whether the existing
+end-to-end tests pass from the gap analysis or an existing run's output. You may run local unit
+and integration tests; run tests that call a deployed system only with the owner's authorization
+for that target. A calling workflow says whether it has that authorization; used on its own, ask
+the owner. Record tests that did not run as not run, never as passing.
 
 From a **discovery report**, take each page, its interactive elements, its forms with their
 validation rules, and the flows between pages. Each page or flow is a candidate journey; each

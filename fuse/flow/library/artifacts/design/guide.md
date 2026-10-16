@@ -4,6 +4,10 @@ How to write and structure a design document, such as a system design, RFC, tech
 architecture proposal or one-pager. `review.md` next to this file says how the document is
 reviewed.
 
+When the document designs a new architecture, first follow `interview.md` next to this file to
+gather the requirements and constraints and choose the patterns. Take each answer from the step's
+inputs and the existing documents first, and ask only what they leave unresolved.
+
 ## Structure (outside-in)
 
 Every design doc follows this flow:

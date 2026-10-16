@@ -26,8 +26,10 @@ When the scope is not given, ask the owner, unless the step or its inputs alread
 ## Confirmations
 
 The model rests on your reading of the design, so the owner checks that reading at three points.
-A calling workflow handles these confirmations with its own gates and steps; used on its own, ask
-the owner yourself and wait for the answer each time:
+A calling workflow may handle a confirmation with a gate or step of its own. Where it has none for
+a confirmation, ask the owner yourself at that point and wait for the answer, unless the workflow
+says the step runs unattended; then record what was not confirmed as an assumption in the
+Introduction. Used on its own, ask the owner yourself and wait for the answer each time:
 
 - after documenting the architecture (method step 6) and before identifying threats: confirm the
   summarized scope, the architecture components, the trust boundaries and the security controls

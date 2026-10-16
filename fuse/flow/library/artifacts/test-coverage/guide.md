@@ -32,12 +32,22 @@ tests with the cloud services it calls; microservices need contract tests betwee
 
 ## 2. Count and classify the tests
 
-Run the test suite and take the counts from the runner's output. Test files are not test cases: a
-file often holds ten to fifty tests, and counting files instead of cases misstates the
-distribution by an order of magnitude.
+Take the counts from the test runner: from the output of an existing run when there is one,
+otherwise from a command that lists the tests without running them, such as `pytest
+--collect-only` or `playwright test --list`. Test files are not test cases: a file often holds ten
+to fifty tests, and counting files instead of cases misstates the distribution by an order of
+magnitude.
+
+To see which tests pass, you may run the local unit and integration tests. Run tests that call a
+deployed system, such as a deployed app, a cloud account or live endpoints, only with the owner's
+authorization for that target: such a run can create records, send messages or start workflows.
+A calling workflow says whether it has that authorization; used on its own, ask the owner. Record
+every test that did not run as not run, never as passing.
 
 - **Unit:** one function or class in isolation, dependencies mocked, fast.
 - **Integration:** several components working together, with real or mocked services.
+- **Contract:** in the microservices model, one service's API or message schema checked against
+  what its consumers expect, without running the services together.
 - **End-to-end:** a complete user workflow through the full stack.
 
 Compare the distribution with the model. Every type within 10 points of the model is aligned;
@@ -58,6 +68,9 @@ even when a simpler test already covers its criterion. Mark each criterion and p
 - ⚠️ **Partial:** a test exists but is incomplete or failing.
 - ❌ **Missing:** no automated test.
 - 🔍 **Manual:** needs manual testing, such as complex interactions or third-party services.
+
+When the test for an item exists but did not run, mark the item by what the test asserts and add
+"not run".
 
 ## 4. Map tests to non-functional requirements
 
@@ -85,6 +98,9 @@ path as well as its success path. Mark an integration point **mocked** when its 
 the real service with a mock: such a test checks the component's side of the boundary, not the
 integration itself.
 
+In the microservices model, also map each inter-service API and each message or event schema to
+the contract tests that cover it.
+
 ## 6. Classify the gaps
 
 **Critical (must fix):**
@@ -95,6 +111,7 @@ integration itself.
 - A security requirement or a security-sensitive operation without tests.
 - A non-functional requirement with no test at all.
 - A critical integration point without an integration test.
+- In the microservices model, an inter-service API or message schema without a contract test.
 - Error handling paths or error scenarios without negative tests.
 
 **Warning (should fix):**
@@ -133,7 +150,11 @@ case, error scenario, edge case, non-functional, integration) and the priority.
 | ----------- | ----- | -------- | ------ |
 | Unit        | <N>   | <X>%     | <Y>%   |
 | Integration | <N>   | <X>%     | <Y>%   |
+| Contract    | <N>   | <X>%     | <Y>%   |
 | End-to-end  | <N>   | <X>%     | <Y>%   |
+
+Keep the Contract row for the microservices model only. Tests run: <N> passed, <N> failed,
+<N> not run, with the reason the rest did not run.
 
 ## Coverage by feature
 

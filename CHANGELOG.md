@@ -223,8 +223,9 @@ script installs plain skills and an always-on instruction block that every suppo
     guide, with its modes as sections.
   - `system-design-patterns` is `interview.md` next to the `design` guide, and
     `adversarial-design-review` is `adversarial-review.md` there, with its argumentation reference.
-    The adversarial review no longer asks before it uses the deliberation panel; it follows what
-    its caller says, and decides itself when the caller says nothing.
+    The adversarial review uses the deliberation panel only with the owner's explicit consent: a
+    calling workflow asks the owner and passes the answer, missing or unclear consent means the
+    single-voice review, and used on its own the review asks once before the first round.
   - `smithy-modeling` is the `api-model` guide, with its review guide and a Smithy reference.
   - `agents-md-authoring` is the `agents-md` guide.
   - The three `kiro-*-generation` skills are the `kiro-requirements`, `kiro-design` and
