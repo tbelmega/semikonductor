@@ -329,9 +329,9 @@ describe("library", () => {
     const essay = entries.find((e: any) => e.id === "essay");
     expect(essay.files["guide.md"]).toBe("the skill\n");
     expect(essay.links).toEqual({ "guide.md": { path: join(root, "skills", "essay-writing", "SKILL.md"), display: "skills/essay-writing/SKILL.md" } });
-    // The shipped code entry's review guide is a Konductor skill.
-    const code = entries.find((e: any) => e.id === "code" && e.level === "package");
-    expect(code.links["review.md"].display).toBe("skills/code-review/SKILL.md");
+    // A shipped guide that links to a fuse-konductor skill.
+    const doc = entries.find((e: any) => e.id === "doc-accuracy" && e.level === "package");
+    expect(doc.links["guide.md"].display).toBe("skills/doc-accuracy-analyzer/SKILL.md");
   });
 
   test("every entry that ships with fuse-flow has a description", async () => {

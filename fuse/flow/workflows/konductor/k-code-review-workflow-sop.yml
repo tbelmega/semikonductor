@@ -13,7 +13,7 @@
 # - Steps 1 and 2 are one step, and so are steps 3 and 4, because each pair hands on one
 #   document. The diff is saved as the review-diff artifact, so every later step and the
 #   adversarial review read the same text.
-# - The review skills are told to report every finding and leave fixing to the caller
+# - The lenses and infra-validation are told to report every finding and leave fixing to the caller
 #   (scope_confirmed), because the SOP only reports and never fixes.
 # - infra-validation will not start without the infrastructure type, the location and the target
 #   environment, and the SOP passes none of them. The discover step records the type and location
@@ -29,7 +29,7 @@
 # - When the review falls back to listing every file under source_dir, there is no diff, so the
 #   critique checks quoted code against the files themselves; the SOP names only the diff.
 # - The SOP names the verdicts READY FOR REVIEW and NEEDS FIXES without a rule. Here a surviving
-#   CRITICAL or IMPORTANT issue means NEEDS FIXES, since both skills' gates class IMPORTANT as
+#   CRITICAL or IMPORTANT issue means NEEDS FIXES, since both lenses' gates class IMPORTANT as
 #   "should fix".
 # - The SOP has no owner gate and no review of its own report; neither does this workflow.
 version: 1
@@ -91,21 +91,21 @@ steps:
     title: 3 and 4. Run the review skills and consolidate
     phase: Review
     instruction: |
-      Review each category with its skill, then merge the findings into one list. This step
-      changes no file other than this workflow's own artifacts.
+      Review each category with its lens or skill, then merge the findings into one list. This
+      step changes no file other than this workflow's own artifacts.
 
-      Run the code-review skill's backend lens (backend.md in that skill's folder) on the backend
-      files, its frontend lens (frontend.md) on the frontend files, and the infra-validation skill
-      on the infra files,
+      Run the backend lens (fuse/flow/workflows/konductor/k-backend-review.md in the fuse-konductor
+      clone) on the backend files, the frontend lens (k-frontend-review.md next to it) on the
+      frontend files, and the infra-validation skill on the infra files,
       giving it the infrastructure type, the location and the environment from the review scope.
-      Skip a category that has no files or that review_type excludes, and say so. Tell each skill
-      that the scope is confirmed: it reports every finding and leaves fixing to the caller, and
-      it does not ask whether to fix them.
+      Skip a category that has no files or that review_type excludes, and say so. Tell each lens
+      and skill that the scope is confirmed: it reports every finding and leaves fixing to the
+      caller, and it does not ask whether to fix them.
 
       Merge all findings into one list sorted CRITICAL, then IMPORTANT, then SUGGESTION, using each
-      skill's own Quality Gate classes. Remove a finding that several skills report, keeping one.
-      Give every finding its file path and line, the skill that raised it, the problem, why it
-      matters and the fix the skill proposed. Write the list as the review findings.
+      review's own Quality Gate classes. Remove a finding that several reviews report, keeping one.
+      Give every finding its file path and line, the lens or skill that raised it, the problem, why
+      it matters and the fix it proposed. Write the list as the review findings.
     consumes:
       - review-scope
       - review-diff
