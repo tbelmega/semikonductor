@@ -1,4 +1,4 @@
-# Principal engineer review of a system design
+# Principal engineer review rehearsal for a system design
 
 This review rehearses the one a principal engineer will give the design, so that their time goes
 to the questions only they can answer. Rounds, priorities and the handling of findings follow

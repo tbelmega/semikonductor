@@ -58,7 +58,7 @@ steps:
     consumes:
       - design
   - id: design-review
-    title: Principal engineer design review
+    title: Principal engineer design review rehearsal
     instruction: >
       Have the design reviewed as the gate below says, fix every CRITICAL finding in the design
       itself, and record the findings and their resolution.

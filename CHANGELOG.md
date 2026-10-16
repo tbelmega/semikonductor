@@ -70,9 +70,10 @@ script installs plain skills and an always-on instruction block that every suppo
     implementation and code review, with agent reviews before the owner approves the spec and
     lands the branch.
   - `fuse-system-development`, a new system or a module with its own architecture: intake,
-    requirements, optional prototypes, a system design with a principal engineer review by an
-    agent, and a build order whose features are then built with `fuse-feature-development`. The
-    owner approves the prototype findings or sends the work back to the requirements.
+    requirements, optional prototypes, a system design with a principal engineer review
+    rehearsal by an agent, and a build order whose features are then built with
+    `fuse-feature-development`. The owner approves the prototype findings or sends the work back
+    to the requirements.
   - `fuse-dependency-migration`, a migration or refactoring that must keep the behavior: catalogue
     the checks, add missing ones, record a baseline, migrate in increments and compare.
   - `fuse-rapid-prototyping`, a new product idea explored as a runnable prototype: a short

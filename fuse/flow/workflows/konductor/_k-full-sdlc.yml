@@ -66,7 +66,7 @@ steps:
       - user-stories
       - codebase-analysis
   - id: design-review
-    title: 4. Principal engineer design review
+    title: 4. Principal engineer design review rehearsal
     instruction: >
       Have the design reviewed as the gate below says. Fix every CRITICAL finding in the design
       itself, never by deferring it to implementation, and record the findings and their
