@@ -1,39 +1,12 @@
----
-name: infra-validation
-description: Use when AWS CDK or CloudFormation changes are about to be deployed, or infrastructure code needs a security, cost, or compliance check. Validates against AWS best practices, security standards, and Well-Architected principles.
-version: 1.0.0
-tags: [skill, infrastructure, cdk, cloudformation, validation, security, aws]
----
+# Infrastructure lens
 
-# Infrastructure Validation
-
-## Overview
-
-Reviews CDK and CloudFormation code for security vulnerabilities, cost optimization opportunities, compliance gaps, and operational readiness issues. Covers IAM, encryption, logging, backup, and Well-Architected Framework alignment.
-
-## Usage
-
-Use this skill when:
-
-- Reviewing CDK or CloudFormation before deployment
-- Checking infrastructure for security and compliance issues
-- Validating Well-Architected Framework alignment
-
-## Core Concepts
-
-### Well-Architected Alignment
-
-Reviews against AWS Well-Architected Framework pillars: security (encryption, IAM, network), reliability (multi-AZ, backups, deletion protection), performance (right-sizing, caching), cost optimization (tagging, reserved capacity), and operational excellence (monitoring, logging, alarms).
-
-## Execution
-
-When this skill is activated, use the following as your full instruction set for validating infrastructure code. Apply the Quality Gate at the end before presenting output to the user.
-
----
-
-# Infrastructure Code Validator
-
----
+The standards for AWS CDK and CloudFormation code that the `k-code-review-workflow-sop` review
+step applies to the infrastructure files: security vulnerabilities, cost optimization
+opportunities, compliance gaps and operational readiness, covering IAM, encryption, logging,
+backup and alignment with the AWS Well-Architected Framework pillars: security (encryption, IAM,
+network), reliability (multi-AZ, backups, deletion protection), performance (right-sizing,
+caching), cost optimization (tagging, reserved capacity) and operational excellence (monitoring,
+logging, alarms). Apply the Quality Gate at the end before presenting the findings.
 
 ## CRITICAL: STOP AND READ THIS FIRST
 

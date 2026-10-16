@@ -76,7 +76,7 @@ Use the checker that matches what you produced. Load its skill and apply its cri
 | You produced                              | Checker                                                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Code change                               | The code review guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/code/review.md`)   |
-| Infrastructure as code change             | `infra-validation`                                                                                      |
+| Infrastructure as code change             | The infrastructure lens of the Konductor review workflows (`fuse/flow/workflows/konductor/k-infra-review.md`) |
 | System design or architecture document    | The design review guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/design/review.md`) |
 | Threat model                              | The quality gate of the threat-model guide (`fuse/flow/library/artifacts/threat-model/guide.md`)        |
 | Technical research or decision evidence   | `doc-accuracy-analyzer`, to verify claims and surface missing prior art                                 |

@@ -265,6 +265,10 @@ script installs plain skills and an always-on instruction block that every suppo
   `fuse-pull-request` takes a change through the project's own review process, and the workflows'
   review gates replace the loop.
 - The `aws-service-validator` skill, now `aws.md`, the AWS check of `doc-accuracy-analyzer`.
+- The `find-aws-skills` skill, now the search-and-load part of `aws-mcp-usage`.
+- The `infra-validation` skill, now `k-infra-review.md` in `fuse/flow/workflows/konductor/`, the
+  infrastructure lens of `k-code-review-workflow-sop`. `verification` points infrastructure
+  changes at it.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in
   `fuse/flow/workflows/konductor/` replace them. The SOP files are in this repository's history and in upstream Konductor.

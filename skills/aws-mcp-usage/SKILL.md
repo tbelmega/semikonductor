@@ -1,6 +1,6 @@
 ---
 name: aws-mcp-usage
-description: Use when a task calls tools from the AWS MCP server (`aws___*`), such as running AWS API calls or scripts, when starting development or design work on AWS services, or when those tools are missing from the session. Explains how to register the server, what to do without it, the confirmation rules for calls that act on an AWS account, and which AWS guidance to load for common development tasks.
+description: Use when a task calls tools from the AWS MCP server (`aws___*`), such as running AWS API calls or scripts, when starting development or design work on AWS services, when a request involves an AWS service or workflow no bundled skill covers, or when those tools are missing from the session. Explains how to register the server, what to do without it, the confirmation rules for calls that act on an AWS account, and how to find and load AWS guidance for a task.
 ---
 
 # AWS MCP Usage
@@ -72,10 +72,23 @@ reports those claims as unverified rather than as confirmed.
 
 ## Load guidance before starting
 
-Before starting AWS work, load the matching AWS guidance with `aws___retrieve_skill`. When you do
-not already have the exact skill name from a search result, find it first with the `find-aws-skills`
-skill, which searches `aws___search_documentation` with the `agent_skills` topic. Skill names are
-opaque identifiers: never retrieve a name you have not seen in a search result.
+Before starting AWS work, load the matching AWS guidance with `aws___retrieve_skill`. Skill names
+are opaque identifiers: never retrieve a name you have not seen in a search result. New skills are
+added regularly, so do not assume one does not exist without searching first.
+
+### Search for a skill
+
+Use `aws___search_documentation` with a search phrase as `search_phrase`,
+`topics=["agent_skills"]`, and `limit=3`. Translate the user's intent into a somewhat verbose
+phrase that keeps its context; this improves vector search relevance over minimal keywords.
+
+| User says                                   | Search phrase                                       |
+| ------------------------------------------- | --------------------------------------------------- |
+| "Create a production VPC with multiple AZs" | `create production VPC multi-AZ networking`         |
+| "My Lambda is timing out"                   | `Lambda function timeout debugging troubleshooting` |
+| "Lock down my S3 buckets"                   | `secure S3 bucket access policy hardening`          |
+| "Deploy my app to AWS"                      | `deploy application AWS infrastructure`             |
+| "I'm getting access denied on S3"           | `S3 access denied error troubleshooting`            |
 
 These are the skills that usually answer common development tasks. Use the task column as the
 search phrase and confirm the name in the results before retrieving it.
@@ -92,3 +105,18 @@ search phrase and confirm the name in the results before retrieving it.
 | Lambda and DynamoDB integration                          | `connecting-lambda-to-dynamodb`        |
 | boto3 SDK patterns                                       | `aws-sdk-python-usage`                 |
 | AWS SDK for JavaScript v3 patterns                       | `aws-sdk-js-v3-usage`                  |
+
+### Pick and load it
+
+Results are ordered by relevance; the first is the strongest match. Pick the most relevant one by
+that order and the user's context, and call `aws___retrieve_skill` with its exact `skill_name`.
+Follow the loaded skill's instructions. If it references additional files (for example
+`references/architecture.md`), retrieve them by calling `aws___retrieve_skill` again with the
+same `skill_name` and the `file` parameter set to the referenced path.
+
+### When nothing fits
+
+If the search returns no results, none is relevant, or retrieval fails, tell the user what
+happened and offer to retry with a different search phrase, to proceed with direct AWS CLI
+commands (`aws___suggest_aws_commands`), or to go the way they prefer. Do not fall back to CLI
+tools silently; wait for the user's choice.
