@@ -69,6 +69,12 @@ script installs plain skills and an always-on instruction block that every suppo
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
     implementation and code review, with agent reviews before the owner approves the spec and
     lands the branch.
+  - `fuse-pull-request`, a branch through the project's pull request or code review process, the
+    way the project runs it: open the request, answer each round of reviewer feedback with fixes
+    that pass an agent review first, and finish once the change is merged.
+    `fuse-feature-development` offers a pull request at its last gate only where the house rules,
+    the project's history or the agent's memory show such a process, and hands off to it when the
+    owner approves the branch for one; it can also be started on its own.
   - `fuse-system-development`, a new system or a module with its own architecture: intake,
     requirements, optional prototypes, a system design with a principal engineer review
     rehearsal by an agent, and a build order whose features are then built with

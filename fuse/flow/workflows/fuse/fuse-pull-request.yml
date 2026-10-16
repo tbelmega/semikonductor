@@ -1,0 +1,75 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+#
+# A branch through the project's pull request or code review process, the way the project runs it:
+# open the request, answer the reviewers' feedback with fixes that an independent agent review
+# checks first, and finish once the change is merged. It is its own workstream, so a project with
+# no such process never runs it: fuse-feature-development offers a pull request at its last gate
+# only where it finds evidence of one, and hands off here only when the owner approves the branch
+# for it. It can also be started on its own, for a branch or pull request that already exists.
+# review.md next to this file is the review guide for its agent gate.
+#
+# Start a workstream with:  fuse-flow start <slug> --workflow fuse-pull-request
+# or after a feature:       fuse-flow start <slug> --workflow fuse-pull-request --after <feature slug>
+version: 1
+name: fuse-pull-request
+description: >
+  A branch through the project's pull request or code review process, the way the project runs
+  it: open the request, answer each round of reviewer feedback with fixes that pass an agent review
+  first, and finish once the change is merged.
+inputs:
+  - artifact: feature-spec
+    description: The approved spec of the feature, when the branch comes from fuse-feature-development.
+steps:
+  - id: open
+    title: Open the pull request
+    phase: Pull request
+    instruction: >
+      Find how pull requests or code reviews work in this project: in the project's and the
+      user's house rules, the history of the integration branch, and what you remember of this
+      project. Find the tool, such as gh, glab or the team's own, the target branch, what the
+      description must contain, who reviews, and who merges. If you find no such process, tell the
+      owner and ask how to proceed before you push anything. If a pull request for this branch
+      already exists, use it; otherwise push the branch and open one that way. Write a
+      description that a reviewer without this session's context can follow: what the change
+      does and why, how it was verified, and which agent reviews it passed, with the reviewers'
+      models where you know them. Do not merge it yourself unless the house rules say the author
+      merges.
+    consumes: [feature-spec]
+    gates:
+      - check: default
+
+  - id: feedback
+    title: Answer the feedback
+    phase: Pull request
+    condition:
+      agent: the pull request has review feedback that is not yet answered, such as comments or a request for changes
+    instruction: >
+      Read every unanswered comment and review on the pull request. Check each against the code
+      before you act on it: fix what is right, and reply with your reasons where it is wrong or
+      out of scope. Find the root cause of each confirmed finding and look for other instances of
+      it in the change. Start each code fix with a test that fails because of the finding. Commit
+      the fixes the way the house rules ask, push them, and reply to each comment with what you
+      did. Do not resolve a reviewer's thread unless the house rules say the author does.
+    consumes: [feature-spec]
+    updates:
+      - artifact: code
+        path: .
+    gates:
+      - check: default
+      - agent: review the changes made for the feedback, against the feedback and the approved spec when there is one
+        guide: review.md
+        max_rounds: 2
+
+  - id: merge
+    title: Wait for the merge
+    phase: Pull request
+    instruction: >
+      Wait until the pull request is merged or gets new feedback. If your harness can watch it
+      for you, with a monitor or a scheduled check, use that, and tell the owner when either
+      happens. Otherwise tell the owner to come back to this workstream when either happens, and
+      end your turn. If the house rules say the author merges, merge it once the reviewers
+      approve it and the owner agrees.
+    gates:
+      - owner-action: confirm the pull request is merged, or send it back to answer new feedback
+        route_back_to: feedback
