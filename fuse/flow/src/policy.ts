@@ -10,6 +10,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSyn
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
+import { own } from "./own.ts";
 import { libraryDirs, policyFiles } from "./project.ts";
 import { DEFAULT_MAX_ROUNDS, type Gate } from "./schemas/gate.ts";
 import { LibraryEntrySchema } from "./schemas/library.ts";
@@ -76,7 +77,7 @@ export type CheckBinding = { command: string; file: string } | { command: "none"
 
 export function checkBinding(p: Project, kind: string): CheckBinding {
   for (const layer of [p.local, p.team, p.user]) {
-    const command = layer?.policy.checks?.[kind];
+    const command = own(layer?.policy.checks, kind);
     if (command !== undefined) return { command, file: layer!.file };
   }
   return undefined;
@@ -173,7 +174,9 @@ export function reviewGuide(p: Project, gate: Gate, artifactId: string | undefin
 // `date` is the day the workstream started, YYYY-MM-DD, so the path stays the
 // same for the whole workstream.
 export function artifactPath(p: Project, artifact: Artifact, slug: string, date: string): string {
-  const override = projectLayers(p).find((l) => l.policy.artifacts?.[artifact.artifact])?.policy.artifacts?.[artifact.artifact];
+  const override = projectLayers(p)
+    .map((l) => own(l.policy.artifacts, artifact.artifact))
+    .find((o) => o !== undefined);
   const path = override?.path ?? artifact.path;
   return path.replaceAll("{slug}", slug).replaceAll("{date}", date);
 }

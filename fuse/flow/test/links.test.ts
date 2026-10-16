@@ -365,6 +365,22 @@ steps:
     expect(repo.ok("start", "n", "--workflow", "next", "--after", "pr")).toContain("inputs:   findings (not given)");
   });
 
+  test("an unfinished delegating step returns nothing yet, even when an earlier step wrote the same id", () => {
+    install("next", `version: 1\nname: next\ninputs:\n  - artifact: findings\nsteps:\n  - id: a\n    instruction: Read it.\n    consumes: [findings]\n`);
+    const shadowing = PARENT.replace("produces: { artifact: diff,", "produces: [{ artifact: findings, path: early.md }, { artifact: diff,").replace(
+      'path: "diffs/{slug}.diff" }',
+      'path: "diffs/{slug}.diff" }]',
+    );
+    repo.start("pr", shadowing);
+    repo.write("early.md");
+    repo.write("diffs/pr.diff");
+    repo.ok("continue", "pr");
+    expect(repo.status("pr", "adversarial")).toBe("IN_PROGRESS");
+    expect(repo.ok("start", "n", "--workflow", "next", "--after", "pr")).toContain("inputs:   findings (not given)");
+    repo.ok("continue", "pr", "--blocked", "the child needs a decision");
+    expect(repo.ok("start", "n-2", "--workflow", "next", "--after", "pr")).toContain("inputs:   findings (not given)");
+  });
+
   test("a required child input with no document refuses the hand-out", () => {
     install("child", CHILD.replace("  - artifact: given-diff\n", "  - artifact: given-diff\n    required: true\n"));
     repo.start("pr", PARENT);
@@ -432,5 +448,100 @@ steps:
     expect(repo.refused("validate", "b.yml")).toContain("a condition cannot be a workflow");
     repo.write("c.yml", one("    gates:\n      - workflow: child\n        slug: fixed-name\n"));
     expect(repo.refused("validate", "c.yml")).toContain("slug is a template that contains {slug}");
+  });
+});
+
+// Every JavaScript object inherits a property named "constructor", and
+// "constructor" is a valid artifact id and check kind. Only what a workflow,
+// the command line or the policy actually gives counts.
+describe("an id that every object has as a property", () => {
+  test("an input named constructor is bound only when it is given, and a required one is refused when it is not", () => {
+    const W = `version: 1
+name: w
+inputs:
+  - artifact: constructor
+  - artifact: brief
+steps:
+  - id: a
+    instruction: Read it.
+    consumes: [constructor]
+`;
+    install("w", W);
+    repo.write("c.md");
+    repo.write("b.md");
+    const out = repo.ok("start", "x", "--workflow", "w", "--input", "brief=b.md");
+    expect(out).toContain("inputs:   constructor (not given), brief=b.md\n");
+    expect(out).toContain("READ constructor: not given; the workstream was started without this input, so do the step without it.");
+    expect(repo.ok("start", "y", "--workflow", "w", "--after", "x")).toContain("inputs:   constructor (not given), brief=b.md\n");
+    const given = repo.ok("start", "z", "--workflow", "w", "--input", "constructor=c.md");
+    expect(given).toContain("inputs:   constructor=c.md, brief (not given)\n");
+    expect(given).toContain("READ c.md (input constructor).");
+
+    install("w", W.replace("  - artifact: constructor\n", "  - artifact: constructor\n    required: true\n"));
+    expect(repo.refused("start", "r", "--workflow", "w")).toContain("workflow w requires the input constructor; give it with --input <id>=<path>");
+    expect(repo.refused("start", "r", "--workflow", "w", "--after", "x")).toContain(
+      "workflow w requires the input constructor, and workstream x has no document of that id",
+    );
+  });
+
+  test("a child's required input named constructor must be given, by validate and when the child is created", () => {
+    install("child", `version: 1\nname: child\ninputs:\n  - artifact: constructor\n    required: true\nsteps:\n  - id: a\n    instruction: Work.\n`);
+    const parent = (gate: string) =>
+      `version: 1\nname: p\nsteps:\n  - id: a\n    instruction: Do it.\n    produces: { artifact: diff, path: d.diff }\n  - id: b\n    instruction: Wait.\n    gates:\n${gate}`;
+    repo.write("unbound.yml", parent("      - workflow: child\n"));
+    expect(repo.refused("validate", "unbound.yml")).toContain('step b, workflow child: child requires the input "constructor", and the gate\'s inputs do not give it');
+
+    repo.start("pr", parent("      - workflow: child\n        inputs: { constructor: diff }\n"));
+    expect(repo.ok("continue", "pr", "--not-produced", "diff", "nothing changed")).toContain(
+      "step b cannot create its child workstream pr-b: child requires constructor, and this workstream has no document to give it.",
+    );
+    expect(existsSync(join(repo.root, ".konductor/workstreams/pr-b.yml"))).toBe(false);
+  });
+
+  test("a document named constructor is read from the step that wrote it, past a delegating step that does not return it", () => {
+    install("child", `version: 1\nname: child\nsteps:\n  - id: r\n    instruction: Review.\n    produces: { artifact: report, path: "reports/{slug}.md" }\n`);
+    install("next", `version: 1\nname: next\ninputs:\n  - artifact: constructor\nsteps:\n  - id: a\n    instruction: Read it.\n`);
+    repo.start(
+      "pr",
+      `version: 1
+name: p
+steps:
+  - id: intake
+    instruction: Write it.
+    produces: { artifact: constructor, path: "docs/{slug}.md" }
+  - id: delegate
+    instruction: Wait.
+    gates:
+      - workflow: child
+        returns: { findings: report }
+  - id: summary
+    instruction: Summarize.
+    consumes: [constructor]
+`,
+    );
+    repo.write("docs/pr.md");
+    repo.ok("continue", "pr");
+    repo.ok("start", "pr-delegate");
+    repo.write("reports/pr-delegate.md");
+    repo.ok("continue", "pr-delegate");
+    expect(repo.ok("continue", "pr")).toContain("READ docs/pr.md (from step intake).");
+    expect(repo.ok("start", "n", "--workflow", "next", "--after", "pr")).toContain("inputs:   constructor=docs/pr.md\n");
+  });
+
+  test("a produced artifact named constructor is missing until it is written, and is then read from its step", () => {
+    repo.start(
+      "x",
+      `version: 1\nname: w\nsteps:\n  - id: a\n    instruction: Write it.\n    produces: { artifact: constructor, path: c.md }\n  - id: b\n    instruction: Read it.\n    consumes: [constructor]\n`,
+    );
+    expect(repo.refused("continue", "x")).toStartWith("REFUSED: missing artifact(s): c.md (constructor).");
+    repo.write("c.md");
+    expect(repo.ok("continue", "x")).toContain("READ c.md (from step a).");
+    expect(repo.state("x").steps.a.artifacts.map((a: any) => a.path)).toEqual(["c.md"]);
+  });
+
+  test("a check kind named constructor is unbound until the policy binds it", () => {
+    repo.write(".konductor/policy-overrides.yml", "checks:\n  default: echo team\n");
+    const out = repo.start("x", `version: 1\nname: w\nsteps:\n  - id: a\n    instruction: Build it.\n    gates:\n      - check: constructor\n`);
+    expect(out).toContain("  1. This project has no command for the constructor check yet.");
   });
 });

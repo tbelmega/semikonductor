@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { FlowError } from "./errors.ts";
 import { EVENT, SKIP_REASON, stamp } from "./history.ts";
+import { has, own } from "./own.ts";
 import {
   artifactPath,
   checkBinding,
@@ -330,7 +331,7 @@ function childOf(c: Ctx, state: StepState, step: Step): string | undefined {
 
 // The READ line for a workflow input.
 function inputLine(c: Ctx, ws: Workstream, id: string): string {
-  const path = ws.inputs?.[id];
+  const path = own(ws.inputs, id);
   if (path === undefined) return `READ ${id}: not given; the workstream was started without this input, so do the step without it.`;
   return onDisk(c, path) ? `READ ${path} (input ${id}).` : `READ ${path} (input ${id}). ${RESTORE}`;
 }
@@ -425,7 +426,7 @@ function ensureChild(c: Ctx, step: Step): void {
       const path = documentOf(c.root, c.slug, parentId, step.id);
       if (path !== undefined) inputs[childId] = path;
     }
-    const missing = target.inputs.filter((i) => i.required && !(i.artifact in inputs));
+    const missing = target.inputs.filter((i) => i.required && !has(inputs, i.artifact));
     if (missing.length) {
       throw new FlowError(
         `step ${step.id} cannot create its child workstream ${slug}: ${target.name} requires ` +
@@ -513,13 +514,13 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   for (const id of step.consumes) {
     const before = c.wf.steps.slice(0, c.wf.steps.indexOf(step)).reverse();
     const source = before.find(
-      (s) => [...s.produces, ...s.optional_produces, ...s.updates].some((a) => a.artifact === id) || childGate(s)?.returns?.[id] !== undefined,
+      (s) => [...s.produces, ...s.optional_produces, ...s.updates].some((a) => a.artifact === id) || has(childGate(s)?.returns, id),
     );
     if (!source) {
       lines.push(inputLine(c, ws, id));
       continue;
     }
-    const returned = childGate(source)?.returns?.[id];
+    const returned = own(childGate(source)?.returns, id);
     if (returned !== undefined) {
       lines.push(returnedLine(c, ws, source, id, returned));
       continue;
@@ -532,8 +533,8 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
     const files = sourceState.artifacts.filter((a) => a.artifact === id && a.path !== path && contains(path, a.path)).map((a) => a.path);
     if (sourceState.status === "SKIPPED" && notNeeded(source, sourceState)) {
       lines.push(`READ ${id}: step ${source.id} was skipped (${sourceState.skip_reason}), so there is nothing from it to read.`);
-    } else if (sourceState.status === "COMPLETED" && sourceState.not_produced?.[id]) {
-      lines.push(`READ ${id}: step ${source.id} did not produce it (${sourceState.not_produced[id]}), so there is nothing from it to read.`);
+    } else if (sourceState.status === "COMPLETED" && own(sourceState.not_produced, id)) {
+      lines.push(`READ ${id}: step ${source.id} did not produce it (${own(sourceState.not_produced, id)}), so there is nothing from it to read.`);
     } else if (files.length) {
       lines.push(`READ ${files.join(", ")} (from step ${source.id}).`);
     } else if (sourceState.status === "COMPLETED" && (sourceState.existed ?? []).includes(path) && isFolder(c, path)) {
@@ -1019,11 +1020,11 @@ function bindInputs(root: string, p: Project, wf: Workflow, slug: string, given:
   }
   const bound: Record<string, string> = {};
   for (const input of wf.inputs) {
-    const file = given.inputs[input.artifact];
+    const file = own(given.inputs, input.artifact);
     const path = file !== undefined ? display(p, file) : given.after !== undefined ? documentOf(root, given.after, input.artifact) : undefined;
     if (path !== undefined) bound[input.artifact] = path;
   }
-  const missing = wf.inputs.filter((i) => i.required && !(i.artifact in bound));
+  const missing = wf.inputs.filter((i) => i.required && !has(bound, i.artifact));
   if (missing.length) {
     const ids = missing.map((i) => i.artifact).join(", ");
     throw new FlowError(
@@ -1037,7 +1038,12 @@ function bindInputs(root: string, p: Project, wf: Workflow, slug: string, given:
 
 // The workflow's inputs as bound, for status and the start header.
 function inputsSummary(c: Ctx, ws: Workstream): string {
-  return c.wf.inputs.map((i) => (ws.inputs?.[i.artifact] !== undefined ? `${i.artifact}=${ws.inputs[i.artifact]}` : `${i.artifact} (not given)`)).join(", ");
+  return c.wf.inputs
+    .map((i) => {
+      const path = own(ws.inputs, i.artifact);
+      return path !== undefined ? `${i.artifact}=${path}` : `${i.artifact} (not given)`;
+    })
+    .join(", ");
 }
 
 // ------------------------------------------------------------------ continue
@@ -1157,7 +1163,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   }
 
   const produced = place(c, step.produces);
-  const missing = produced.filter((a) => !onDisk(c, a.path) && !(a.artifact.artifact in input.notProduced));
+  const missing = produced.filter((a) => !onDisk(c, a.path) && !has(input.notProduced, a.artifact.artifact));
   if (missing.length) {
     throw refuse(
       c,
@@ -1167,7 +1173,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     );
   }
   const unaccounted = place(c, step.updates).filter(
-    (a) => !(a.artifact.artifact in input.unchanged) && !updated.some((f) => contains(a.path, f)),
+    (a) => !has(input.unchanged, a.artifact.artifact) && !updated.some((f) => contains(a.path, f)),
   );
   if (unaccounted.length) {
     throw refuse(
@@ -1183,7 +1189,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   const kept = (before.earlier_pass ?? []).filter((f) => onDisk(c, f));
   const shared = (a: Placed) => (before.existed ?? []).includes(a.path) && isFolder(c, a.path);
   const unnamed = produced.filter(
-    (a) => !(a.artifact.artifact in input.notProduced) && shared(a) && ![...updated, ...kept].some((f) => contains(a.path, f)),
+    (a) => !has(input.notProduced, a.artifact.artifact) && shared(a) && ![...updated, ...kept].some((f) => contains(a.path, f)),
   );
   if (unnamed.length) {
     throw refuse(
@@ -1231,7 +1237,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     const inFolders: string[] = [];
     const records: StepState["artifacts"] = [];
     for (const a of [...produced, ...place(c, step.optional_produces)]) {
-      if (a.artifact.artifact in input.notProduced || !onDisk(c, a.path)) continue;
+      if (has(input.notProduced, a.artifact.artifact) || !onDisk(c, a.path)) continue;
       const files = isFolder(c, a.path) ? updated.filter((f) => contains(a.path, f) && onDisk(c, f)) : [];
       inFolders.push(...files);
       if (files.length) records.push(...files.map((path) => ({ artifact: a.artifact.artifact, path, status })));
@@ -1247,7 +1253,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     // artifact not produced this time.
     for (const path of kept) {
       const artifact = artifactHolding(c, step, path);
-      if (artifact !== undefined && artifact in input.notProduced) continue;
+      if (artifact !== undefined && has(input.notProduced, artifact)) continue;
       if (!records.some((r) => r.path === path)) records.push({ artifact, path, status });
     }
     state.artifacts = records;

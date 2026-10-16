@@ -131,7 +131,7 @@ function run(argv: string[]): string[] {
       for (const pair of (values.input as string[] | undefined) ?? []) {
         const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(pair);
         if (!m) throw new UsageError(`--input takes <artifact-id>=<path>, for example --input product-brief=docs/brief.md; got "${pair}"`);
-        if (m[1] in inputs) throw new UsageError(`--input ${m[1]} is given twice`);
+        if (Object.hasOwn(inputs, m[1])) throw new UsageError(`--input ${m[1]} is given twice`);
         inputs[m[1]] = resolve(m[2]);
       }
       return commands.start(root, slug, resolved, values.from as string | undefined, { ...(after !== undefined ? { after } : {}), inputs });

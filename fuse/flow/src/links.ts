@@ -8,6 +8,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { FlowError } from "./errors.ts";
+import { has, own } from "./own.ts";
 import { artifactPath, loadProject } from "./policy.ts";
 import { findWorkflow } from "./project.ts";
 import { DEFAULT_CHILD_SLUG } from "./schemas/gate.ts";
@@ -83,11 +84,14 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
   const end = before === undefined ? wf.steps.length : wf.steps.findIndex((s) => s.id === before);
   for (const step of wf.steps.slice(0, end < 0 ? wf.steps.length : end).reverse()) {
     const state = stateOf(ws, step.id);
-    const returned = childGate(step)?.returns?.[id];
-    // A skipped delegating step returned nothing, and an older document of
-    // that id does not stand in, as the step block says.
-    if (returned !== undefined && state.status === "SKIPPED") return undefined;
-    if (state.status !== "COMPLETED" && state.status !== "AWAITING_OWNER") continue;
+    const returned = own(childGate(step)?.returns, id);
+    if (state.status !== "COMPLETED" && state.status !== "AWAITING_OWNER") {
+      // A delegating step that was skipped or has not finished has returned
+      // nothing, and an older document of that id does not stand in, as the
+      // step block says.
+      if (returned !== undefined) return undefined;
+      continue;
+    }
     const records = state.artifacts.filter((a) => a.artifact === id);
     if (records.length === 1) return records[0].path;
     if (records.length > 1) {
@@ -98,13 +102,12 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
     }
     // A returned id stops the search here: the newest child decides, even
     // when it recorded nothing, so an older document of that id never stands in.
-    const gate = childGate(step);
-    if (gate?.returns?.[id] !== undefined) {
+    if (returned !== undefined) {
       const child = state.children?.at(-1)?.slug;
-      return child ? documentOf(root, child, gate.returns[id], undefined, seen) : undefined;
+      return child ? documentOf(root, child, returned, undefined, seen) : undefined;
     }
   }
-  return ws.inputs?.[id];
+  return own(ws.inputs, id);
 }
 
 // The workstreams in the chain of parents above `slug`, `slug` first.
@@ -199,7 +202,7 @@ export function crossCheck(root: string, file: string, wf: Workflow): { errors: 
       if (!declared.has(id)) errors.push(`${at}: inputs names "${id}", which ${target.wf.name} does not declare as an input`);
     }
     for (const input of target.wf.inputs) {
-      if (input.required && !(input.artifact in (gate.inputs ?? {}))) {
+      if (input.required && !has(gate.inputs, input.artifact)) {
         errors.push(`${at}: ${target.wf.name} requires the input "${input.artifact}", and the gate's inputs do not give it`);
       }
     }
