@@ -59,6 +59,7 @@ export function Inspector({
   reviewGuides,
   allWorkflows,
   run,
+  readOnly = false,
   onOpenRun,
   onOpenAnyRun,
   findRun,
@@ -87,6 +88,8 @@ export function Inspector({
   reviewGuides: ReviewGuides | null;
   allWorkflows: OpenWorkflow[];
   run?: WorkstreamSummary;
+  // Another project's file with no run open: only its YAML is shown.
+  readOnly?: boolean;
   // Opens a run of the open workflow by its runKey, and a linked run (named by
   // slug, in the open run's project) in its own workflow.
   onOpenRun: (key: string) => void;
@@ -114,7 +117,9 @@ export function Inspector({
               { id: "run" as const, label: "Run" },
               { id: "yaml" as const, label: "YAML" },
             ]
-          : EDIT_TABS
+          : readOnly
+            ? [{ id: "yaml" as const, label: "YAML" }]
+            : EDIT_TABS
         ).map((t) => (
           <button key={t.id} className={`inspector-tab${tab === t.id ? " is-active" : ""}`} onClick={() => onTab(t.id)}>
             {t.label}

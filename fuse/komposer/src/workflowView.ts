@@ -12,7 +12,8 @@ import { resolveWorkflowRef } from "./model/workflowLinks.ts";
 export type LocationId = "project" | "personal" | "fuse-flow";
 
 // Where a listed workflow file is: one of the three locations, or "run" for
-// the file a run of another project follows, which is shown read-only.
+// a workflow file of another project (one in its own workflow folder, or one
+// a run of it follows), which is shown read-only.
 export type WorkflowLocation = LocationId | "run";
 
 export interface SessionLocation {
@@ -313,11 +314,12 @@ export const workflowHandOffs = (w: OpenWorkflow): HandOff[] => w.parsed?.hands_
 export const delegationOf = (step: StepView): Gate | undefined => step.gates.find((g) => g.kind === "workflow");
 
 // Where a hand-off or a workflow gate leads: the listed workflow it resolves
-// to, or why it does not resolve.
+// to, or why it does not resolve. `projectDir` is the workflow folder of the
+// project whose run the reference is read for.
 export type WorkflowLink = { ok: true; key: string; name: string; path: string } | { ok: false; reason: string };
 
-export function linkTo(ref: string, from: OpenWorkflow, all: OpenWorkflow[]): WorkflowLink {
-  const found = resolveWorkflowRef(ref, from.path, all);
+export function linkTo(ref: string, from: OpenWorkflow, all: OpenWorkflow[], projectDir: string): WorkflowLink {
+  const found = resolveWorkflowRef(ref, from.path, all, projectDir);
   if (!found.ok) return found;
   const target = found.target;
   return { ok: true, key: workflowKey(target), name: target.parsed?.name || target.rawWorkflow.name || stem(target.file), path: target.path };

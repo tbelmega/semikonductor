@@ -67,6 +67,7 @@ export function Flow({
   onDropArtifact,
   onDropArtifactAt,
   run,
+  readOnly = false,
   gateTextVisible = true,
   inputs,
   handOffs,
@@ -92,6 +93,8 @@ export function Flow({
   // A library entry dropped between steps, or on "Append step", becomes a new step at `at`.
   onDropArtifactAt: (at: number, artifact: string) => void;
   run?: WorkstreamSummary;
+  // Another project's file: shown, never edited, with or without a run.
+  readOnly?: boolean;
   gateTextVisible?: boolean;
   // The documents the workflow expects from outside, and the workflows it hands off to.
   inputs: WorkflowInput[];
@@ -194,7 +197,7 @@ export function Flow({
           )}
           {steps.map((step, i) => (
             <div key={`${step.id}-${i}`}>
-              {run ? null : (
+              {run || readOnly ? null : (
                 <div
                   className={`step-seam${dropAt === i ? " is-drop-target" : ""}`}
                   onClick={() => onInsert(i)}
@@ -229,6 +232,7 @@ export function Flow({
                 onDropArtifact={(artifact) => onDropArtifact(i, artifact)}
                 runStep={run?.summary?.steps[step.id]}
                 runMode={!!run}
+                readOnly={readOnly}
                 inputIds={inputs.map((input) => input.artifact)}
                 linkTo={linkTo}
                 onOpenWorkflow={onOpenWorkflow}
@@ -264,7 +268,7 @@ export function Flow({
             </div>
           )}
         </div>
-        {!run && (
+        {!run && !readOnly && (
           <button
             className={`append-step-btn${dropAt === steps.length ? " is-drop-target" : ""}`}
             onClick={onAppend}
@@ -312,6 +316,7 @@ function StepCard({
   onDropArtifact,
   runStep,
   runMode,
+  readOnly,
   inputIds,
   linkTo,
   onOpenWorkflow,
@@ -338,6 +343,7 @@ function StepCard({
   onDropArtifact: (artifact: string) => void;
   runStep?: { status: string; activeMs: number; ownerWaitMs: number; visits: number; skipReason?: string };
   runMode: boolean;
+  readOnly: boolean;
   inputIds: string[];
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
@@ -369,11 +375,11 @@ function StepCard({
       className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${stateInfo ? ` run-${stateInfo.className}` : ""}`}
       onClick={onSelect}
       onDragOver={(event) => {
-        if (!runMode && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
+        if (!runMode && !readOnly && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
       }}
       onDrop={(event) => {
         const artifact = event.dataTransfer.getData(ARTIFACT_DRAG);
-        if (artifact && !runMode) {
+        if (artifact && !runMode && !readOnly) {
           event.preventDefault();
           onDropArtifact(artifact);
         }
@@ -526,7 +532,7 @@ function StepCard({
         <span className={`run-state-pill ${stateInfo?.className ?? "pending"}`}>
           {stateInfo?.label ?? "not started"}
         </span>
-      ) : (
+      ) : readOnly ? null : (
         <div className="step-actions" onClick={(event) => event.stopPropagation()}>
           <button title="Move up" disabled={!canMoveUp} onClick={onMoveUp}>
             <ArrowUp size={13} strokeWidth={1.75} />

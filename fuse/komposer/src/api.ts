@@ -169,10 +169,15 @@ export interface ProjectSummary {
   path: string;
   name: string;
   current: boolean;
+  // The project's own workflow folder, where fuse-flow looks up a workflow
+  // name in its runs first.
+  workflowsDir: string;
   example?: boolean;
   runs?: number;
   // The registered folder no longer exists.
   missing?: boolean;
+  // Why the project's runs cannot be read.
+  error?: string;
 }
 
 // A run's identity across projects: slugs repeat between projects.

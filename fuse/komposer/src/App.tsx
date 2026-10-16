@@ -13,7 +13,9 @@ import {
   type WorkstreamSummary,
 } from "./api.ts";
 import { applyEdit, type Edit, type OutputMode } from "./model/yamlEdit.ts";
-import { diskChangeAction } from "./model/diskChange.ts";
+import { diskChangeWatcher } from "./model/diskChange.ts";
+import { mergeListed } from "./model/listedWorkflows.ts";
+import { givesWay } from "./model/readOnlyView.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
@@ -61,6 +63,9 @@ export function App() {
   const [compareRequest, setCompareRequest] = useState(0);
   // The open run, by its runKey.
   const [openRunKey, setOpenRunKey] = useState<string | null>(null);
+  // The workflow last opened by itself (from the list or by following a
+  // link), not with a run; another project's file opened so stays open.
+  const [linkedKey, setLinkedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(false);
   const [showDescriptions, setShowDescriptions] = useState(true);
@@ -100,6 +105,16 @@ export function App() {
   useEffect(() => {
     reloadData().catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
+  // After a project is added or removed: its runs, the projects and the
+  // other projects' workflow files. The open workflows of the three
+  // locations stay as they are, since the listing can lack edits whose
+  // working copy is still to be written.
+  const refreshProjects = async () => {
+    const [w, ws, p] = await Promise.all([api.workflows(), api.workstreams(), api.projects()]);
+    setWorkflows((all) => mergeListed(all, w.workflows, (file) => openWorkflow(file)));
+    setWorkstreams(ws.workstreams);
+    setProjects(p);
+  };
 
   // Escape closes the drawer, unless a dialog is open.
   useEffect(() => {
@@ -118,16 +133,21 @@ export function App() {
   const disk = currentKey ? diskVersions[currentKey] : undefined;
   const runsForWorkflow = workflow ? workstreams.filter((item) => item.workflowPath === workflow.path) : [];
   const run = openRunKey ? runsForWorkflow.find((item) => runKey(item) === openRunKey) : undefined;
-  // The workflow file a run of another project follows: shown only with that
-  // run, and never edited or saved.
+  // The workflow file of another project: shown with one of its runs, or
+  // after a link to it was followed, and never edited or saved.
   const readOnly = workflow?.location === "run";
+  // Shown, not edited: a run is open, or the file is read-only.
+  const viewOnly = !!run || readOnly;
   const localWorkflows = useMemo(() => workflows.filter((w) => w.location !== "run"), [workflows]);
+  const openedByLink = !!currentKey && linkedKey === currentKey;
 
-  // A read-only workflow whose run is gone (closed, or no longer listed)
-  // gives way to the first workflow of the three locations.
+  // A workflow that is no longer listed, or a read-only one whose run is gone
+  // (closed, or no longer listed) and that no link opened, gives way to the
+  // first workflow of the three locations.
   useEffect(() => {
-    if (readOnly && !run && localWorkflows[0]) openWorkflowKey(workflowKey(localWorkflows[0]));
-  }, [readOnly, run, localWorkflows]);
+    if (!localWorkflows[0]) return;
+    if (givesWay({ listed: !!workflow, readOnly, hasRun: !!run, openedByLink })) openWorkflowKey(workflowKey(localWorkflows[0]));
+  }, [!!workflow, readOnly, !!run, openedByLink, localWorkflows]);
 
   // Working copies are the crash-safe form of every edit; equal text removes it.
   useEffect(() => {
@@ -168,45 +188,50 @@ export function App() {
 
   // Watch the open original. Clean files reload silently; dirty files retain
   // their text and get the conflict banner, unless the file now holds exactly
-  // the open text, which is what Komposer's own Save produces.
+  // the open text, which is what Komposer's own Save produces. Only the
+  // answer to the newest change is acted on (diskChangeWatcher).
   useEffect(() => {
     if (!workflow?.onDisk || readOnly) return;
     const key = workflowKey(workflow);
-    const latest = () => workflowsRef.current.find((w) => workflowKey(w) === key);
-    const source = new EventSource(api.watchUrl(workflow.path));
-    source.addEventListener("change", async (event) => {
-      const change = JSON.parse((event as MessageEvent).data) as { hash: string | null };
-      if (!change.hash || change.hash === latest()?.hash) return;
-      const listed = (await api.workflows()).workflows.find((w) => w.path === workflow.path);
-      const open = latest();
-      if (!listed || !open) return;
-      const action = diskChangeAction(open, listed);
-      if (action === "ignore") return;
-      if (action === "conflict") {
-        setDiskVersions((all) => ({
-          ...all,
-          [key]: {
-            text: listed.text,
-            hash: listed.hash,
-            at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        }));
-        return;
-      }
-      replaceWorkflow(
-        key,
-        action === "reload"
-          ? openWorkflow(listed)
-          : openWorkflow({ ...open, text: listed.text, hash: listed.hash, workingCopy: undefined }, true),
-      );
-      setDiskVersions((all) => {
-        if (!(key in all)) return all;
-        const next = { ...all };
-        delete next[key];
-        return next;
-      });
+    const path = workflow.path;
+    const watcher = diskChangeWatcher({
+      open: () => workflowsRef.current.find((w) => workflowKey(w) === key),
+      fetch: async () => (await api.workflows()).workflows.find((w) => w.path === path),
+      apply: (action, open, listed) => {
+        if (action === "conflict") {
+          setDiskVersions((all) => ({
+            ...all,
+            [key]: {
+              text: listed.text,
+              hash: listed.hash,
+              at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            },
+          }));
+          return;
+        }
+        replaceWorkflow(
+          key,
+          action === "reload"
+            ? openWorkflow(listed)
+            : openWorkflow({ ...open, text: listed.text, hash: listed.hash, workingCopy: undefined }, true),
+        );
+        setDiskVersions((all) => {
+          if (!(key in all)) return all;
+          const next = { ...all };
+          delete next[key];
+          return next;
+        });
+      },
     });
-    return () => source.close();
+    const source = new EventSource(api.watchUrl(path));
+    source.addEventListener("change", (event) => {
+      const change = JSON.parse((event as MessageEvent).data) as { hash: string | null };
+      void watcher.change(change.hash);
+    });
+    return () => {
+      watcher.close();
+      source.close();
+    };
   }, [workflow?.path, workflow?.onDisk, readOnly]);
 
   // Applies one edit, or several in order as one change: either all apply or none.
@@ -269,6 +294,7 @@ export function App() {
   };
   const openWorkflowKey = (key: string) => {
     setCurrentKey(key);
+    setLinkedKey(key);
     setSelectedIndex(0);
     setTab("step");
     setDrawerOpen(false);
@@ -304,6 +330,7 @@ export function App() {
     }
     if (workflowKey(target) !== currentKey) {
       setCurrentKey(workflowKey(target));
+      setLinkedKey(null);
       setSelectedIndex(0);
       setCompareRequest(0);
     }
@@ -316,14 +343,18 @@ export function App() {
   };
   const openWorkflowStep = (key: string, stepIndex: number) => {
     setCurrentKey(key);
+    setLinkedKey(key);
     setSelectedIndex(stepIndex);
     setOpenRunKey(null);
     setCompareRequest(0);
     showTab("step");
   };
   // A workflow reference of the open workflow (a hand-off, a workflow gate),
-  // resolved the way fuse-flow resolves it.
-  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows);
+  // resolved the way fuse-flow resolves it: a name in the workflows of the
+  // open run's project, else of the project the open file belongs to.
+  const linkProject = run?.project ?? (readOnly ? workflow?.project : undefined) ?? session?.root;
+  const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
+  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir);
   // A linked run (the run a run came after, its parent, a child) is named by
   // slug, so it is looked up in the open run's project.
   const findRun = (slug: string) =>
@@ -476,7 +507,9 @@ export function App() {
   if (!session || !workflow) return <div className="app-loading">Loading…</div>;
   const status = run
     ? "run · read-only"
-    : !workflow.onDisk
+    : readOnly
+      ? "another project · read-only"
+      : !workflow.onDisk
       ? "new · working copy"
       : dirty
         ? "modified · working copy"
@@ -499,7 +532,7 @@ export function App() {
             workstreams={workstreams}
             currentRun={run ? runKey(run) : null}
             onOpenRun={openRunOfAnyWorkflow}
-            onChanged={() => reloadData().catch((e) => showToast(e instanceof Error ? e.message : String(e)))}
+            onChanged={() => refreshProjects().catch((e) => showToast(e instanceof Error ? e.message : String(e)))}
             onMessage={showToast}
           />
         }
@@ -513,17 +546,17 @@ export function App() {
               <span className="center-header-path mono">{workflow.path}</span>
             </div>
           </div>
-          {!run && problems.length > 0 && (
+          {!viewOnly && problems.length > 0 && (
             <button className="problems-chip" onClick={() => setProblemsOpen((v) => !v)}>
               {problems.length} problem{problems.length === 1 ? "" : "s"}
             </button>
           )}
-          {!run && dirty && workflow.onDisk && (
+          {!viewOnly && dirty && workflow.onDisk && (
             <button className="discard-btn" onClick={discard}>
               Discard changes
             </button>
           )}
-          {!run && (
+          {!viewOnly && (
             <button
               className={`save-btn${dirty && !problems.length ? " is-enabled" : " is-disabled"}`}
               disabled={!dirty || !!problems.length}
@@ -608,7 +641,7 @@ export function App() {
           selectedIndex={drawerOpen ? selectedIndex : -1}
           onSelect={(i) => {
             setSelectedIndex(i);
-            showTab(run ? "run" : "step");
+            showTab(run ? "run" : readOnly ? "yaml" : "step");
           }}
           problemsByStep={byStep}
           library={library}
@@ -623,6 +656,7 @@ export function App() {
           onDropArtifact={(step, artifact) => addArtifact(step, "produces", artifact)}
           onDropArtifactAt={insertArtifactStep}
           run={run}
+          readOnly={readOnly}
           inputs={workflowInputs(workflow)}
           handOffs={workflowHandOffs(workflow)}
           linkTo={resolveLink}
@@ -632,13 +666,15 @@ export function App() {
         />
         {!drawerOpen && (
           <div className="drawer-fabs">
-            <button className="drawer-fab" title="Workflow settings and runs" onClick={() => showTab(run ? "run" : "workflow")}>
-              <Settings2 size={16} /> {run ? "Run" : "Workflow"}
-            </button>
+            {(run || !readOnly) && (
+              <button className="drawer-fab" title="Workflow settings and runs" onClick={() => showTab(run ? "run" : "workflow")}>
+                <Settings2 size={16} /> {run ? "Run" : "Workflow"}
+              </button>
+            )}
             <button className="drawer-fab" title="The workflow file" onClick={() => showTab("yaml")}>
               <FileCode size={16} /> YAML
             </button>
-            {!run && (
+            {!viewOnly && (
               <button className="drawer-fab is-primary" title="Artifact guides, templates and review guides" onClick={() => showTab("library")}>
                 <BookOpen size={16} /> Library
               </button>
@@ -668,6 +704,7 @@ export function App() {
         reviewGuides={reviewGuides}
         allWorkflows={localWorkflows}
         run={run}
+        readOnly={readOnly}
         onOpenRun={openRun}
         onOpenAnyRun={openAnyRun}
         findRun={findRun}

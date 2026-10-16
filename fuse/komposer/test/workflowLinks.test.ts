@@ -141,14 +141,14 @@ describe("which workflow a reference opens, as fuse-flow resolves it", () => {
     listed("project", `${PROJECT}/draft.yml`, undefined, false),
   ];
   const target = (ref: string) => {
-    const link = linkTo(ref, parent, all);
+    const link = linkTo(ref, parent, all, PROJECT);
     return link.ok ? link.path : link.reason;
   };
 
   test("a name is <name>.yml at any depth, the project's before the user's before fuse-flow's", () => {
     expect(target("child")).toBe(`${PROJECT}/review/child.yml`);
     expect(target("next")).toBe(`${PACKAGE}/next.yml`);
-    expect(linkTo("next", parent, all)).toMatchObject({ ok: true, name: "x" });
+    expect(linkTo("next", parent, all, PROJECT)).toMatchObject({ ok: true, name: "x" });
   });
 
   test("a path is relative to the workflow that names it, or absolute", () => {
@@ -163,7 +163,46 @@ describe("which workflow a reference opens, as fuse-flow resolves it", () => {
     expect(target("missing")).toBe('no workflow named "missing"');
     // fuse-flow does not see a working copy that was never saved.
     expect(target("draft")).toBe('no workflow named "draft"');
-    expect(resolveWorkflowRef("draft", parent.path, all).ok).toBe(false);
+    expect(resolveWorkflowRef("draft", parent.path, all, PROJECT).ok).toBe(false);
+  });
+
+  // Komposer lists another project's workflow files as "run" files; fuse-flow
+  // looks a name up in the run's own project, so a link must too.
+  describe("in a run of another project", () => {
+    const OTHER = "/o/.konductor/workflows";
+    const foreign = (path: string, text?: string) =>
+      openWorkflow({
+        location: "run",
+        project: "/o",
+        dir: "",
+        file: path.slice(path.lastIndexOf("/") + 1),
+        path,
+        onDisk: true,
+        text: text ?? "version: 1\nname: x\nsteps:\n  - id: a\n    instruction: Do it.\n",
+        hash: "",
+      });
+    const theirParent = foreign(`${OTHER}/parent.yml`, PARENT);
+    const withOther = [...all, theirParent, foreign(`${OTHER}/deep/child.yml`), foreign(`${OTHER}/next.yml`)];
+    const from = (ref: string, workflow: OpenWorkflow, projectDir: string) => {
+      const link = linkTo(ref, workflow, withOther, projectDir);
+      return link.ok ? link.path : link.reason;
+    };
+
+    test("a name resolves in that project's workflows first, not in Komposer's project", () => {
+      expect(from("child", theirParent, OTHER)).toBe(`${OTHER}/deep/child.yml`);
+      expect(from("child", parent, PROJECT)).toBe(`${PROJECT}/review/child.yml`);
+    });
+
+    test("a shared workflow followed by that run sees the names the project overrides", () => {
+      const shared = all.find((w) => w.path === `${PACKAGE}/next.yml`)!;
+      expect(from("next", shared, OTHER)).toBe(`${OTHER}/next.yml`);
+      expect(from("next", shared, PROJECT)).toBe(`${PACKAGE}/next.yml`);
+    });
+
+    test("a name that project does not have falls back to the user's and fuse-flow's", () => {
+      expect(from("missing", theirParent, OTHER)).toBe('no workflow named "missing"');
+      expect(from("dup", theirParent, OTHER)).toContain("ambiguous");
+    });
   });
 
   test("normalizePath drops . and .. segments and repeated slashes", () => {

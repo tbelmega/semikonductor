@@ -9,7 +9,7 @@
 // wants the token it was started with on every API request, refuses a foreign
 // Host header (DNS rebinding), and writes only .yml files inside the three
 // workflow locations, its own working-copy folder and the projects list. The
-// workflow file a run of another project follows is read, never written. It
+// workflow files of another project are read, never written. It
 // reads a review guide
 // that a workflow names only when the guide's real path, with symlinks
 // resolved, lies inside the project, the three libraries or the three
@@ -70,16 +70,25 @@ const SCAN_FOLDERS = 20_000;
 
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 
-// Whether a project has at least one workstream state file.
-const hasRuns = (project: string) =>
-  isDirectory(workstreamsDir(project)) && readdirSync(workstreamsDir(project)).some((n) => n.endsWith(".yml"));
+// Whether a project has at least one workstream state file. A folder that
+// cannot be read has none that Komposer could show.
+const hasRuns = (project: string) => {
+  try {
+    return isDirectory(workstreamsDir(project)) && readdirSync(workstreamsDir(project)).some((n) => n.endsWith(".yml"));
+  } catch {
+    return false;
+  }
+};
 
 // Every project at or below `dir` that has runs: a folder holding
 // .konductor/workstreams/*.yml. Folders inside .konductor, .git and
-// node_modules are not searched; worktrees below a project are.
+// node_modules are not searched; worktrees below a project are. A folder
+// reached again, through a symlink, is searched again only when it is now
+// fewer levels down, so its folders within the depth limit are not missed.
 function findProjects(dir: string): string[] {
-  const found: string[] = [];
-  const seen = new Set<string>();
+  const found = new Set<string>();
+  // Each real folder read, by the fewest levels down it was reached at.
+  const seen = new Map<string, number>();
   const walk = (folder: string, depth: number) => {
     let real: string;
     try {
@@ -87,9 +96,10 @@ function findProjects(dir: string): string[] {
     } catch {
       return;
     }
-    if (seen.has(real) || seen.size >= SCAN_FOLDERS) return;
-    seen.add(real);
-    if (hasRuns(real)) found.push(real);
+    const before = seen.get(real);
+    if (before !== undefined ? before <= depth : seen.size >= SCAN_FOLDERS) return;
+    seen.set(real, depth);
+    if (hasRuns(real)) found.add(real);
     if (depth === SCAN_DEPTH) return;
     let names: string[];
     try {
@@ -104,7 +114,7 @@ function findProjects(dir: string): string[] {
     }
   };
   walk(dir, 0);
-  return found;
+  return [...found];
 }
 
 export function startServer(options: ServerOptions): KomposerServer {
@@ -145,21 +155,53 @@ export function startServer(options: ServerOptions): KomposerServer {
     }
   };
 
+  // The runs of one project, or why its runs cannot be read, so one
+  // unreadable project leaves the others to be shown.
+  const projectRuns = (project: string): { runs: (WorkstreamListing & { project: string })[]; error?: string } => {
+    try {
+      return { runs: listWorkstreams(project).map((w) => ({ ...w, project })) };
+    } catch (e) {
+      return { runs: [], error: (e as Error).message };
+    }
+  };
+
   const runs = (): (WorkstreamListing & { project: string })[] =>
     projects()
       .paths.filter(isDirectory)
-      .flatMap((project) => listWorkstreams(project).map((w) => ({ ...w, project })));
+      .flatMap((project) => projectRuns(project).runs);
 
-  // The workflow files runs follow that lie outside the three locations, such
-  // as another project's own workflows: listed read-only, so its runs can be shown.
+  // A file's text, or undefined when it cannot be read.
+  const readText = (path: string): string | undefined => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Workflow files outside the three locations, listed read-only: every file
+  // in another project's own workflow folder, where fuse-flow looks up a name
+  // in that project's runs first, and any other file a run follows. A file
+  // that cannot be read is left out.
   const runWorkflows = () => {
     const out = new Map<string, Record<string, unknown>>();
-    for (const run of runs()) {
-      const path = run.workflowPath;
-      if (!path || out.has(path) || inLocation(path) || !/\.ya?ml$/.test(path)) continue;
-      const text = readFileSync(path, "utf8");
-      out.set(path, { location: "run", project: run.project, dir: "", file: basename(path), path, onDisk: true, text, hash: sha(text) });
+    const add = (path: string, project: string) => {
+      if (out.has(path) || inLocation(path) || !/\.ya?ml$/.test(path)) return;
+      const text = readText(path);
+      if (text === undefined) return;
+      out.set(path, { location: "run", project, dir: "", file: basename(path), path, onDisk: true, text, hash: sha(text) });
+    };
+    for (const project of projects().paths.filter((p) => p !== root)) {
+      const folder = workflowDirs(project)[0];
+      let files: string[] = [];
+      try {
+        files = isDirectory(folder) ? workflowFilesBelow(project, folder) : [];
+      } catch {
+        // an unreadable folder lists nothing
+      }
+      for (const path of files) add(path, project);
     }
+    for (const run of runs()) if (run.workflowPath) add(run.workflowPath, run.project);
     return [...out.values()];
   };
 
@@ -375,8 +417,9 @@ export function startServer(options: ServerOptions): KomposerServer {
         if (!w.workstream) return { project: w.project, slug: w.slug, error: w.error };
         const ws = w.workstream;
         let stepIds = Object.keys(ws.steps);
-        if (w.workflowPath) {
-          const parsed = parseWorkflowText(readFileSync(w.workflowPath, "utf8"));
+        const text = w.workflowPath ? readText(w.workflowPath) : undefined;
+        if (text !== undefined) {
+          const parsed = parseWorkflowText(text);
           if (parsed.ok) stepIds = parsed.workflow.steps.map((s) => s.id);
         }
         const inOrder = [...stepIds, ...Object.keys(ws.steps).filter((id) => !stepIds.includes(id))];
@@ -400,19 +443,22 @@ export function startServer(options: ServerOptions): KomposerServer {
     };
   };
 
-  // The projects list for the app: each project with its run count, this one
-  // marked current, a registered folder that is gone marked missing.
+  // The projects list for the app: each project with its run count and its
+  // own workflow folder, this one marked current, a registered folder that is
+  // gone marked missing, and one whose runs cannot be read with the reason.
   const listProjects = () => {
     const { paths, error } = projects();
     return {
       projects: paths.map((path) => {
         const missing = !isDirectory(path);
+        const listed = missing ? undefined : projectRuns(path);
         return {
           path,
           name: basename(path),
           current: path === root,
+          workflowsDir: workflowDirs(path)[0],
           ...(path === examples ? { example: true } : {}),
-          ...(missing ? { missing: true } : { runs: listWorkstreams(path).length }),
+          ...(missing ? { missing: true } : listed?.error ? { error: listed.error } : { runs: listed?.runs.length }),
         };
       }),
       ...(error ? { error } : {}),

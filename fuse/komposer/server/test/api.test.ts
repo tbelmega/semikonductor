@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -608,6 +608,63 @@ describe("projects", () => {
     expect(readFileSync(path, "utf8")).toBe(ONE);
   });
 
+  // A name in another project's workflow resolves in that project's own
+  // folder first, so Komposer needs every file there, not only the ones a
+  // run follows, and each project's folder to look in.
+  test("every workflow file in another project's workflow folder is listed read-only", async () => {
+    const other = otherProject();
+    const folder = join(other, ".konductor", "workflows");
+    const child = write(join(folder, "review", "child.yml"), ONE);
+    const listed = (await json("/api/workflows")).workflows.filter((w: any) => w.location === "run");
+    expect(listed.map((w: any) => [w.project, w.path])).toEqual([
+      [other, join(folder, "one.yml")],
+      [other, child],
+    ]);
+    const projects = (await json("/api/projects")).projects;
+    expect(projects.map((p: any) => [p.path, p.workflowsDir])).toEqual([
+      [root, join(root, ".konductor", "workflows")],
+      [other, folder],
+    ]);
+  });
+
+  test("a project whose runs cannot be read is reported on that project; the others still load", async () => {
+    write(join(root, ".konductor", "workflows", "one.yml"), ONE);
+    flow("start", "mine", "--workflow", "one");
+    const other = otherProject();
+    const runsDir = join(other, ".konductor", "workstreams");
+    chmodSync(runsDir, 0o000);
+    try {
+      expect((await json("/api/workstreams")).workstreams.map((w: any) => [w.project, w.slug])).toEqual([[root, "mine"]]);
+      expect((await api("/api/workflows")).status).toBe(200);
+      const projects = (await json("/api/projects")).projects;
+      expect(projects[0]).toMatchObject({ path: root, runs: 1 });
+      expect(projects[1].path).toBe(other);
+      expect(projects[1].runs).toBeUndefined();
+      expect(projects[1].error).toContain("EACCES");
+    } finally {
+      chmodSync(runsDir, 0o755);
+    }
+  });
+
+  test("a workflow file of another project that cannot be read leaves the other answers intact", async () => {
+    write(join(root, ".konductor", "workflows", "one.yml"), ONE);
+    flow("start", "mine", "--workflow", "one");
+    const other = otherProject();
+    const file = join(other, ".konductor", "workflows", "one.yml");
+    chmodSync(file, 0o000);
+    try {
+      const { workflows } = await json("/api/workflows");
+      expect(workflows.filter((w: any) => w.location === "run")).toEqual([]);
+      const { workstreams } = await json("/api/workstreams");
+      expect(workstreams.map((w: any) => [w.project, w.slug])).toEqual([
+        [root, "mine"],
+        [other, "theirs"],
+      ]);
+    } finally {
+      chmodSync(file, 0o644);
+    }
+  });
+
   test("a run of another project that follows a listed workflow is not listed twice", async () => {
     write(join(home, ".konductor", "workflows", "shared.yml"), ONE);
     const other = join(root, "other");
@@ -628,9 +685,9 @@ describe("projects", () => {
 
     expect(await json("/api/projects")).toEqual({
       projects: [
-        { path: root, name: basename(root), current: true, runs: 1 },
-        { path: other, name: "other", current: false, runs: 1 },
-        { path: gone, name: "gone", current: false, missing: true },
+        { path: root, name: basename(root), current: true, workflowsDir: join(root, ".konductor", "workflows"), runs: 1 },
+        { path: other, name: "other", current: false, workflowsDir: join(other, ".konductor", "workflows"), runs: 1 },
+        { path: gone, name: "gone", current: false, workflowsDir: join(gone, ".konductor", "workflows"), missing: true },
       ],
     });
     // A gone project has no runs to list, and is no error.
@@ -640,7 +697,7 @@ describe("projects", () => {
   test("a broken projects file leaves this project's runs and reports why", async () => {
     write(projectsFile(), "projects: {not: a list}\n");
     const body = await json("/api/projects");
-    expect(body.projects).toEqual([{ path: root, name: basename(root), current: true, runs: 0 }]);
+    expect(body.projects).toEqual([{ path: root, name: basename(root), current: true, workflowsDir: join(root, ".konductor", "workflows"), runs: 0 }]);
     expect(body.error).toContain("must hold a list of project paths");
   });
 
@@ -662,6 +719,17 @@ describe("projects", () => {
       found: [a, worktree, deep],
       added: [],
     });
+  });
+
+  // Sorted, a/b/c/link comes before z; the scan meets z there at its depth
+  // limit first, and must still search z below it when it reaches z directly.
+  test("a folder first reached through a deep symlink is still searched where it lies shallower", async () => {
+    const area = join(root, "area");
+    const project = runFile(join(area, "z", "project"));
+    mkdirSync(join(area, "a", "b", "c"), { recursive: true });
+    symlinkSync(join(area, "z"), join(area, "a", "b", "c", "link"));
+    const res = await json("/api/projects", { method: "POST", body: JSON.stringify({ path: area }) });
+    expect(res).toEqual({ found: [project], added: [project] });
   });
 
   test("adding takes ~/ paths, and refuses relative paths and files", async () => {
@@ -748,7 +816,7 @@ describe("example runs", () => {
 
   test("the example runs are listed last, marked, cannot be removed and are never registered", async () => {
     const listed = (await json("/api/projects")).projects;
-    expect(listed.at(-1)).toEqual({ path: EXAMPLES, name: "example-runs", current: false, example: true, runs: 5 });
+    expect(listed.at(-1)).toEqual({ path: EXAMPLES, name: "example-runs", current: false, workflowsDir: join(EXAMPLES, ".konductor", "workflows"), example: true, runs: 5 });
 
     // A scan of a folder that holds them does not add them.
     const scanned = await json("/api/projects", { method: "POST", body: JSON.stringify({ path: dirname(EXAMPLES) }) });

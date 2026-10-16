@@ -23,3 +23,34 @@ export function diskChangeAction(
   if (open.openText === open.text) return "reload";
   return "conflict";
 }
+
+// Handles the watcher's change events for one open file. Each event asks the
+// server for the file, and the answers can arrive out of order, so only the
+// answer to the newest event is acted on, and none after the watch closed.
+// An event for the hash the editor already holds asks nothing, but it still
+// makes the answers to earlier events stale.
+export function diskChangeWatcher<O extends { text: string; hash: string; openText: string }, D extends { text: string; hash: string }>(deps: {
+  // The open file as it is now.
+  open: () => O | undefined;
+  // The file as the server lists it now.
+  fetch: () => Promise<D | undefined>;
+  apply: (action: Exclude<DiskChange, "ignore">, open: O, disk: D) => void;
+}) {
+  let generation = 0;
+  let closed = false;
+  return {
+    async change(hash: string | null): Promise<void> {
+      const mine = ++generation;
+      if (!hash || hash === deps.open()?.hash) return;
+      const disk = await deps.fetch();
+      if (closed || mine !== generation) return;
+      const open = deps.open();
+      if (!disk || !open) return;
+      const action = diskChangeAction(open, disk);
+      if (action !== "ignore") deps.apply(action, open, disk);
+    },
+    close(): void {
+      closed = true;
+    },
+  };
+}

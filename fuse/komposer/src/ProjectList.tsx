@@ -81,8 +81,12 @@ export function ProjectList({
                   >
                     <Chevron open={expanded} />
                     <span className="lane-project-name">{project.name}</span>
-                    <span className="lane-project-meta">
-                      {project.missing ? "folder not found" : `${project.runs ?? 0} run${project.runs === 1 ? "" : "s"}`}
+                    <span className="lane-project-meta" title={project.error}>
+                      {project.missing
+                        ? "folder not found"
+                        : project.error
+                          ? "runs cannot be read"
+                          : `${project.runs ?? 0} run${project.runs === 1 ? "" : "s"}`}
                     </span>
                   </button>
                   {!project.current && !project.example && (
@@ -119,7 +123,8 @@ export function ProjectList({
                         </button>
                       );
                     })}
-                    {!project.missing && runs.length === 0 && <div className="lane-empty">No runs.</div>}
+                    {!project.missing && !project.error && runs.length === 0 && <div className="lane-empty">No runs.</div>}
+                    {project.error && <div className="lane-projects-error">{project.error}</div>}
                   </div>
                 )}
               </div>
