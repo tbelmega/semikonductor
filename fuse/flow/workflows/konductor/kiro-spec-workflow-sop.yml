@@ -18,7 +18,8 @@
 #   CRITICAL finding of the guide's quality gate before presenting, and presents the rest with the
 #   draft for the owner's approval.
 # - The traceability summary is written to a file under .konductor/{slug}/, so it stays readable
-#   after the session ends.
+#   after the session ends. So are the four inputs, in spec-inputs.md, so the design step finds
+#   design_artifacts_path in a later session.
 # - A failed completeness or traceability check reports the validate step blocked, so the owner
 #   can send the work back to the step that needs fixing before the workflow completes.
 # As in the SOP, design.md gets only the author's self-check: no agent gate was added.
@@ -36,8 +37,11 @@ steps:
       with this feature's scoped user stories, key components and dependencies; user_stories_path,
       the full user stories, written with the user-stories guide
       (fuse/flow/library/artifacts/user-stories/guide.md in the fuse-konductor clone);
-      design_artifacts_path, the design artifacts directory from the architect phase. The folder of
-      the path below is spec_dir, already resolved; create it. Read the feature scope to find which
+      design_artifacts_path, the design artifacts directory from the architect phase. Write the
+      four values to the spec inputs file, below, one per line, so that later steps and later
+      sessions read them from there; when the owner changes one, update that file. The folder of
+      the path of requirements.md is spec_dir, already resolved; create it. Read the feature scope
+      to find which
       user stories and components are in scope, and read the user stories, keeping only those the
       scope maps to this feature. Follow the kiro-requirements guide, writing into spec_dir; never
       fall back to the guide's default location. Write requirements.md with EARS acceptance criteria
@@ -50,13 +54,17 @@ steps:
     produces:
       - artifact: kiro-requirements
         path: .kiro/specs/{slug}/requirements.md
+      - artifact: spec-inputs
+        path: .konductor/{slug}/spec-inputs.md
+        description: The four inputs the owner gave, which the design step reads again.
     gates:
       - owner-action: approve requirements.md, or ask for changes
         route_back_to: requirements
   - id: design
     title: 2. Generate design (per feature)
     instruction: >
-      Read requirements.md and the design artifacts in design_artifacts_path. Follow the kiro-design
+      Read requirements.md, and the design artifacts in design_artifacts_path, which the spec
+      inputs file records. Follow the kiro-design
       guide, writing into spec_dir, the folder of the path below; never fall back to the guide's
       default location. Write design.md with all six required sections: Overview, Architecture,
       Components and Interfaces, Data Models, Error Handling, Testing Strategy. The design addresses
@@ -75,6 +83,7 @@ steps:
       unresolved.
     consumes:
       - kiro-requirements
+      - spec-inputs
     produces:
       - artifact: kiro-design
         path: .kiro/specs/{slug}/design.md

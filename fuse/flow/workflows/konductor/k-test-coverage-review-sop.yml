@@ -9,8 +9,8 @@
 # library's test-coverage guide; the security test plan follows security-tests.md next to it.
 # Deliberate deviations from the SOP:
 # - Parameters: fuse-flow has no workflow parameters. The inventory step asks the owner for what
-#   is missing and records source_dir, test_dir, stories_file, design_file, scope_confirmed and
-#   scope_declined in the inventory, which later steps read.
+#   is missing and records source_dir, test_dir, stories_file, design_file, scope_confirmed,
+#   scope_declined and live_tests_authorized in the inventory, which later steps read.
 # - output_dir: the reports are artifacts under .konductor/{slug}/; a project's policy moves them.
 # - dry_run: the SOP's parameter says no reports are generated and its example stops after Step 1,
 #   while its Step 3 stops after the gap analysis. The workflow follows the parameter and the
@@ -22,6 +22,12 @@
 #   SOP's one-line examples differ (it puts untested error paths under IMPORTANT), the guide wins.
 # - The security test plan is its own file, as the SOP says, not a section of the gap analysis as
 #   the guide's "Further sections" suggests.
+# - Live tests: the SOP sets no rule for tests that call a deployed system. They run only when the
+#   owner authorized it for a target when starting, recorded as live_tests_authorized, which
+#   defaults to false; otherwise they are recorded as not run.
+# - Failing tests: the SOP's NOT READY rule names only gaps, while the test-coverage-analysis skill
+#   it used required no failing tests. The report has a Test Results section, and a failing test
+#   makes the recommendation NOT READY.
 # - Step 7 is the report step's closing message; the workflow-complete hand-over carries the
 #   owner's next options, so no owner gate was added.
 version: 1
@@ -42,9 +48,14 @@ steps:
       starting: scope_confirmed is true when they authorized the planning in advance, and
       scope_declined is true when they already declined it; both default to false. When both
       would be true, ask the owner which they meant and do not go on until only one is.
+      Note too whether the owner, when starting, authorized running tests that call a deployed
+      system, such as a deployed app, a cloud account or live endpoints, and for which target:
+      live_tests_authorized is true only with that authorization and that target, and defaults
+      to false. Do not ask for it.
       Scan source_dir for implementation files (.ts, .tsx, .js, .jsx, .py) and test_dir for test
       files (.test.ts, .spec.ts, .test.tsx, .test.py). Record the parameters, including
-      scope_confirmed and scope_declined, the number of source files, the number of test files,
+      scope_confirmed, scope_declined and live_tests_authorized with its target, the number of
+      source files, the number of test files,
       the test-to-source ratio, and the source files with no corresponding test file. This
       workflow never changes code.
       If the owner asked for a dry run, show what would be analyzed (the counts and the ratio),
@@ -60,10 +71,16 @@ steps:
     instruction: >
       Analyze the coverage as the test-coverage guide says, using the recorded source_dir,
       test_dir, stories_file and design_file instead of searching for them, and write it to the
-      path below. Cover unit, integration and end-to-end tests. When a stories_file was given, map
+      path below. Cover unit, integration and end-to-end tests. You may run the local unit and
+      integration tests. Run a test that calls a deployed system, such as a deployed app, a cloud
+      account or live endpoints, only when the inventory records live_tests_authorized as true,
+      and only against its recorded target; otherwise do not run it, and do not ask. Record the
+      test run: the tests that passed, each test that failed, and each test that did not run, with
+      the reason, as not run and never as passing. When a stories_file was given, map
       the tests to its acceptance criteria. Report the guide's critical gaps as CRITICAL (core
       user journeys untested among them) and its warnings as IMPORTANT. Close no gaps: record
-      every one. Then show the owner the total number of gaps by severity.
+      every one. Then show the owner the total number of gaps by severity and the number of
+      failing tests.
     consumes:
       - test-file-inventory
     produces:
@@ -122,15 +139,20 @@ steps:
       Write the consolidated report with this structure: "# Test Coverage Review Report" and the
       date; Executive Summary (two or three sentences on test readiness and the critical gaps);
       Coverage Analysis (source files, test files, test-to-source ratio, critical gaps, important
-      gaps); E2E Test Strategy (P0 tests, P1 tests, execution strategy, or that the owner declined
-      the planning); Security Test Plan (domains covered out of 7, total security tests, critical
-      gaps and important gaps, each NOT EVALUATED when the plan did not say which tests exist);
-      Recommendation (READY FOR RELEASE or NOT READY, with the reason); Next Steps (what to
-      implement first, in priority order). The recommendation is NOT READY when there is a critical
-      gap in the coverage analysis or the security test plan, or when the security test plan is
-      NOT EVALUATED.
+      gaps); Test Results (tests passed, the failing tests by name, and the tests not run with
+      the reason); E2E Test Strategy (P0 tests, P1 tests, execution strategy, or that the owner
+      declined the planning); Security Test Plan (domains covered out of 7, total security tests,
+      critical gaps and important gaps, each NOT EVALUATED when the plan did not say which tests
+      exist); Recommendation (READY FOR RELEASE or NOT READY, with the reason); Next Steps (what to
+      implement first, in priority order). The recommendation is NOT READY when a test failed,
+      when there is a critical gap in the coverage analysis or the security test plan, or when the
+      security test plan is NOT EVALUATED. A failing test makes it NOT READY whatever coverage
+      class the guide gives that test, because a test that exists is not a test that passes. When
+      tests did not run, the recommendation's reason says so, and a READY FOR RELEASE then holds
+      only for the tests that ran.
       Do not print the report. Tell the owner where the reports are and state the recommendation
-      plainly; when it is NOT READY, list the critical gaps that must be addressed. Offer to write
+      plainly; when it is NOT READY, list the failing tests and the critical gaps that must be
+      addressed. Offer to write
       the missing tests, and to run the review again after they are added.
     consumes:
       - test-file-inventory

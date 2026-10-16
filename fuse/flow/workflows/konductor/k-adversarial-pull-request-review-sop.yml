@@ -7,9 +7,10 @@
 # (agent-sops/k-adversarial-pull-request-review.sop.md in aws-solutions/konductor), steps 0 to 6 in order.
 # Skills are named by their name; they ship with fuse-konductor in the clone's skills/ folder.
 # Deliberate deviations from the SOP:
-# - Parameters: fuse-flow has no workflow parameters, so the intake step collects diff_input and
-#   pr_url from the owner. output_file becomes the adversarial-review-report artifact under
-#   .konductor/{slug}/, which a project's policy can move.
+# - Parameters: fuse-flow has no workflow parameters. A calling workflow gives the diff and its
+#   review scope as the inputs given-diff and given-scope, and the intake step takes diff_input
+#   and pr_url from them; otherwise it collects both from the owner. output_file becomes the
+#   adversarial-review-report artifact under .konductor/{slug}/, which a project's policy can move.
 # - diff_input may also be a git range the owner names, such as main...HEAD; the agent then runs
 #   that one git diff command to get the content and records it. Diff output the owner supplies
 #   is still used as it is, without running git.
@@ -30,6 +31,12 @@ description: Port of the former k-adversarial-pull-request-review SOP. An advers
   review of a diff, after standard review, through three independent lens passes (security, data
   integrity, schema and contract), a reuse pass and an independent checker, ending in a verdict
   report. Read-only.
+inputs:
+  - artifact: given-diff
+    description: The diff to review, from a calling workflow such as a code review.
+  - artifact: given-scope
+    description: The calling review's scope, which lists the files to read when there is no diff
+      and names the pull request or code review URL when the owner gave one.
 steps:
   - id: intake
     title: 0 and 1. Context ramp-up and diff ingestion
@@ -39,9 +46,13 @@ steps:
       read-only: change no file other than this workflow's own artifacts, and run no build or test.
 
       The input. You need diff_input: git diff output, file paths to read directly, or raw pull
-      request diff content. The owner may instead name a git range; then run that one git diff
-      command to get the content and record the command. When diff_input is missing, ask the owner
-      for it, even when they gave a pull request URL. Never fetch or derive the diff from a pull
+      request diff content. When this workstream was given a diff (given-diff), that diff is
+      diff_input. When it was given a review scope (given-scope) and no diff, the files the scope
+      lists as changed are diff_input, as file paths. Take pr_url from the given review scope when
+      it names a pull request or code review URL. Do not ask the owner for what these inputs give.
+      Without them, the owner may instead name a git range; then run that one git diff command to
+      get the content and record the command. When diff_input is missing, ask the owner for it,
+      even when they gave a pull request URL. Never fetch or derive the diff from a pull
       request URL. Use git diff output and raw diff content as they are, without running git. For
       file paths, check that every file exists and read each one. Do not ask where to write the
       report. Leave out binary files, lock files, build artifacts and .js.map files. Write the
@@ -55,7 +66,7 @@ steps:
       design docs referenced directly, and a targeted search of the codebase for the patterns the
       changed files touch: error-mapping layers, transaction helpers, validation middleware and
       pagination utilities. Search the diff and its commit messages for linked issues, design docs
-      and referenced documentation, and read them. When the owner gave a pull request URL, you may
+      and referenced documentation, and read them. When there is a pull request URL, you may
       read the pull request's own description through a generic web fetch to find linked issues
       and docs. Read each source once and do not follow links further. When a linked document
       cannot be read, note it and go on.
@@ -66,6 +77,9 @@ steps:
       file and line. Add this line: "Historical filtering: unavailable. No tool reads a pull
       request's prior review threads, so prior review state was not checked; this does not mean
       there were no prior revisions."
+    consumes:
+      - given-diff
+      - given-scope
     produces:
       - artifact: review-diff
         path: .konductor/{slug}/review.diff

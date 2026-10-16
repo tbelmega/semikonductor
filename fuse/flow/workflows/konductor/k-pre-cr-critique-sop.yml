@@ -15,6 +15,9 @@
 #   document. The gathered diff is saved as the review-diff artifact, so the critique reads a
 #   stable copy of changes that may still be uncommitted.
 # - An empty diff stops the workstream as blocked; the owner decides what happens next.
+# - With a paths scope there is no diff, so the critique quotes code from the listed files and
+#   keeps to them; the SOP's rules for snippets and for findings outside the scope name only the
+#   diff.
 # - Interactive mode asks the owner about each finding inside the resolve step, not through an
 #   owner gate, because in auto mode the SOP lets the agent decide without the owner.
 # - The SOP's troubleshooting advice appears where it applies: in the gather step for an empty
@@ -49,11 +52,12 @@ steps:
       yarn.lock), build artifacts (dist/, build/, cdk.out/) and .js.map files. Write the diff to the
       review-diff artifact; for a paths scope report it as not produced, with the reason
       "critique_scope is paths", and list the paths in the critique scope. When the owner gave a
-      scope, it must resolve to actual changes. If the diff is empty, tell the owner there is
-      nothing to critique, suggest checking `git stash list` and `git status` for stashed or
-      untracked changes, and that untracked files can be critiqued by naming their paths as the
-      scope, then report this step blocked with the reason "the diff is empty; nothing to
-      critique".
+      scope, it must resolve to actual changes. For a paths scope there is no diff: check that
+      every path exists, and the files under the paths are the changes. For any other scope, if
+      the diff is empty, tell the owner there is nothing to critique, suggest checking `git stash
+      list` and `git status` for stashed or untracked changes, and that untracked files can be
+      critiqued by naming their paths as the scope, then report this step blocked with the reason
+      "the diff is empty; nothing to critique".
 
       Write the critique scope: the scope as resolved and the commands used, the mode, the focus
       areas, the detected language and framework, the changed files with the file count and the
@@ -83,15 +87,16 @@ steps:
       Give each finding a severity, Critical (bugs, vulnerabilities, data loss risks), Important
       (significant quality issues, missing error handling, performance problems) or Minor (style,
       naming, minor improvements), and one dimension tag. Each finding has the file path, the
-      relevant code snippet from the diff, the problem, and a suggested resolution. Critique the
-      changed code: a finding about code outside the diff does not belong here. Include no praise,
+      relevant code snippet from the diff, or from the file for a paths scope, the problem, and a
+      suggested resolution. Critique the changed code: a finding about code outside the diff, or
+      outside the listed files for a paths scope, does not belong here. Include no praise,
       positive observations or "looks good" remarks; only actionable problems. Do not flag
       style-only issues a linter catches, such as formatting, trailing whitespace or import order,
       unless they point to a deeper problem. Put findings in the focus areas first.
 
-      When the diff is over 500 lines, save the findings after each file or group of files to
-      .konductor/<slug>/critique-findings.tmp.md, where <slug> is this workstream's slug, so they
-      survive a full context.
+      When the diff, or the listed files for a paths scope, run over 500 lines, save the findings
+      after each file or group of files to .konductor/<slug>/critique-findings.tmp.md, where
+      <slug> is this workstream's slug, so they survive a full context.
 
       Write the critique with the sections Critical Issues, Important Issues and Minor Issues. In
       each, write every finding as an issue numbered C1, I1 or M1 onwards, with its title and

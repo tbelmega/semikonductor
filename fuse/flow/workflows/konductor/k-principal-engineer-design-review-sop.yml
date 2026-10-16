@@ -11,8 +11,9 @@
 #   gitignored file under .konductor/{slug}/, so the later steps can resume from them; the design
 #   document, the code and the build stay untouched. A document given inline or in the
 #   conversation is saved there too, as the file the later steps correct.
-# - Each gate's results (the quality score, the dimension scores, the round history) are written
-#   to files under .konductor/{slug}/ for the same reason, and the report is built from them.
+# - Each gate's results (the quality score, the dimension scores, the round history with the
+#   quality score after each round's corrections) are written to files under .konductor/{slug}/
+#   for the same reason, and the report is built from them, with the latest quality score.
 # - output_file: the report goes to docs/design/, named by the workstream slug, rather than next to
 #   the input document; a project moves it with an `artifacts:` entry in its policy instead of a
 #   parameter.
@@ -102,8 +103,9 @@ steps:
       guide before applying a round's corrections. After each round, apply the corrections to the
       document, then apply Part 1 of the design review guide again to confirm the quality score is
       still 3 or more, and fix the writing first if it is not. Keep the round history: the round
-      number, the finding counts by severity, and the corrections applied, plus each finding you
-      rejected and why. When the loop ends, whether it passed, escalated or reached the cap, write
+      number, the finding counts by severity, the corrections applied, and the quality score from
+      that repeated Part 1, plus each finding you rejected and why. When the loop ends, whether it
+      passed, escalated or reached the cap, write
       the history and the remaining findings to the path below. When it escalated or reached the
       cap, also write the review report to its optional path below before you report the step
       blocked, as the guide says, so the owner has the verdict and the evidence.
@@ -142,7 +144,9 @@ steps:
       Corrections Applied; "## Remaining Findings", with the subsections "### Critical", "###
       Important" and "### Minor"; and "## Verdict", which says for PE-READY that the document is
       ready for PE submission, for REVISIONS NEEDED what must be fixed, and for FUNDAMENTAL
-      REDESIGN REQUIRED what the architectural issue is. Assign the verdict by these rules. 0
+      REDESIGN REQUIRED what the architectural issue is. The quality score is the latest one: the
+      score of the last round in the adversarial review's history, or the quality gate's score
+      when no round recorded one. Assign the verdict by these rules. 0
       CRITICAL, 0 IMPORTANT and fewer than 3 MINOR: PE-READY. 0 CRITICAL, 0 IMPORTANT and 3 or more
       MINOR after 5 rounds: REVISIONS NEEDED. 0 CRITICAL and 1 or more IMPORTANT remaining after 5
       rounds: REVISIONS NEEDED. Any CRITICAL (factual) remaining after 5 rounds: REVISIONS NEEDED,
