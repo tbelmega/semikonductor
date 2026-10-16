@@ -497,7 +497,7 @@ export function startServer(options: ServerOptions): KomposerServer {
   const removeProject = (body: any) => {
     if (typeof body.path !== "string" || !body.path) throw new HttpError(400, "path is required");
     if (resolve(body.path) === root) throw new HttpError(400, "Komposer was started on this project; it cannot be removed.");
-    if (resolve(body.path) === examples) throw new HttpError(400, "The example runs ship with Komposer; they cannot be removed.");
+    if (resolve(body.path) === examples) throw new HttpError(400, "The example workstreams ship with Komposer; they cannot be removed.");
     return { removed: unregisterProject(body.path) };
   };
 

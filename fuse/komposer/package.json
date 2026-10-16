@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Komposer: edit fuse-flow workflows in all three locations and view their runs. A local server (server/) serves the app and the files of one project.",
+  "description": "Komposer: edit fuse-flow workflows in all three locations and view their workstreams. A local server (server/) serves the app and the files of one project.",
   "license": "Apache-2.0",
   "scripts": {
     "start": "bun server/main.ts",

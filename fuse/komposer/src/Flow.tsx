@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// The centre diagram: phase headings, step cards (number tile, title, id,
-// condition row, description, artifact chips, gate pills, error line) and
-// the SVG edge overlay.
+// The centre diagram: the workflow's inputs, phase headings, step cards
+// (number tile, title, id, condition row, description, artifact chips, gate
+// pills, error line), Append step, the workflows it hands off to, and the
+// SVG edge overlay.
 
 import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
-import type { Gate } from "../../flow/src/schemas/gate.ts";
+import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
 import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
-import type { LibraryEntry, WorkstreamSummary } from "./api.ts";
-import { duration, RUN_STATE, runState } from "./runView.ts";
+import type { LibraryEntry } from "./api.ts";
 import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
 import { gatesInRunOrder, type ArtifactRole, type StepView, type WorkflowLink } from "./workflowView.ts";
 import { layoutEdges } from "./layout.ts";
-import { RunLinkButton, WorkflowLinkButton } from "./Links.tsx";
+import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
 import type { StepCompare } from "./model/compare.ts";
 
@@ -20,26 +20,33 @@ type Rect = { t: number; b: number; l: number; r: number };
 
 const FWD = "var(--text-faint)";
 const SEL = "var(--accent)";
-const BACK = "var(--tint-route-back)";
+const BACK = "var(--sem-route-back)";
 const BADGE_X = 24;
 
-const GATE_STYLE: Record<Gate["kind"], { label: string; bg: string; fg: string }> = {
-  workflow: { label: "workflow", bg: "var(--tint-link-bg)", fg: "var(--tint-link-text)" },
+export const GATE_STYLE: Record<Gate["kind"], { label: string; bg: string; fg: string }> = {
+  workflow: { label: "workflow", bg: "var(--surface-sunken)", fg: "var(--accent-text)" },
   check: { label: "check", bg: "var(--accent-soft)", fg: "var(--accent-text)" },
   script: { label: "script", bg: "var(--surface-sunken)", fg: "var(--text-strong)" },
-  agent: { label: "agent", bg: "var(--tint-agent-bg)", fg: "var(--tint-agent-text)" },
-  "owner-action": { label: "owner", bg: "var(--tint-warn-pill-bg)", fg: "var(--tint-warn-text)" },
+  agent: { label: "agent", bg: "var(--sem-agent-bg)", fg: "var(--sem-agent-text)" },
+  "owner-action": { label: "owner", bg: "var(--sem-amber-bg)", fg: "var(--sem-amber-text)" },
+};
+
+// The slug a workflow gate's child gets in its first pass, with the step
+// filled in, and the parent workstream's slug when there is one.
+export const childSlug = (gate: Gate, stepId: string, parent?: string) => {
+  const withStep = (gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{step}", stepId);
+  return parent ? withStep.replaceAll("{slug}", parent) : withStep;
 };
 
 // What a workflow gate does, for its pill's tooltip: the child's workflow,
 // its slug, what it is given and what it returns.
-function delegationTip(gate: Gate, link: WorkflowLink): string {
+export function delegationTip(gate: Gate, link: WorkflowLink): string {
   const pairs = (map: Record<string, string> | undefined, arrow: string) =>
     Object.entries(map ?? {}).map(([a, b]) => (a === b ? a : `${a} ${arrow} ${b}`)).join(", ");
   return [
     `workflow: ${gate.text}`,
     link.ok ? `opens ${link.path}` : link.reason,
-    `child slug: ${gate.slug ?? "{slug}-{step}"}`,
+    `child slug: ${gate.slug ?? DEFAULT_CHILD_SLUG}`,
     gate.inputs && `gives: ${pairs(gate.inputs, "←")}`,
     gate.returns && `returns: ${pairs(gate.returns, "←")}`,
     gate.route_back_to.length ? `route back to: ${gate.route_back_to.join(", ")}` : "",
@@ -72,15 +79,11 @@ export function Flow({
   onAppend,
   onDropArtifact,
   onDropArtifactAt,
-  run,
-  readOnly = false,
-  gateTextVisible = true,
+  readOnly,
   inputs,
   handOffs,
   linkTo,
   onOpenWorkflow,
-  findRun,
-  onOpenRun,
   compare,
   compareAction,
 }: {
@@ -100,26 +103,20 @@ export function Flow({
   onDropArtifact: (step: number, artifact: string) => void;
   // A library entry dropped between steps, or on "Append step", becomes a new step at `at`.
   onDropArtifactAt: (at: number, artifact: string) => void;
-  run?: WorkstreamSummary;
-  // Another project's file, or compare mode: shown, never edited, with or without a run.
-  // No insert, append, move or delete controls, and artifact drops are ignored.
-  readOnly?: boolean;
-  gateTextVisible?: boolean;
+  // Another project's own workflow, or the Compare page: no insert seams,
+  // moves, deletes or Append step, and artifact drops are ignored.
+  readOnly: boolean;
   // The documents the workflow expects from outside, and the workflows it hands off to.
   inputs: WorkflowInput[];
   handOffs: HandOff[];
   // Where a workflow reference leads, and opening a listed workflow by key.
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
-  // Any workstream by slug, and opening its run, for a step's child workstreams.
-  findRun: (slug: string) => WorkstreamSummary | undefined;
-  onOpenRun: (slug: string) => void;
-  // Compare mode: how each step compares with the other workflow, by index.
+  // The Compare page: how each step compares with the other workflow, by index.
   compare?: StepCompare[];
-  // Compare mode: an action on each step that differs from the other side.
+  // The Compare page: an action on each step that differs from the other side.
   compareAction?: { label: string; title: (id: string) => string; run: (index: number) => void };
 }) {
-  const locked = readOnly || !!run;
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
     onDragOver: (event: DragEvent) => {
@@ -183,35 +180,33 @@ export function Flow({
             layout={layout}
             selectedIndex={selectedIndex}
             hoveredArtifact={hoveredArtifact}
-            run={run}
           />
           {inputs.length > 0 && (
-            <div className="workflow-inputs">
-              <span className="link-label">inputs</span>
+            <div className="flow-card workflow-inputs">
+              <span className="flow-card-kicker">Inputs</span>
               {inputs.map((input) => (
                 <span
                   key={input.artifact}
                   className={`chip chip-input${hoveredArtifact === input.artifact ? " is-hovered" : ""}`}
-                  title={[
-                    `input ${input.artifact}${input.required ? ", required" : ", optional"}`,
-                    input.description ?? "",
-                    run?.inputs?.[input.artifact] ? `given: ${run.inputs[input.artifact]}` : run ? "not given" : "",
-                  ]
+                  title={[`input ${input.artifact}, ${input.required ? "required" : "optional"}`, input.description ?? ""]
                     .filter(Boolean)
                     .join("\n")}
                   onMouseEnter={() => onHoverArtifact(input.artifact)}
                   onMouseLeave={() => onHoverArtifact(null)}
                 >
                   {input.artifact}
-                  {input.required && <span className="chip-required">required</span>}
-                  {run && !run.inputs?.[input.artifact] && <span className="chip-nolib">not given</span>}
+                  <span className={input.required ? "chip-required" : "chip-optional"}>
+                    {input.required ? "required" : "optional"}
+                  </span>
                 </span>
               ))}
             </div>
           )}
           {steps.map((step, i) => (
             <div key={`${step.id}-${i}`}>
-              {locked ? null : (
+              {readOnly ? (
+                <div className="step-gap" />
+              ) : (
                 <div
                   className={`step-seam${dropAt === i ? " is-drop-target" : ""}`}
                   onClick={() => onInsert(i)}
@@ -237,22 +232,16 @@ export function Flow({
                 showDescriptions={showDescriptions}
                 hoveredArtifact={hoveredArtifact}
                 onHoverArtifact={onHoverArtifact}
-                gateTextVisible={gateTextVisible}
                 canMoveUp={i > 0}
                 canMoveDown={i < steps.length - 1}
                 onMoveUp={() => onMove(i, i - 1)}
                 onMoveDown={() => onMove(i, i + 1)}
                 onDelete={() => onDelete(i)}
                 onDropArtifact={(artifact) => onDropArtifact(i, artifact)}
-                runStep={run?.summary?.steps[step.id]}
-                runMode={!!run}
                 readOnly={readOnly}
                 inputIds={inputs.map((input) => input.artifact)}
                 linkTo={linkTo}
                 onOpenWorkflow={onOpenWorkflow}
-                runChildren={(run?.children ?? []).filter((child) => child.step === step.id)}
-                findRun={findRun}
-                onOpenRun={onOpenRun}
                 compare={compare?.[i]}
                 compareAction={
                   compareAction && compare?.[i] && compare[i].status !== "same"
@@ -262,54 +251,42 @@ export function Flow({
               />
             </div>
           ))}
-          {handOffs.length > 0 && (
-            <div className="handoff">
-              <div className="handoff-connector" style={{ marginLeft: `${BADGE_X - 1}px` }} />
-              <div className="handoff-box">
-                <span className="link-label">hands off to</span>
-                {handOffs.map((handOff, k) => {
-                  const link = linkTo(handOff.workflow);
-                  return (
-                    <div key={`${handOff.workflow}-${k}`} className="handoff-row">
-                      <WorkflowLinkButton refText={handOff.workflow} link={link} onOpen={onOpenWorkflow} />
-                      {handOff.when && <span className="handoff-when">{handOff.when}</span>}
-                    </div>
-                  );
-                })}
-                {run && (run.startedAfter?.length ?? 0) > 0 && (
-                  <div className="handoff-row">
-                    <span className="link-label">started after this run</span>
-                    {run.startedAfter!.map((slug) => (
-                      <RunLinkButton key={slug} slug={slug} run={findRun(slug)} onOpen={onOpenRun} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
-        {!locked && (
+        {!readOnly && (
           <button
             className={`append-step-btn${dropAt === steps.length ? " is-drop-target" : ""}`}
+            style={{ margin: `14px ${rightPad}px 0 ${leftPad}px` }}
             onClick={onAppend}
             {...dropProps(steps.length)}
           >
             + Append step
           </button>
         )}
+        {handOffs.length > 0 && (
+          <div className="flow-card handoff-box" style={{ margin: `14px ${rightPad}px 0 ${leftPad}px` }}>
+            <span className="flow-card-kicker">Hands off to</span>
+            {handOffs.map((handOff, k) => (
+              <WorkflowLinkButton
+                key={`${handOff.workflow}-${k}`}
+                refText={handOff.workflow}
+                link={linkTo(handOff.workflow)}
+                onOpen={onOpenWorkflow}
+                when={handOff.when}
+              />
+            ))}
+          </div>
+        )}
         <div className="flow-legend" style={{ margin: `18px ${rightPad}px 0 ${leftPad}px` }}>
           <span className="flow-legend-item">
             <span className="flow-legend-line" /> consumes
           </span>
-          <span className="flow-legend-item flow-legend-back">
+          <span className="flow-legend-item">
             <span className="flow-legend-line-dashed" /> route back
           </span>
           <span>~ updates</span>
           <span>id? may produce</span>
           <span>G T R guide · template · review</span>
-          {(handOffs.length > 0 || steps.some((s) => s.gates.some((g) => g.kind === "workflow"))) && (
-            <span className="flow-legend-link">↗ opens another workflow</span>
-          )}
+          <span>↳ child workflow</span>
         </div>
       </div>
     </div>
@@ -327,22 +304,16 @@ function StepCard({
   showDescriptions,
   hoveredArtifact,
   onHoverArtifact,
-  gateTextVisible,
   canMoveUp,
   canMoveDown,
   onMoveUp,
   onMoveDown,
   onDelete,
   onDropArtifact,
-  runStep,
-  runMode,
   readOnly,
   inputIds,
   linkTo,
   onOpenWorkflow,
-  runChildren,
-  findRun,
-  onOpenRun,
   compare,
   compareAction,
 }: {
@@ -356,55 +327,37 @@ function StepCard({
   showDescriptions: boolean;
   hoveredArtifact: string | null;
   onHoverArtifact: (id: string | null) => void;
-  gateTextVisible: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
   onDropArtifact: (artifact: string) => void;
-  runStep?: { status: string; activeMs: number; ownerWaitMs: number; visits: number; skipReason?: string };
-  runMode: boolean;
   readOnly: boolean;
   inputIds: string[];
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
-  // The child workstreams of this step in the open run, oldest pass first.
-  runChildren: { pass: number; slug: string }[];
-  findRun: (slug: string) => WorkstreamSummary | undefined;
-  onOpenRun: (slug: string) => void;
   compare?: StepCompare;
   compareAction?: { label: string; title: string; run: () => void };
 }) {
-  const locked = runMode || readOnly;
   const hasProblems = problems.length > 0;
   const badConsumes = new Set(
     problems.filter((p) => p.field === "consumes" && p.itemIndex !== undefined).map((p) => step.consumes[p.itemIndex!]),
   );
   const order = gatesInRunOrder(step.gates);
   const firstError = problems[0];
-  const state = runStep ? runState(runStep.status) : undefined;
-  const stateInfo = state ? RUN_STATE[state] : undefined;
-  const runBits = runStep
-    ? [
-        runStep.activeMs ? duration(runStep.activeMs) : "",
-        runStep.ownerWaitMs ? `owner ${duration(runStep.ownerWaitMs)}` : "",
-        runStep.visits > 1 ? `×${runStep.visits} visits` : "",
-        runStep.skipReason ?? "",
-      ].filter(Boolean)
-    : [];
 
   return (
     <div
       data-node={num}
-      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${stateInfo ? ` run-${stateInfo.className}` : ""}${compare ? ` compare-${compare.status}` : ""}`}
+      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${compare ? ` compare-${compare.status}` : ""}`}
       onClick={onSelect}
       onDragOver={(event) => {
-        if (!locked && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
+        if (!readOnly && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
       }}
       onDrop={(event) => {
         const artifact = event.dataTransfer.getData(ARTIFACT_DRAG);
-        if (artifact && !locked) {
+        if (artifact && !readOnly) {
           event.preventDefault();
           onDropArtifact(artifact);
         }
@@ -413,7 +366,16 @@ function StepCard({
       <div className={`step-badge${selected ? " is-selected" : ""}`}>{num}</div>
       <div className="step-main">
         <div className="step-title-row">
-          <span className="step-title">{step.title || step.id}</span>
+          {/* The card selects on click; this button is its keyboard control.
+              Enter or Space clicks it, and the click reaches the card. */}
+          <button
+            type="button"
+            className="step-title"
+            aria-label={`Select step ${step.id}${step.title ? `: ${step.title}` : ""}`}
+            aria-current={selected ? "true" : undefined}
+          >
+            {step.title || step.id}
+          </button>
           {step.title && <span className="step-id">{step.id}</span>}
         </div>
         {step.condition && (
@@ -502,7 +464,7 @@ function StepCard({
                     <span className="gate-num">{k + 1}</span>
                     <span className="gate-kind">{style.label}</span>
                     <span className="gate-text">{gate.text}</span>
-                    <span className="gate-extra">{link.ok ? "↗" : link.unavailable ? "unavailable" : "not found"}</span>
+                    <span className="gate-extra">{link.ok ? `↳ ${childSlug(gate, step.id)}` : link.unavailable ? "unavailable" : "not found"}</span>
                     {gate.route_back_to.length > 0 && (
                       <span className="gate-route">↩ {gate.route_back_to.join(", ")}</span>
                     )}
@@ -515,7 +477,7 @@ function StepCard({
                 <span key={k} className="gate-pill" title={tip} style={{ background: style.bg, color: style.fg }}>
                   <span className="gate-num">{k + 1}</span>
                   <span className="gate-kind">{style.label}</span>
-                  {gateTextVisible && gate.text && <span className="gate-text">{gate.text}</span>}
+                  {gate.text && <span className="gate-text">{gate.text}</span>}
                   {extra && <span className="gate-extra">{extra}</span>}
                   {gate.route_back_to.length > 0 && (
                     <span className="gate-route">↩ {gate.route_back_to.join(", ")}</span>
@@ -531,53 +493,30 @@ function StepCard({
             {problems.length > 1 && `  +${problems.length - 1} more`}
           </div>
         )}
-        {runChildren.length > 0 && (
-          <div className="run-children" onClick={(event) => event.stopPropagation()}>
-            <span className="link-label">{runChildren.length > 1 ? "waits for" : "child"}</span>
-            <RunLinkButton slug={runChildren.at(-1)!.slug} run={findRun(runChildren.at(-1)!.slug)} onOpen={onOpenRun} />
-            {runChildren.length > 1 && (
-              <>
-                <span className="link-label">earlier passes</span>
-                {runChildren.slice(0, -1).map((child) => (
-                  <RunLinkButton key={child.slug} slug={child.slug} run={findRun(child.slug)} onOpen={onOpenRun} />
-                ))}
-              </>
-            )}
-          </div>
-        )}
         {compare?.status === "changed" && (
           <div className="compare-fields">differs in {compare.fields.join(", ")}</div>
-        )}
-        {runBits.length > 0 && (
-          <div className="run-step-meta">
-            {runBits.map((bit) => (
-              <span key={bit}>{bit}</span>
-            ))}
-          </div>
         )}
       </div>
       {compare ? (
         <div className="compare-card-side" onClick={(event) => event.stopPropagation()}>
           <span className={`compare-pill compare-pill-${compare.status}`}>{COMPARE_LABEL[compare.status]}</span>
           {compareAction && (
-            <button className="compare-copy-btn" title={compareAction.title} onClick={compareAction.run}>
+            <button type="button" className="compare-copy-btn" title={compareAction.title} onClick={compareAction.run}>
               {compareAction.label}
             </button>
           )}
         </div>
-      ) : readOnly ? null : runMode ? (
-        <span className={`run-state-pill ${stateInfo?.className ?? "pending"}`}>
-          {stateInfo?.label ?? "not started"}
-        </span>
-      ) : readOnly ? null : (
+      ) : readOnly ? (
+        <span />
+      ) : (
         <div className="step-actions" onClick={(event) => event.stopPropagation()}>
-          <button title="Move up" disabled={!canMoveUp} onClick={onMoveUp}>
+          <button title="Move up" aria-label="Move up" disabled={!canMoveUp} onClick={onMoveUp}>
             <ArrowUp size={13} strokeWidth={1.75} />
           </button>
-          <button title="Move down" disabled={!canMoveDown} onClick={onMoveDown}>
+          <button title="Move down" aria-label="Move down" disabled={!canMoveDown} onClick={onMoveDown}>
             <ArrowDown size={13} strokeWidth={1.75} />
           </button>
-          <button title="Delete step" onClick={onDelete}>
+          <button title="Delete step" aria-label="Delete step" onClick={onDelete}>
             <X size={15} strokeWidth={1.75} />
           </button>
         </div>
@@ -592,14 +531,12 @@ function Edges({
   layout,
   selectedIndex,
   hoveredArtifact,
-  run,
 }: {
   steps: StepView[];
   geo: Rect[];
   layout: ReturnType<typeof layoutEdges>;
   selectedIndex: number;
   hoveredArtifact: string | null;
-  run?: WorkstreamSummary;
 }) {
   if (geo.length !== steps.length || geo.length === 0) return null;
   const left = geo[0]?.l ?? 0;
@@ -691,8 +628,7 @@ function Edges({
       })}
       {/* route-back edges, right gutter */}
       {layout.routes.map((route, k) => {
-        const taken = !!run?.summary?.routesBack.some((back) => back.from === route.from && back.to === route.to);
-        const highlighted = taken || selectedIndex === route.fromIndex || selectedIndex === route.toIndex;
+        const highlighted = selectedIndex === route.fromIndex || selectedIndex === route.toIndex;
         const x = right + 14 + route.lane * 8;
         const yOut = geo[route.fromIndex].b - 14;
         const yIn = geo[route.toIndex].t + 15;
@@ -704,8 +640,8 @@ function Edges({
             markerEnd="url(#kp-b)"
             style={{
               stroke: BACK,
-              strokeWidth: taken ? 2.25 : highlighted ? 1.6 : 1.1,
-              strokeDasharray: taken ? "none" : "4 3",
+              strokeWidth: highlighted ? 1.6 : 1.1,
+              strokeDasharray: "4 3",
               opacity: highlighted ? 1 : 0.7,
             }}
           />

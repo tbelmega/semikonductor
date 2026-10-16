@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { compareWorkflows, copySourceProblem, copyStepEdits, defaultComparePair, swapPair } from "../src/model/compare.ts";
+import { compareWorkflows, comparePair, comparePick, copySourceProblem, copyStepEdits, defaultComparePair, swapPair } from "../src/model/compare.ts";
 import { applyEdit } from "../src/model/yamlEdit.ts";
 import { artifactCount, gateCount, openWorkflow, routeBackCount, stepViews } from "../src/workflowView.ts";
 
@@ -296,5 +296,35 @@ describe("copy fidelity", () => {
     expect(copySourceProblem(broken)).toMatch(/Fix the problems/);
     const valid = openWorkflow({ ...broken, text: TARGET });
     expect(copySourceProblem(valid)).toBeNull();
+  });
+});
+
+describe("comparePair, with the left side following the selected workflow", () => {
+  const keys = ["a", "b", "c"];
+
+  test("the left side is the selected workflow, and the right side is kept", () => {
+    expect(comparePair(keys, "b", "c")).toEqual(["b", "c"]);
+    // Selecting another workflow elsewhere moves the left side with it.
+    expect(comparePair(keys, "a", "c")).toEqual(["a", "c"]);
+  });
+
+  test("a right side that is gone, missing or the same as the left gives way to another workflow", () => {
+    expect(comparePair(keys, "b", null)).toEqual(["b", "a"]);
+    expect(comparePair(keys, "b", "zzz")).toEqual(["b", "a"]);
+    expect(comparePair(keys, "b", "b")).toEqual(["b", "a"]);
+  });
+
+  test("with no listed selection, the left side starts from the first workflow", () => {
+    expect(comparePair(keys, null, "c")).toEqual(["a", "c"]);
+    expect(comparePair(keys, "zzz", null)).toEqual(["a", "b"]);
+    expect(comparePair([], "a", "b")).toEqual([null, null]);
+  });
+
+  test("picking or swapping says which workflow to select and which stays on the right", () => {
+    expect(comparePick(["a", "c"], "left", "b")).toEqual({ select: "b", right: "c" });
+    expect(comparePick(["a", "c"], "right", "b")).toEqual({ select: "a", right: "b" });
+    // Picking the right side's workflow for the left trades the two.
+    expect(comparePick(["a", "c"], "left", "c")).toEqual({ select: "c", right: "a" });
+    expect(comparePick(["a", "c"], "swap")).toEqual({ select: "c", right: "a" });
   });
 });

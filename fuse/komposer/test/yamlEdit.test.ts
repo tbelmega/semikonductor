@@ -7,7 +7,7 @@ import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseWorkflowText } from "../../flow/src/parse.ts";
 import YAML from "yaml";
-import { applyEdit, type Edit } from "../src/model/yamlEdit.ts";
+import { applyEdit, verifyEdit, type Edit } from "../src/model/yamlEdit.ts";
 
 const WORKFLOWS_DIR = resolve(import.meta.dir, "..", "..", "flow", "workflows");
 
@@ -1463,6 +1463,55 @@ steps:
     expect(other).toContain('{ workflow: child, slug: "{slug}-x", inputs: { given-diff: diff }, returns: [report] }');
   });
 
+  test("the child's slug and the returned ids of a workflow gate are set in place, and removed when empty", () => {
+    const slugged = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { slug: "{slug}-deep" } });
+    expect(changedLines(text, slugged).size).toBe(1);
+    expect(slugged).toContain("        slug: '{slug}-deep'\n        inputs:\n");
+    expect(gateOf(slugged).gate).toMatchObject({ slug: "{slug}-deep", inputs: { "given-diff": "diff" }, returns: { report: "report" } });
+
+    const returned = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { returns: ["report", "notes"] } });
+    expect(changedLines(text, returned).size).toBe(1);
+    expect(returned).toContain("        returns: [report, notes]\n        route_back_to: intake\n");
+
+    const cleared = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { slug: null, returns: [] } });
+    expect(cleared).not.toContain("slug:");
+    expect(cleared).not.toContain("returns:");
+    expect(cleared).toContain("        inputs:\n          given-diff: diff\n        route_back_to: intake\n");
+
+    // A gate without these keys gets them in the engine's key order.
+    const bare = text.replace('        slug: "{slug}-adv"\n', "").replace("        returns: [report]\n", "");
+    const both = applyEdit(bare, { op: "setGate", step: 1, index: 1, fields: { slug: "{slug}-x", returns: ["report"] } });
+    expect(both).toContain("      - workflow: child\n        slug: '{slug}-x'\n        inputs:\n          given-diff: diff\n        returns: [report]\n");
+    expect(gateOf(both).gate).toMatchObject({ slug: "{slug}-x", returns: { report: "report" } });
+
+    // Returns written as a mapping are replaced whole by the list.
+    const mapped = text.replace("        returns: [report]\n", "        returns:\n          report: review\n");
+    const listed = applyEdit(mapped, { op: "setGate", step: 1, index: 1, fields: { returns: ["report"] } });
+    expect(listed).toContain("        returns: [report]\n        route_back_to: intake\n");
+    expect(listed).not.toContain("report: review");
+
+    expect(applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { slug: "{slug}-adv", returns: ["report"] } })).toBe(text);
+  });
+
+  test("returns written as a block list followed by another gate key stay a block list, and the next key keeps its line", () => {
+    const block = text.replace("        returns: [report]\n", "        returns:\n          - report\n");
+    expect(rawOf(block).gate.returns).toEqual(["report"]);
+    const out = applyEdit(block, { op: "setGate", step: 1, index: 1, fields: { returns: ["report", "notes"] } });
+    expect(out).toContain("          given-diff: diff\n        returns:\n          - report\n          - notes\n        route_back_to: intake\n  - id: summary\n");
+    expect(rawOf(out).gate).toEqual({ workflow: "child", slug: "{slug}-adv", inputs: { "given-diff": "diff" }, returns: ["report", "notes"], route_back_to: "intake" });
+    expect(gateOf(out).gate).toMatchObject({ returns: { report: "report", notes: "notes" }, route_back_to: ["intake"] });
+  });
+
+  test("returns written as a block list at the end of a step stay a block list, and the next step keeps its line", () => {
+    const block = text.replace("        returns: [report]\n        route_back_to: intake\n", "        returns:\n          - report\n");
+    expect(rawOf(block).gate.returns).toEqual(["report"]);
+    const out = applyEdit(block, { op: "setGate", step: 1, index: 1, fields: { returns: ["report", "notes"] } });
+    expect(out).toContain("        returns:\n          - report\n          - notes\n  - id: summary\n    instruction: Summarize.\n");
+    const doc = YAML.parse(out);
+    expect(doc.steps.map((s: { id: string }) => s.id)).toEqual(["intake", "adversarial", "summary"]);
+    expect(rawOf(out).gate).toEqual({ workflow: "child", slug: "{slug}-adv", inputs: { "given-diff": "diff" }, returns: ["report", "notes"] });
+  });
+
   test("a workflow gate can be added, and a workflow written as a condition can be replaced", () => {
     const added = applyEdit(text, { op: "addGate", step: 0, gate: { kind: "workflow", text: "child" } });
     expect(added).toContain('    produces: { artifact: diff, path: "diffs/{slug}.diff" }\n    gates:\n      - workflow: child\n');
@@ -1476,5 +1525,524 @@ steps:
   test("a new workflow description goes before the inputs, in the file's key order", () => {
     const out = applyEdit(text, { op: "setWorkflowField", key: "description", value: "Reviews a diff." });
     expect(out.startsWith("version: 1\nname: parent\ndescription: Reviews a diff.\ninputs:\n")).toBe(true);
+  });
+});
+
+describe("replacing a block value keeps the line after it", () => {
+  // Block scalars and block lists end with their own newline; each edit that
+  // replaces one must leave the following key on its own line.
+  const text = `version: 1
+name: blocks
+description: >
+  A long
+  description.
+steps:
+  - id: a
+    description: >
+      folded
+    instruction: Do.
+    produces:
+      - artifact: x
+        path: >
+          x.md
+    condition:
+      agent: >
+        when needed
+    gates:
+      - agent: >
+          review it
+        route_back_to:
+          - a
+        max_rounds: 2
+  - id: b
+    instruction: Next.
+`;
+  const parse = (out: string) => YAML.parse(out) as { description: string; steps: Record<string, unknown>[] };
+
+  test("a folded workflow or step description replaced by a plain one", () => {
+    const workflow = applyEdit(text, { op: "setWorkflowField", key: "description", value: "short" });
+    expect(workflow).toContain("description: short\nsteps:\n");
+    expect(parse(workflow).description).toBe("short");
+    const step = applyEdit(text, { op: "setStepField", step: 0, key: "description", value: "short" });
+    expect(step).toContain("    description: short\n    instruction: Do.\n");
+    expect(parse(step).steps[0]).toMatchObject({ description: "short", instruction: "Do." });
+  });
+
+  test("a folded output path replaced by a plain one", () => {
+    const out = applyEdit(text, { op: "setOutput", step: 0, mode: "produces", index: 0, fields: { path: "y.md" } });
+    expect(out).toContain("        path: y.md\n    condition:\n");
+    expect(parse(out).steps[0].produces).toEqual([{ artifact: "x", path: "y.md" }]);
+  });
+
+  test("a folded condition or gate text replaced by a plain one", () => {
+    const condition = applyEdit(text, { op: "setCondition", step: 0, condition: { kind: "agent", text: "other" } });
+    expect(condition).toContain("      agent: other\n    gates:\n");
+    expect(parse(condition).steps[0].condition).toEqual({ agent: "other" });
+    const gate = applyEdit(text, { op: "setGate", step: 0, index: 0, fields: { text: "other" } });
+    expect(gate).toContain("      - agent: other\n        route_back_to:\n");
+    expect(parse(gate).steps[0].gates).toEqual([{ agent: "other", route_back_to: ["a"], max_rounds: 2 }]);
+  });
+
+  test("a block route_back_to list that gets a second target stays a block list", () => {
+    const out = applyEdit(text, { op: "setGate", step: 0, index: 0, fields: { route_back_to: ["a", "b"] } });
+    expect(out).toContain("        route_back_to:\n          - a\n          - b\n        max_rounds: 2\n  - id: b\n");
+    expect(parse(out).steps[0].gates).toEqual([{ agent: "review it\n", route_back_to: ["a", "b"], max_rounds: 2 }]);
+  });
+});
+
+describe("review round 6: a flow mapping inside a block list is edited inside its braces", () => {
+  const ok = (out: string) => {
+    const parsed = parseWorkflowText(out);
+    if (!parsed.ok) throw new Error(`${JSON.stringify(parsed.issues)}\n${out}`);
+    return parsed.workflow;
+  };
+  const text = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+    produces:
+      - { artifact: report, path: report.md }
+    gates:
+      - { workflow: child, returns: [report] }
+      - check: default
+`;
+
+  test("clearing the returns of a flow workflow gate keeps the gate", () => {
+    const out = applyEdit(text, { op: "setGate", step: 0, index: 0, fields: { returns: null } });
+    expect(out).toBe(text.replace("{ workflow: child, returns: [report] }", "{ workflow: child }"));
+    expect(YAML.parse(out).steps[0].gates).toEqual([{ workflow: "child" }, { check: "default" }]);
+  });
+
+  test("adding a slug to a flow workflow gate writes it inside the braces, quoted for a flow mapping", () => {
+    const out = applyEdit(text, { op: "setGate", step: 0, index: 0, fields: { slug: "x-{slug}" } });
+    expect(out).toBe(text.replace("{ workflow: child, returns: [report] }", "{ workflow: child, slug: 'x-{slug}', returns: [report] }"));
+    expect(YAML.parse(out).steps[0].gates[0]).toEqual({ workflow: "child", slug: "x-{slug}", returns: ["report"] });
+  });
+
+  test("a flow gate written as the step's only gate is edited in place", () => {
+    const single = text.replace("    gates:\n      - { workflow: child, returns: [report] }\n      - check: default\n", "    gates: { agent: review }\n");
+    const out = applyEdit(single, { op: "setGate", step: 0, index: 0, fields: { description: "d" } });
+    expect(out).toBe(single.replace("{ agent: review }", "{ agent: review, description: d }"));
+    expect(ok(out).steps[0].gates).toEqual([{ kind: "agent", text: "review", description: "d", route_back_to: [] }]);
+  });
+
+  test("a flow gate's text with a comma is quoted", () => {
+    const out = applyEdit(text, { op: "setGate", step: 0, index: 1, fields: { text: "a, b" } });
+    expect(YAML.parse(out).steps[0].gates[1]).toEqual({ check: "a, b" });
+    const flowList = text.replace("      - { workflow: child, returns: [report] }\n      - check: default\n", "").replace("    gates:\n", "    gates: [{ agent: review }]\n");
+    expect(YAML.parse(applyEdit(flowList, { op: "setGate", step: 0, index: 0, fields: { text: "a, b" } })).steps[0].gates).toEqual([{ agent: "a, b" }]);
+  });
+
+  test("a flow condition's description is added and removed inside its braces", () => {
+    const withCondition = text.replace("    produces:\n", "    condition: { agent: when needed, description: d }\n    produces:\n");
+    const removed = applyEdit(withCondition, { op: "setCondition", step: 0, condition: { kind: "agent", text: "when needed" } });
+    expect(removed).toBe(withCondition.replace("{ agent: when needed, description: d }", "{ agent: when needed }"));
+    const added = applyEdit(removed, { op: "setCondition", step: 0, condition: { kind: "agent", text: "when needed", description: "e" } });
+    expect(added).toBe(withCondition.replace("description: d", "description: e"));
+    const comma = applyEdit(removed, { op: "setCondition", step: 0, condition: { kind: "agent", text: "when, needed" } });
+    expect(YAML.parse(comma).steps[0].condition).toEqual({ agent: "when, needed" });
+  });
+
+  test("a flow output entry's value with a comma is quoted", () => {
+    const out = applyEdit(text, { op: "setOutput", step: 0, mode: "produces", index: 0, fields: { path: "a, b.md" } });
+    expect(YAML.parse(out).steps[0].produces).toEqual([{ artifact: "report", path: "a, b.md" }]);
+  });
+
+  const flowStep = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+  - { id: b, title: T, instruction: y }
+`;
+
+  test("a step field of a flow step is removed, added and set inside its braces", () => {
+    const removed = applyEdit(flowStep, { op: "setStepField", step: 1, key: "title", value: null });
+    expect(removed).toBe(flowStep.replace("{ id: b, title: T, instruction: y }", "{ id: b, instruction: y }"));
+    const added = applyEdit(flowStep, { op: "setStepField", step: 1, key: "phase", value: "p" });
+    expect(added).toBe(flowStep.replace("title: T,", "title: T, phase: p,"));
+    const comma = applyEdit(flowStep, { op: "setStepField", step: 1, key: "title", value: "a, b" });
+    expect(ok(comma).steps[1]).toMatchObject({ id: "b", title: "a, b", instruction: "y" });
+    const consumes = applyEdit(flowStep, { op: "setConsumes", step: 1, ids: ["x"] });
+    expect(consumes).toBe(flowStep.replace("instruction: y }", "instruction: y, consumes: [x] }"));
+  });
+
+  test("a block instruction inside a flow step throws instead of corrupting the file", () => {
+    expect(() => applyEdit(flowStep, { op: "setInstruction", step: 1, text: "new", style: ">" })).toThrow(/flow mapping/);
+  });
+
+  test("a condition, an output or a gate is added inside a flow step's braces", () => {
+    const keep = "  - id: a\n    instruction: do it\n";
+    const cases: [Edit, string][] = [
+      [{ op: "setCondition", step: 1, condition: { kind: "agent", text: "x" } }, "  - { id: b, title: T, instruction: y, condition: { agent: x } }\n"],
+      [{ op: "addOutput", step: 1, mode: "produces", artifact: "q", path: "q.md" }, "  - { id: b, title: T, instruction: y, produces: [{ artifact: q, path: q.md }] }\n"],
+      [{ op: "addGate", step: 1, gate: { kind: "check", text: "default" } }, "  - { id: b, title: T, instruction: y, gates: [{ check: default }] }\n"],
+    ];
+    for (const [edit, line] of cases) {
+      const out = applyEdit(flowStep, edit);
+      expect(out).toBe(`version: 1\nname: demo\nsteps:\n${keep}${line}`);
+      ok(out);
+    }
+    const flowGates = flowStep.replace("instruction: y }", "instruction: y, gates: [{ check: default }, { agent: review }], produces: [] }");
+    expect(applyEdit(flowGates, { op: "removeGate", step: 1, index: 0 })).toBe(flowGates.replace("[{ check: default }, { agent: review }]", "[{ agent: review }]"));
+    expect(applyEdit(flowGates, { op: "addOutput", step: 1, mode: "produces", artifact: "q", path: "q.md" })).toBe(
+      flowGates.replace("produces: []", "produces: [{ artifact: q, path: q.md }]"),
+    );
+  });
+});
+
+describe("review round 7: the first key of a list item's mapping shares the line with its dash", () => {
+  const ok = (out: string) => {
+    const parsed = parseWorkflowText(out);
+    if (!parsed.ok) throw new Error(`${JSON.stringify(parsed.issues)}\n${out}`);
+    return parsed.workflow;
+  };
+  const gates = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+    gates:
+      - returns: [report]
+        workflow: child
+      - check: default
+`;
+
+  test("removing a gate's first key moves the next key onto the dash line", () => {
+    const out = applyEdit(gates, { op: "setGate", step: 0, index: 0, fields: { returns: null } });
+    expect(out).toBe(gates.replace("      - returns: [report]\n        workflow: child\n", "      - workflow: child\n"));
+    expect(YAML.parse(out).steps[0].gates).toEqual([{ workflow: "child" }, { check: "default" }]);
+  });
+
+  test("adding a key before a gate's first key writes it after the dash and moves the old first key to its own line", () => {
+    const out = applyEdit(gates, { op: "setGate", step: 0, index: 0, fields: { slug: "x" } });
+    expect(out).toBe(gates.replace("      - returns: [report]\n", "      - slug: x\n        returns: [report]\n"));
+    expect(YAML.parse(out).steps[0].gates).toEqual([{ slug: "x", returns: ["report"], workflow: "child" }, { check: "default" }]);
+  });
+
+  test("a comment on the first key's line stays with that key when a key is added before it", () => {
+    const commented = gates.replace("- returns: [report]", "- returns: [report] # what comes back");
+    const out = applyEdit(commented, { op: "setGate", step: 0, index: 0, fields: { slug: "x" } });
+    expect(out).toBe(commented.replace("      - returns:", "      - slug: x\n        returns:"));
+    expect(YAML.parse(out).steps[0].gates[0]).toEqual({ slug: "x", returns: ["report"], workflow: "child" });
+  });
+
+  test("removing the first key keeps the comment lines above the next key, after the dash", () => {
+    const commented = gates.replace("        workflow: child\n", "        # the child to run\n        workflow: child\n");
+    const out = applyEdit(commented, { op: "setGate", step: 0, index: 0, fields: { returns: null } });
+    expect(out).toBe(commented.replace("      - returns: [report]\n        # the child to run\n", "      - # the child to run\n"));
+    expect(YAML.parse(out).steps[0].gates).toEqual([{ workflow: "child" }, { check: "default" }]);
+  });
+
+  const steps = `version: 1
+name: demo
+inputs:
+  - artifact: x
+steps:
+  - title: T
+    id: a
+    instruction: do it
+  - phase: p
+    id: b
+    instruction: again
+  - consumes: [x]
+    id: c
+    instruction: more
+`;
+
+  test("a step's first field is removed and a field is added before a step's first field", () => {
+    const removed = applyEdit(steps, { op: "setStepField", step: 0, key: "title", value: null });
+    expect(removed).toBe(steps.replace("  - title: T\n    id: a\n", "  - id: a\n"));
+    expect(ok(removed).steps[0]).toMatchObject({ id: "a", instruction: "do it" });
+    const added = applyEdit(steps, { op: "setStepField", step: 1, key: "title", value: "U" });
+    expect(added).toBe(steps.replace("  - phase: p\n", "  - title: U\n    phase: p\n"));
+    expect(ok(added).steps[1]).toMatchObject({ id: "b", title: "U", phase: "p" });
+  });
+
+  test("a condition of several lines is added before, and removed as, a step's first field", () => {
+    const added = applyEdit(steps, { op: "setCondition", step: 2, condition: { kind: "agent", text: "when needed" } });
+    expect(added).toBe(steps.replace("  - consumes: [x]\n", "  - condition:\n      agent: when needed\n    consumes: [x]\n"));
+    expect(YAML.parse(added).steps[2]).toEqual({ condition: { agent: "when needed" }, consumes: ["x"], id: "c", instruction: "more" });
+    const removed = applyEdit(added, { op: "setCondition", step: 2, condition: null });
+    expect(removed).toBe(steps);
+  });
+
+  test("an output entry's description written first is removed", () => {
+    const t = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+    produces:
+      - description: the report
+        artifact: report
+        path: report.md
+`;
+    const out = applyEdit(t, { op: "setOutput", step: 0, mode: "produces", index: 0, fields: { description: null } });
+    expect(out).toBe(t.replace("      - description: the report\n        artifact: report\n", "      - artifact: report\n"));
+    expect(ok(out).steps[0].produces).toEqual([{ artifact: "report", path: "report.md" }]);
+  });
+
+  test("removing the only key of a list item's mapping throws instead of leaving a bare dash", () => {
+    const t = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+    produces:
+      - description: d
+`;
+    expect(() => applyEdit(t, { op: "setOutput", step: 0, mode: "produces", index: 0, fields: { description: null } })).toThrow(/only key/);
+  });
+});
+
+describe("review round 7 findings: steps and gates written in braces", () => {
+  test("F1: clearing a field of a step in braces keeps the alias of the field before it", () => {
+    const t = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: &do Do it.
+  - { id: b, instruction: *do, title: T }
+`;
+    const out = applyEdit(t, { op: "setStepField", step: 1, key: "title", value: null });
+    expect(out).toBe(t.replace(", title: T", ""));
+    expect(YAML.parse(out).steps[1]).toEqual({ id: "b", instruction: "Do it." });
+  });
+
+  test("F2: editing one field of a gate in braces keeps the anchor another step uses", () => {
+    const t = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+    gates:
+      - { agent: &review review the change, max_rounds: 2 }
+  - id: b
+    instruction: again
+    gates:
+      - agent: *review
+`;
+    const out = applyEdit(t, { op: "setGate", step: 0, index: 0, fields: { max_rounds: 3 } });
+    expect(out).toBe(t.replace("max_rounds: 2", "max_rounds: 3"));
+    const parsed = parseWorkflowText(out);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    expect(parsed.workflow.steps[1].gates[0]).toMatchObject({ kind: "agent", text: "review the change" });
+  });
+
+  test("F3: editing the description of a gate in braces keeps an escaped newline in its script", () => {
+    const t = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: do it
+    gates:
+      - { script: "bun test\\nbun run lint", description: old }
+`;
+    const out = applyEdit(t, { op: "setGate", step: 0, index: 0, fields: { description: "new" } });
+    expect(out).toBe(t.replace("description: old", "description: new"));
+    expect(YAML.parse(out).steps[0].gates[0]).toEqual({ script: "bun test\nbun run lint", description: "new" });
+  });
+});
+
+describe("the safety net", () => {
+  test("accepts text that means the expected data, aliases resolved", () => {
+    expect(() => verifyEdit("a: &x [1, 2]\nb: *x\n", { a: [1, 2], b: [1, 2] })).not.toThrow();
+  });
+
+  test("throws when the text does not parse", () => {
+    expect(() => verifyEdit("a: [1, 2\n", { a: [1, 2] })).toThrow(/invalid YAML/);
+  });
+
+  test("throws when the text means other data, and says where", () => {
+    expect(() => verifyEdit("steps:\n  - id: a\n    instruction:\n", { steps: [{ id: "a", instruction: "Do it." }] })).toThrow(/steps\.0\.instruction/);
+    expect(() => verifyEdit("a: *x\n", { a: 1 })).toThrow();
+  });
+});
+
+describe("every kind of edit keeps comments, anchors and aliases elsewhere", () => {
+  const text = `# The workflow's own comment
+version: 1
+name: demo # the name
+description: >
+  A description that is folded
+  over two lines.
+steps:
+  # the first step
+  - id: a
+    title: A   # spaced comment
+    instruction: &shared >
+      Shared instruction text that is folded
+      over two lines.
+    produces:
+      - artifact: notes # inline
+        path: notes.md
+    gates:
+      - &review { agent: review the change, max_rounds: 2 }
+  # the second step
+  - id: b
+    instruction: Do b.
+    consumes: [notes]
+    produces:
+      - artifact: plan
+        path: plan.md
+    gates:
+      - check: default
+      - owner-action: approve
+  - id: c
+    instruction: *shared
+    gates:
+      - *review
+    # trailing note of c
+`;
+  const edits: Edit[] = [
+    { op: "setWorkflowField", key: "name", value: "renamed" },
+    { op: "setWorkflowField", key: "description", value: "short" },
+    { op: "setStepField", step: 1, key: "title", value: "B" },
+    { op: "setStepField", step: 1, key: "id", value: "bee" },
+    { op: "setInstruction", step: 1, text: "Line one.\nLine two.", style: "|" },
+    { op: "setCondition", step: 1, condition: { kind: "agent", text: "when needed", description: "why" } },
+    { op: "setConsumes", step: 1, ids: ["notes", "more"] },
+    { op: "addOutput", step: 1, mode: "produces", artifact: "extra", path: "extra.md" },
+    { op: "removeOutput", step: 1, mode: "produces", index: 0 },
+    { op: "setOutput", step: 1, mode: "produces", index: 0, fields: { path: "other.md", description: "the plan" } },
+    { op: "changeOutputMode", step: 1, mode: "produces", index: 0, to: "updates" },
+    { op: "addGate", step: 1, gate: { kind: "script", text: "bun test" } },
+    { op: "removeGate", step: 1, index: 0 },
+    { op: "setGate", step: 1, index: 1, fields: { text: "approve it", route_back_to: ["a"] } },
+    { op: "insertStep", at: 1, step: { id: "n", instruction: "New." } },
+    { op: "deleteStep", index: 1 },
+    { op: "moveStep", from: 1, to: 2 },
+  ];
+  const kept = [
+    "# The workflow's own comment",
+    "  # the first step",
+    "    title: A   # spaced comment",
+    "    instruction: &shared >\n      Shared instruction text that is folded\n      over two lines.\n",
+    "      - artifact: notes # inline",
+    "      - &review { agent: review the change, max_rounds: 2 }",
+    "    instruction: *shared",
+    "      - *review",
+    "    # trailing note of c",
+  ];
+  const aliased = (out: string) => YAML.parse(out).steps.find((s: { id: string }) => s.id === "c");
+
+  for (const edit of edits) {
+    test(`${edit.op}${"key" in edit ? ` ${edit.key}` : ""}`, () => {
+      const out = applyEdit(text, edit);
+      expect(out).not.toBe(text);
+      expect(YAML.parseDocument(out).errors).toEqual([]);
+      for (const line of kept) expect(out).toContain(line);
+      if (edit.op !== "setWorkflowField") expect(out).toContain("name: demo # the name\n");
+      expect(aliased(out)).toEqual(aliased(text));
+      if (edit.op !== "deleteStep") expect(out).toContain("  # the second step\n");
+    });
+  }
+});
+
+describe("aliases whose anchor the edit changes", () => {
+  const text = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: &do Do it.
+  - id: b
+    instruction: *do
+`;
+
+  test("editing the anchored value leaves the alias meaning the old value", () => {
+    const out = applyEdit(text, { op: "setStepField", step: 0, key: "title", value: "T" });
+    expect(out).toBe(text.replace("  - id: a\n", "  - id: a\n    title: T\n"));
+    const changed = applyEdit(text, { op: "setInstruction", step: 0, text: "Do something else.", style: ">" });
+    expect(YAML.parse(changed).steps.map((s: { instruction: string }) => s.instruction)).toEqual(["Do something else.\n", "Do it."]);
+  });
+
+  test("deleting the step with the anchor writes the alias's value out", () => {
+    const out = applyEdit(text, { op: "deleteStep", index: 0 });
+    expect(out).toBe("version: 1\nname: demo\nsteps:\n  - id: b\n    instruction: Do it.\n");
+  });
+
+  test("moving the alias before its anchor writes the alias's value out", () => {
+    const out = applyEdit(text, { op: "moveStep", from: 1, to: 0 });
+    expect(YAML.parseDocument(out).errors).toEqual([]);
+    expect(YAML.parse(out).steps).toEqual([
+      { id: "b", instruction: "Do it." },
+      { id: "a", instruction: "Do it." },
+    ]);
+  });
+});
+
+describe("an anchored collection that holds an alias of its own", () => {
+  const text = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: x
+    gates: &g [{ agent: &review Review. }, { agent: *review }]
+  - id: b
+    instruction: y
+    gates: *g
+`;
+  const gates = [{ agent: "Review." }, { agent: "Review." }];
+
+  test("deleting the step with the anchor writes the whole value out, nested aliases included", () => {
+    const out = applyEdit(text, { op: "deleteStep", index: 0 });
+    expect(YAML.parseDocument(out).errors).toEqual([]);
+    expect(YAML.parse(out).steps).toEqual([{ id: "b", instruction: "y", gates }]);
+  });
+
+  test("moving the alias before its anchor writes the whole value out, nested aliases included", () => {
+    const out = applyEdit(text, { op: "moveStep", from: 1, to: 0 });
+    expect(YAML.parseDocument(out).errors).toEqual([]);
+    expect(YAML.parse(out).steps).toEqual([
+      { id: "b", instruction: "y", gates },
+      { id: "a", instruction: "x", gates },
+    ]);
+  });
+});
+
+describe("an alias at the top level of the file", () => {
+  const text = `version: 1
+name: &n demo
+description: *n
+steps:
+  - id: a
+    instruction: x
+`;
+
+  test("editing the anchored name writes the alias's old value out in its own place", () => {
+    const out = applyEdit(text, { op: "setWorkflowField", key: "name", value: "renamed" });
+    expect(YAML.parse(out)).toEqual({ version: 1, name: "renamed", description: "demo", steps: [{ id: "a", instruction: "x" }] });
+    expect(out).toBe("version: 1\nname: &n renamed\ndescription: demo\nsteps:\n  - id: a\n    instruction: x\n");
+  });
+});
+
+describe("moving a block output into a list written in brackets", () => {
+  const text = `version: 1
+name: demo
+steps:
+  - id: a
+    instruction: x
+    produces:
+      - artifact: p
+        path: a, b.md
+        description: >
+          A folded
+          description.
+    updates: [{ artifact: q, path: q.md }]
+`;
+
+  test("a value that cannot stand as written inside braces is written so that it can", () => {
+    const out = applyEdit(text, { op: "changeOutputMode", step: 0, mode: "produces", index: 0, to: "updates" });
+    expect(YAML.parseDocument(out).errors).toEqual([]);
+    expect(YAML.parse(out).steps[0]).toEqual({
+      id: "a",
+      instruction: "x",
+      updates: [
+        { artifact: "q", path: "q.md" },
+        { artifact: "p", path: "a, b.md", description: "A folded description.\n" },
+      ],
+    });
   });
 });

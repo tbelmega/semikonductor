@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+// The app: the top bar, the page switcher's pages, and the state they share.
+// One workflow is selected for every page; the Edit page edits it, and the
+// Workstreams page shows its workstreams. The Compare page shows any two
+// workflows side by side.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, FileCode, Settings2, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   api,
   ApiError,
@@ -18,6 +22,8 @@ import { mergeListed } from "./model/listedWorkflows.ts";
 import { givesWay } from "./model/readOnlyView.ts";
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { copyWrite, editedWorkflow } from "./model/editWorkflow.ts";
+import { selectionAfterMove } from "./model/stepSelection.ts";
+import { plural, workstreamLinkDir } from "./model/workstreams.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
@@ -33,19 +39,23 @@ import {
   type Session,
 } from "./workflowView.ts";
 import { problemsByStep, problemsForText } from "./validate.ts";
-import { WorkflowList } from "./WorkflowList.tsx";
-import { ProjectList } from "./ProjectList.tsx";
-import { ComparePage, compareOrder, ModeSwitch, type Mode } from "./ComparePage.tsx";
-import { defaultComparePair, swapPair } from "./model/compare.ts";
+import { LOCATION_ROOT, WorkflowList } from "./WorkflowList.tsx";
+import { ComparePage, compareOrder } from "./ComparePage.tsx";
+import { comparePair, comparePick } from "./model/compare.ts";
 import { Flow } from "./Flow.tsx";
-import { Inspector, type InspectorTab } from "./Inspector.tsx";
-import { RunLinkButton } from "./Links.tsx";
-import { dateTime, duration, projectName, RUN_STATE, runDuration, runOption, runState } from "./runView.ts";
+import { RailPanel, RailStrip, type RailTab, type WorkflowView } from "./Inspector.tsx";
+import { TopBar, PAGES, type Page } from "./TopBar.tsx";
+import { Workstreams, type WorkstreamView } from "./Workstreams.tsx";
+import { projectName } from "./runView.ts";
 
 type SaveModal = { type: "save"; asNew: boolean; location: LocationId; folder: string; name: string; error?: string };
 type NewModal = { type: "new"; location: LocationId; folder: string; name: string; error?: string };
 type Modal = SaveModal | NewModal;
 type DiskVersion = { text: string; hash: string; at: string };
+
+// Whether a key press goes to a text field rather than to the page.
+const typingIn = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -56,25 +66,24 @@ export function App() {
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
   const [workstreams, setWorkstreams] = useState<WorkstreamSummary[]>([]);
   const [projects, setProjects] = useState<{ projects: ProjectSummary[]; error?: string }>({ projects: [] });
+  const [page, setPage] = useState<Page>("edit");
   const [currentKey, setCurrentKey] = useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [tab, setTab] = useState<InspectorTab>("step");
-  // The detail drawer on the right. Closed until something needs its detail
-  // view: a selected step, the library, a run, the workflow's settings or YAML.
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const showTab = (next: InspectorTab) => {
-    setTab(next);
-    setDrawerOpen(true);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  // The Edit page's right rail: closed until a strip button or a step opens it.
+  const [railOpen, setRailOpen] = useState(false);
+  const [railTab, setRailTab] = useState<RailTab>("workflow");
+  const [workflowView, setWorkflowView] = useState<WorkflowView>("form");
+  const showTab = (next: RailTab) => {
+    setRailTab(next);
+    setRailOpen(true);
   };
-  const [compareRequest, setCompareRequest] = useState(0);
-  // The open run, by its runKey.
-  const [openRunKey, setOpenRunKey] = useState<string | null>(null);
-  // The workflow last opened by itself (from the list or by following a
-  // link), not with a run; another project's file opened so stays open.
-  const [linkedKey, setLinkedKey] = useState<string | null>(null);
-  // Edit mode is the editor; compare mode shows two workflows side by side.
-  const [mode, setMode] = useState<Mode>("edit");
-  const [comparePair, setComparePair] = useState<[string | null, string | null]>([null, null]);
+  // The Workstreams page: every workflow's workstreams or the selected one's,
+  // the selected workstream by runKey, and how it is shown.
+  const [allWorkstreams, setAllWorkstreams] = useState(false);
+  const [workstreamKeySelected, setWorkstreamKeySelected] = useState<string | null>(null);
+  const [workstreamView, setWorkstreamView] = useState<WorkstreamView>("summary");
+  // The Compare page: the workflows on its left and right, by key.
+  const [compareRight, setCompareRight] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(false);
   const [showDescriptions, setShowDescriptions] = useState(true);
@@ -115,8 +124,8 @@ export function App() {
   useEffect(() => {
     reloadData().catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
-  // After a project is added or removed: its runs, the projects and the
-  // other projects' workflow files. The open workflows of the three
+  // After a project is added or removed: its workstreams, the projects and
+  // the other projects' workflow files. The open workflows of the three
   // locations stay as they are, since the listing can lack edits whose
   // working copy is still to be written.
   const refreshProjects = async () => {
@@ -127,38 +136,42 @@ export function App() {
     setProjects(p);
   };
 
-  // Escape closes the drawer, unless a dialog is open.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !modal) setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [modal]);
-
   const workflow = useMemo(() => workflows.find((w) => workflowKey(w) === currentKey) ?? null, [workflows, currentKey]);
   const steps = useMemo(() => (workflow ? stepViews(workflow) : []), [workflow]);
   const problems = useMemo(() => (workflow ? problemsForText(workflow.openText) : []), [workflow]);
   const byStep = useMemo(() => problemsByStep(problems), [problems]);
   const dirty = !!workflow && workflow.openText !== workflow.text;
   const disk = currentKey ? diskVersions[currentKey] : undefined;
-  const runsForWorkflow = workflow ? workstreams.filter((item) => item.workflowPath === workflow.path) : [];
-  const run = openRunKey ? runsForWorkflow.find((item) => runKey(item) === openRunKey) : undefined;
-  // The workflow file of another project: shown with one of its runs, or
-  // after a link to it was followed, and never edited or saved.
+  // The workflow file a workstream of another project follows: shown, never
+  // edited or saved.
   const readOnly = workflow?.location === "run";
-  // Shown, not edited: a run is open, or the file is read-only.
-  const viewOnly = !!run || readOnly;
   const localWorkflows = useMemo(() => workflows.filter((w) => w.location !== "run"), [workflows]);
-  const openedByLink = !!currentKey && linkedKey === currentKey;
+  const selected = selectedIndex !== null && selectedIndex < steps.length ? selectedIndex : null;
 
-  // A workflow that is no longer listed, or a read-only one whose run is gone
-  // (closed, or no longer listed) and that no link opened, gives way to the
-  // first workflow of the three locations.
+  // Keys 1 to 4 switch pages, when focus is not in a field; Escape closes the
+  // rail, and a second Escape clears the step selection. Escape in a field
+  // only leaves the field, so a field that applies its value on blur keeps it
+  // instead of losing it when the rail unmounts.
+  const keyState = useRef({ modal, railOpen, selected, page, goPage: (_: Page) => {} });
+  keyState.current = { modal, railOpen, selected, page, goPage: (next: Page) => goPage(next) };
   useEffect(() => {
-    if (!localWorkflows[0]) return;
-    if (givesWay({ listed: !!workflow, readOnly, hasRun: !!run, openedByLink })) openWorkflowKey(workflowKey(localWorkflows[0]));
-  }, [!!workflow, readOnly, !!run, openedByLink, localWorkflows]);
+    const onKey = (event: KeyboardEvent) => {
+      const now = keyState.current;
+      if (now.modal || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "Escape") {
+        if (now.page !== "edit") return;
+        if (typingIn(event.target)) (event.target as HTMLElement).blur();
+        else if (now.railOpen) setRailOpen(false);
+        else if (now.selected !== null) setSelectedIndex(null);
+        return;
+      }
+      if (typingIn(event.target)) return;
+      const target = PAGES[Number(event.key) - 1];
+      if (/^[1-4]$/.test(event.key) && target?.built) now.goPage(target.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Working copies are the crash-safe form of every edit; equal text removes it.
   useEffect(() => {
@@ -245,8 +258,8 @@ export function App() {
     };
   }, [workflow?.path, workflow?.onDisk, readOnly]);
 
-  // Compare mode's copy: edits any workflow, not only the open one, and
-  // stores the result as copyWrite says.
+  // The Compare page's copy: edits any workflow, not only the selected one,
+  // and stores the result as copyWrite says.
   const applyTo = (key: string, list: Edit[], message: string) => {
     const target = workflows.find((w) => workflowKey(w) === key);
     if (!target) return;
@@ -274,9 +287,9 @@ export function App() {
           setSelectedIndex(edit.at);
           showTab("step");
         }
-        if (edit.op === "moveStep") setSelectedIndex(edit.to);
+        if (edit.op === "moveStep") setSelectedIndex((i) => selectionAfterMove(i, edit.from, edit.to));
         if (edit.op === "deleteStep")
-          setSelectedIndex((i) => Math.max(0, Math.min(i > edit.index ? i - 1 : i, steps.length - 2)));
+          setSelectedIndex((i) => (i === null || i === edit.index ? null : i > edit.index ? i - 1 : i));
       }
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e));
@@ -305,25 +318,84 @@ export function App() {
     while (steps.some((s) => s.id === id)) id = `new-step-${n++}`;
     return id;
   };
-  const openCompare = () => {
-    const keys = compareOrder(workflows).map(workflowKey);
-    const kept = comparePair.every((key) => key !== null && keys.includes(key));
-    if (!kept) setComparePair(defaultComparePair(keys, currentKey));
-    setDrawerOpen(false);
-    setProblemsOpen(false);
-    setMode("compare");
-  };
-  const switchMode = (next: Mode) => (next === "compare" ? openCompare() : setMode("edit"));
-  const openWorkflowKey = (key: string) => {
-    setMode("edit");
+  // Selects a workflow for every page. The step selection belongs to the
+  // workflow it was made in, so it is cleared, and a panel that needs it closes.
+  const selectWorkflow = (key: string) => {
+    if (key === currentKey) return;
     setCurrentKey(key);
-    setLinkedKey(key);
-    setSelectedIndex(0);
-    setTab("step");
-    setDrawerOpen(false);
-    setCompareRequest(0);
-    setOpenRunKey(null);
+    setSelectedIndex(null);
     setProblemsOpen(false);
+    const next = workflows.find((w) => workflowKey(w) === key);
+    if (railTab === "step" || (railTab === "library" && next?.location === "run")) setRailOpen(false);
+  };
+  // A selected workflow that is no longer listed, as after its project was
+  // removed, gives way to the first workflow of the three locations. Another
+  // project's file is selected by itself here (from the lane or a link),
+  // never with a workstream open, so it otherwise stays until something else
+  // is selected.
+  useEffect(() => {
+    if (!currentKey || !localWorkflows[0]) return;
+    if (givesWay({ listed: !!workflow, readOnly, hasRun: false, openedByLink: true })) selectWorkflow(workflowKey(localWorkflows[0]));
+  }, [currentKey, !!workflow, readOnly, localWorkflows]);
+  // The Compare page's two workflows: the selected workflow on the left, and
+  // its own right side, kept while it is listed.
+  const shownPair = comparePair(compareOrder(workflows).map(workflowKey), currentKey, compareRight);
+  const openCompare = () => {
+    setCompareRight(shownPair[1]);
+    setProblemsOpen(false);
+    setPage("compare");
+  };
+  const pickCompare = (side: "left" | "right" | "swap", key?: string) => {
+    const next = comparePick(shownPair, side, key);
+    setCompareRight(next.right);
+    if (next.select !== null) selectWorkflow(next.select);
+  };
+  const goPage = (next: Page) => (next === "compare" ? openCompare() : setPage(next));
+  // A workflow opened from the Compare page: selected, on the Edit page.
+  const editWorkflow = (key: string) => {
+    selectWorkflow(key);
+    setPage("edit");
+  };
+  const openWorkflowStep = (key: string, stepIndex: number) => {
+    selectWorkflow(key);
+    setSelectedIndex(stepIndex);
+    showTab("step");
+  };
+  const selectStep = (index: number) => {
+    setSelectedIndex(index);
+    setProblemsOpen(false);
+    if (readOnly) return;
+    setRailTab((tab) => (!railOpen || tab === "workflow" ? "step" : tab));
+    setRailOpen(true);
+  };
+  // A workflow reference of the open workflow (a hand-off, a workflow gate),
+  // resolved the way fuse-flow resolves it: a name in the workflows of the
+  // project the open file belongs to when it is another project's file, else
+  // of this project.
+  const linkProject = (readOnly ? workflow?.project : undefined) ?? session?.root;
+  const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
+  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
+  // The Compare page shows this project's workflows only, so their references resolve here.
+  const localLinkDir = projects.projects.find((p) => p.path === session?.root)?.workflowsDir ?? session?.locations[0].path ?? "";
+  const resolveLocalLink = (ref: string, from: OpenWorkflow) => linkTo(ref, from, workflows, localLinkDir, unavailable);
+  // A workstream's workflow references resolve in the workstream's own project.
+  const resolveWorkstreamLink = (item: WorkstreamSummary, from: OpenWorkflow) => (ref: string) =>
+    linkTo(ref, from, workflows, workstreamLinkDir(item, projects.projects, localLinkDir), unavailable);
+
+  // A workstream chosen on the Workstreams page, or from the Workflow tab.
+  // When it follows another workflow than the selected one, that workflow
+  // becomes the selected one, so the workstream stays in the list.
+  const showWorkstream = (item: WorkstreamSummary) => {
+    setWorkstreamKeySelected(runKey(item));
+    if (allWorkstreams || item.workflowPath === workflow?.path) return;
+    const target = item.workflowPath ? workflows.find((w) => w.path === item.workflowPath) : undefined;
+    if (target) selectWorkflow(workflowKey(target));
+    else setAllWorkstreams(true);
+  };
+  const openWorkstreamPage = (item: WorkstreamSummary) => {
+    setAllWorkstreams(false);
+    setWorkstreamKeySelected(runKey(item));
+    setPage("workstreams");
   };
 
   const discard = async () => {
@@ -337,66 +409,6 @@ export function App() {
       return next;
     });
     showToast(`Discarded changes to ${workflow.file}`);
-  };
-
-  const openRun = (key: string) => {
-    setOpenRunKey(key);
-    showTab("run");
-    setProblemsOpen(false);
-  };
-  // A run from the projects list: open the workflow file it follows with it.
-  const openRunOfAnyWorkflow = (item: WorkstreamSummary) => {
-    setMode("edit");
-    const target = item.workflowPath ? workflows.find((w) => w.path === item.workflowPath) : undefined;
-    if (!target) {
-      showToast(`The workflow of ${item.slug}, ${item.workflow}, is not found in ${item.project}`);
-      return;
-    }
-    if (workflowKey(target) !== currentKey) {
-      setCurrentKey(workflowKey(target));
-      setLinkedKey(null);
-      setSelectedIndex(0);
-      setCompareRequest(0);
-    }
-    openRun(runKey(item));
-  };
-  const closeRun = () => {
-    setOpenRunKey(null);
-    setCompareRequest(0);
-    setTab("step");
-  };
-  const openWorkflowStep = (key: string, stepIndex: number) => {
-    setMode("edit");
-    setCurrentKey(key);
-    setLinkedKey(key);
-    setSelectedIndex(stepIndex);
-    setOpenRunKey(null);
-    setCompareRequest(0);
-    showTab("step");
-  };
-  // A workflow reference of the open workflow (a hand-off, a workflow gate),
-  // resolved the way fuse-flow resolves it: a name in the workflows of the
-  // open run's project, else of the project the open file belongs to.
-  const linkProject = run?.project ?? (readOnly ? workflow?.project : undefined) ?? session?.root;
-  const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
-  const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
-  // Compare mode shows this project's workflows only, so their references resolve here.
-  const localLinkDir = projects.projects.find((p) => p.path === session?.root)?.workflowsDir ?? session?.locations[0].path ?? "";
-  const resolveLocalLink = (ref: string, from: OpenWorkflow) => linkTo(ref, from, workflows, localLinkDir, unavailable);
-  // A linked run (the run a run came after, its parent, a child) is named by
-  // slug, so it is looked up in the open run's project.
-  const findRun = (slug: string) =>
-    workstreams.find((item) => item.project === (run?.project ?? session?.root) && item.slug === slug);
-  // Opens a linked run, in the workflow it follows.
-  const openAnyRun = (slug: string) => {
-    setMode("edit");
-    const target = findRun(slug);
-    if (!target) {
-      showToast(`Workstream ${slug} is not one Komposer lists.`);
-      return;
-    }
-    setProblemsOpen(false);
-    openRunOfAnyWorkflow(target);
   };
 
   const createNew = () => setModal({ type: "new", location: "project", folder: "", name: "" });
@@ -422,9 +434,9 @@ export function App() {
       workingCopy: text,
     });
     setWorkflows((all) => [...all, created]);
-    setMode("edit");
     setCurrentKey(workflowKey(created));
     setSelectedIndex(0);
+    setPage("edit");
     showTab("step");
     setModal(null);
   };
@@ -534,244 +546,183 @@ export function App() {
   };
 
   if (error) return <div className="app-error">Failed to load Komposer: {error}</div>;
-  if (!session || !workflow) return <div className="app-loading">Loading…</div>;
-  const status = run
-    ? "run · read-only"
-    : readOnly
-      ? "another project · read-only"
-      : !workflow.onDisk
-      ? "new · working copy"
-      : dirty
-        ? "modified · working copy"
-        : "saved";
-  const activeRuns = workstreams.filter((w) => w.workflowPath === workflow.path && w.summary?.status !== "COMPLETED");
-  const structural = structureChanges(workflow, steps);
+  if (!session) return <div className="app-loading">Loading…</div>;
+  // After projects were added or removed; open workflows and their edits stay.
+  const projectsChanged = () => refreshProjects().catch((e) => showToast(e instanceof Error ? e.message : String(e)));
+  const lane = (
+    <WorkflowList
+      mode={page === "workstreams" ? "workstreams" : "edit"}
+      workflows={workflows}
+      currentKey={(page === "workstreams" && allWorkstreams) || page === "compare" ? null : currentKey}
+      onOpen={(key) => {
+        selectWorkflow(key);
+        if (page === "compare") setPage("edit");
+        if (page === "workstreams") {
+          setAllWorkstreams(false);
+          setWorkstreamKeySelected(null);
+        }
+      }}
+      workstreams={workstreams}
+      onNew={createNew}
+      allWorkstreams={allWorkstreams}
+      onAllWorkstreams={() => {
+        setAllWorkstreams(true);
+        setWorkstreamKeySelected(null);
+      }}
+    />
+  );
 
   return (
-    <div className={`screen${drawerOpen && mode === "edit" ? " has-drawer" : ""}`}>
-      <WorkflowList
-        workflows={workflows}
-        currentKey={mode === "compare" ? null : currentKey}
-        onOpen={openWorkflowKey}
-        workstreams={workstreams}
-        onNew={createNew}
-        footer={
-          <ProjectList
-            projects={projects.projects}
-            error={projects.error}
-            workstreams={workstreams}
-            currentRun={run ? runKey(run) : null}
-            onOpenRun={openRunOfAnyWorkflow}
-            onChanged={() => refreshProjects().catch((e) => showToast(e instanceof Error ? e.message : String(e)))}
-            onMessage={showToast}
-          />
-        }
-        onCompare={openCompare}
-        compareActive={mode === "compare"}
-      />
-      {mode === "compare" ? (
-        <div className="center">
-          <ComparePage
+    <div className="app">
+      <TopBar project={projectName(session.root)} page={page} onPage={goPage} />
+      {page === "workstreams" ? (
+        <div className="screen is-workstreams">
+          {lane}
+          <Workstreams
             workflows={workflows}
-            library={library}
-            leftKey={comparePair[0]}
-            rightKey={comparePair[1]}
-            onPick={(side, key) => setComparePair(([l, r]) => (side === "left" ? [key, r] : [l, key]))}
-            onEdit={openWorkflowKey}
-            onMode={switchMode}
-            onSwap={() => setComparePair(swapPair)}
-            onApply={applyTo}
-            resolveLink={resolveLocalLink}
+            workstreams={workstreams}
+            projects={projects.projects}
+            projectsError={projects.error}
+            filter={allWorkstreams ? null : workflow}
+            selectedKey={workstreamKeySelected}
+            onSelect={showWorkstream}
+            view={workstreamView}
+            onView={setWorkstreamView}
+            onChanged={projectsChanged}
+            onMessage={showToast}
+            linkTo={resolveWorkstreamLink}
+            onOpenWorkflow={editWorkflow}
           />
+        </div>
+      ) : page === "compare" ? (
+        <div className="screen is-compare">
+          {lane}
+          <div className="center">
+            <ComparePage
+              workflows={workflows}
+              library={library}
+              leftKey={shownPair[0]}
+              rightKey={shownPair[1]}
+              onPick={(side, key) => pickCompare(side, key)}
+              onEdit={editWorkflow}
+              onSwap={() => pickCompare("swap")}
+              onApply={applyTo}
+              resolveLink={resolveLocalLink}
+            />
+          </div>
         </div>
       ) : (
-      <div className="center">
-        <div className="center-header">
-          <div className="center-header-main">
-            <div className="center-header-title">{workflow.file}</div>
-            <div className="center-header-sub">
-              <span className={`center-header-status${dirty ? " is-dirty" : ""}`}>{status}</span>
-              <span className="center-header-path mono">{workflow.path}</span>
-            </div>
-          </div>
-          <ModeSwitch mode="edit" onMode={switchMode} />
-          {!viewOnly && problems.length > 0 && (
-            <button className="problems-chip" onClick={() => setProblemsOpen((v) => !v)}>
-              {problems.length} problem{problems.length === 1 ? "" : "s"}
-            </button>
-          )}
-          {!viewOnly && dirty && workflow.onDisk && (
-            <button className="discard-btn" onClick={discard}>
-              Discard changes
-            </button>
-          )}
-          {!viewOnly && (
-            <button
-              className={`save-btn${dirty && !problems.length ? " is-enabled" : " is-disabled"}`}
-              disabled={!dirty || !!problems.length}
-              title={problems.length ? "Fix the problems to save" : ""}
-              onClick={openSave}
-            >
-              Save…
-            </button>
-          )}
-          {problemsOpen && (
-            <div className="problems-popover">
-              {problems.map((p, i) => (
-                <button
-                  key={i}
-                  className="problems-popover-row"
-                  onClick={() => {
-                    if (p.stepIndex >= 0) {
-                      setSelectedIndex(p.stepIndex);
-                      showTab("step");
-                    }
-                    setProblemsOpen(false);
-                  }}
-                >
-                  <span className="mono">
-                    {p.stepIndex >= 0 ? `${p.stepIndex + 1} · ${steps[p.stepIndex]?.id ?? ""}` : "workflow"}
-                  </span>
-                  <span className="problems-popover-msg">{p.message}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {disk && (
-          <div className="disk-banner">
-            <span>
-              {workflow.file} changed on disk at {disk.at}. Your working copy has unsaved edits.
-            </span>
-            <button
-              onClick={() => {
-                showTab("yaml");
-                setCompareRequest((request) => request + 1);
+        <div className={`screen is-edit${railOpen && workflow ? " has-panel" : ""}`}>
+          {lane}
+          {workflow ? (
+            <EditCenter
+              workflow={workflow}
+              steps={steps}
+              readOnly={readOnly}
+              dirty={dirty}
+              disk={disk}
+              problems={problems}
+              problemsOpen={problemsOpen}
+              setProblemsOpen={setProblemsOpen}
+              onDiscard={discard}
+              onSave={openSave}
+              onProblem={(stepIndex) => {
+                if (stepIndex >= 0) {
+                  setSelectedIndex(stepIndex);
+                  showTab("step");
+                }
+                setProblemsOpen(false);
               }}
+              onCompareDisk={() => {
+                setWorkflowView("changes");
+                showTab("workflow");
+              }}
+              onLoadDisk={loadDisk}
+              onKeepEdits={keepEdits}
+              showPaths={showPaths}
+              setShowPaths={setShowPaths}
+              showDescriptions={showDescriptions}
+              setShowDescriptions={setShowDescriptions}
             >
-              Compare
-            </button>
-            <button onClick={loadDisk}>Load disk version</button>
-            <button className="keep" onClick={keepEdits}>
-              Keep my edits
-            </button>
-          </div>
-        )}
-        <div className="toolbar">
-          <span className="toolbar-counts">
-            {steps.length} steps · {artifactCount(steps)} artifacts · {routeBackCount(steps)} routes back
-          </span>
-          <span className="grow" />
-          <button className={`toggle-pill-btn${showPaths ? " is-on" : ""}`} onClick={() => setShowPaths((v) => !v)}>
-            paths
-          </button>
-          <button
-            className={`toggle-pill-btn${showDescriptions ? " is-on" : ""}`}
-            onClick={() => setShowDescriptions((v) => !v)}
-          >
-            descriptions
-          </button>
-          <select
-            className="runs-select"
-            value={run ? runKey(run) : ""}
-            onChange={(event) => (event.target.value ? openRun(event.target.value) : closeRun())}
-          >
-            <option value="">{runsForWorkflow.length ? `Runs · ${runsForWorkflow.length}` : "No runs"}</option>
-            {runsForWorkflow.map((item) => (
-              <option key={runKey(item)} value={runKey(item)}>
-                {runOption(item, session.root)}
-              </option>
-            ))}
-          </select>
+              <Flow
+                steps={steps}
+                selectedIndex={selected ?? -1}
+                onSelect={selectStep}
+                problemsByStep={readOnly ? new Map() : byStep}
+                library={library}
+                showPaths={showPaths}
+                showDescriptions={showDescriptions}
+                hoveredArtifact={hoveredArtifact}
+                onHoverArtifact={setHoveredArtifact}
+                onInsert={(at) => apply({ op: "insertStep", at, step: { id: uniqueStepId(), instruction: "" } })}
+                onAppend={() => apply({ op: "insertStep", at: steps.length, step: { id: uniqueStepId(), instruction: "" } })}
+                onMove={(from, to) => apply({ op: "moveStep", from, to })}
+                onDelete={(index) => apply({ op: "deleteStep", index })}
+                onDropArtifact={(step, artifact) => addArtifact(step, "produces", artifact)}
+                onDropArtifactAt={insertArtifactStep}
+                readOnly={readOnly}
+                inputs={workflowInputs(workflow)}
+                handOffs={workflowHandOffs(workflow)}
+                linkTo={resolveLink}
+                onOpenWorkflow={selectWorkflow}
+              />
+            </EditCenter>
+          ) : (
+            <div className="center center-empty">No workflow selected.</div>
+          )}
+          {railOpen && workflow && (
+            <RailPanel
+              tab={railTab}
+              workflowView={workflowView}
+              onWorkflowView={setWorkflowView}
+              onTab={showTab}
+              workflow={workflow}
+              readOnly={readOnly}
+              steps={steps}
+              selectedIndex={selected}
+              problems={problems.filter((p) => p.stepIndex === selected)}
+              library={library}
+              workstreams={workstreams}
+              root={session.root}
+              diffBase={disk?.text ?? workflow.text}
+              onEdit={apply}
+              onAddArtifact={addArtifact}
+              reviewGuides={reviewGuides}
+              allWorkflows={localWorkflows}
+              onOpenWorkstream={openWorkstreamPage}
+              linkTo={resolveLink}
+              onOpenWorkflow={selectWorkflow}
+              onOpenWorkflowStep={openWorkflowStep}
+              onClose={() => setRailOpen(false)}
+            />
+          )}
+          {workflow && (
+            <RailStrip
+              open={railOpen}
+              tab={railTab}
+              stepEnabled={selected !== null && !readOnly}
+              libraryEnabled={!readOnly}
+              stepProblem={selected !== null && byStep.has(selected)}
+              dirty={dirty && !readOnly}
+              onPick={(tab) => {
+                setProblemsOpen(false);
+                if (tab) showTab(tab);
+                else setRailOpen(false);
+              }}
+            />
+          )}
         </div>
-        {run && <RunBanner run={run} root={session.root} onClose={closeRun} findRun={findRun} onOpenRun={openAnyRun} />}
-        <Flow
-          steps={steps}
-          selectedIndex={drawerOpen ? selectedIndex : -1}
-          onSelect={(i) => {
-            setSelectedIndex(i);
-            showTab(run ? "run" : readOnly ? "yaml" : "step");
-          }}
-          problemsByStep={byStep}
-          library={library}
-          showPaths={showPaths}
-          showDescriptions={showDescriptions}
-          hoveredArtifact={hoveredArtifact}
-          onHoverArtifact={setHoveredArtifact}
-          onInsert={(at) => apply({ op: "insertStep", at, step: { id: uniqueStepId(), instruction: "" } })}
-          onAppend={() => apply({ op: "insertStep", at: steps.length, step: { id: uniqueStepId(), instruction: "" } })}
-          onMove={(from, to) => apply({ op: "moveStep", from, to })}
-          onDelete={(index) => apply({ op: "deleteStep", index })}
-          onDropArtifact={(step, artifact) => addArtifact(step, "produces", artifact)}
-          onDropArtifactAt={insertArtifactStep}
-          run={run}
-          readOnly={readOnly}
-          inputs={workflowInputs(workflow)}
-          handOffs={workflowHandOffs(workflow)}
-          linkTo={resolveLink}
-          onOpenWorkflow={openWorkflowKey}
-          findRun={findRun}
-          onOpenRun={openAnyRun}
-        />
-        {!drawerOpen && (
-          <div className="drawer-fabs">
-            {(run || !readOnly) && (
-              <button className="drawer-fab" title="Workflow settings and runs" onClick={() => showTab(run ? "run" : "workflow")}>
-                <Settings2 size={16} /> {run ? "Run" : "Workflow"}
-              </button>
-            )}
-            <button className="drawer-fab" title="The workflow file" onClick={() => showTab("yaml")}>
-              <FileCode size={16} /> YAML
-            </button>
-            {!viewOnly && (
-              <button className="drawer-fab is-primary" title="Artifact guides, templates and review guides" onClick={() => showTab("library")}>
-                <BookOpen size={16} /> Library
-              </button>
-            )}
-          </div>
-        )}
-      </div>
       )}
-      {drawerOpen && mode === "edit" && (
-      <Inspector
-        tab={tab}
-        onTab={(next) => {
-          setTab(next);
-          if (next !== "yaml") setCompareRequest(0);
-          setProblemsOpen(false);
-        }}
-        workflow={workflow}
-        steps={steps}
-        selectedIndex={selectedIndex}
-        problems={problems.filter((p) => p.stepIndex === selectedIndex)}
-        library={library}
-        workstreams={workstreams}
-        root={session.root}
-        diffBase={disk?.text ?? workflow.text}
-        compareRequest={compareRequest}
-        onEdit={apply}
-        onAddArtifact={addArtifact}
-        reviewGuides={reviewGuides}
-        allWorkflows={localWorkflows}
-        run={run}
-        readOnly={readOnly}
-        onOpenRun={openRun}
-        onOpenAnyRun={openAnyRun}
-        findRun={findRun}
-        linkTo={resolveLink}
-        onOpenWorkflow={openWorkflowKey}
-        onOpenWorkflowStep={openWorkflowStep}
-        onClose={() => setDrawerOpen(false)}
-      />
-      )}
-      {modal && (
+      {modal && workflow && (
         <ModalView
           modal={modal}
           setModal={setModal}
           session={session}
           workflow={workflow}
-          structural={structural}
-          activeRuns={activeRuns}
+          structural={structureChanges(workflow, steps)}
+          activeWorkstreams={workstreams.filter(
+            (w) => w.workflowPath === workflow.path && w.summary?.status !== "COMPLETED",
+          )}
           onConfirm={modal.type === "new" ? confirmNew : save}
         />
       )}
@@ -780,64 +731,130 @@ export function App() {
   );
 }
 
-function RunBanner({
-  run,
-  root,
-  onClose,
-  findRun,
-  onOpenRun,
+// The Edit page's centre column: the header with the file, its status and
+// Save, the disk-change banner, the toolbar, and the diagram.
+function EditCenter({
+  workflow,
+  steps,
+  readOnly,
+  dirty,
+  disk,
+  problems,
+  problemsOpen,
+  setProblemsOpen,
+  onDiscard,
+  onSave,
+  onProblem,
+  onCompareDisk,
+  onLoadDisk,
+  onKeepEdits,
+  showPaths,
+  setShowPaths,
+  showDescriptions,
+  setShowDescriptions,
+  children,
 }: {
-  run: WorkstreamSummary;
-  root: string;
-  onClose: () => void;
-  findRun: (slug: string) => WorkstreamSummary | undefined;
-  onOpenRun: (slug: string) => void;
+  workflow: OpenWorkflow;
+  steps: ReturnType<typeof stepViews>;
+  readOnly: boolean;
+  dirty: boolean;
+  disk?: DiskVersion;
+  problems: ReturnType<typeof problemsForText>;
+  problemsOpen: boolean;
+  setProblemsOpen: (update: (open: boolean) => boolean) => void;
+  onDiscard: () => void;
+  onSave: () => void;
+  onProblem: (stepIndex: number) => void;
+  onCompareDisk: () => void;
+  onLoadDisk: () => void;
+  onKeepEdits: () => void;
+  showPaths: boolean;
+  setShowPaths: (update: (on: boolean) => boolean) => void;
+  showDescriptions: boolean;
+  setShowDescriptions: (update: (on: boolean) => boolean) => void;
+  children: React.ReactNode;
 }) {
-  const info = RUN_STATE[runState(run.summary?.status)];
-  const linked = run.after || run.parent || (run.startedAfter?.length ?? 0) > 0;
+  const status = readOnly
+    ? `read-only · ${projectName(workflow.project ?? "")}'s own workflow`
+    : !workflow.onDisk
+      ? "new · working copy"
+      : dirty
+        ? "modified · working copy"
+        : "saved";
   return (
-    <div className="run-banner">
-      <div className="run-banner-head">
-        <strong>{run.slug}</strong>
-        <span className={`run-state-pill ${info.className}`}>{info.label}</span>
-        <span>
-          started {dateTime(run.summary?.started)} · {duration(runDuration(run))}
-          {run.project !== root && <span title={run.project}> · in {projectName(run.project)}</span>}
-        </span>
-        <button onClick={onClose}>Close run</button>
+    <div className="center">
+      <div className="center-header">
+        <div className="center-header-main">
+          <div className="center-header-title">{workflow.file}</div>
+          <div className="center-header-sub">
+            <span className={`center-header-status${dirty && !readOnly ? " is-dirty" : ""}`}>{status}</span>
+            <span className="center-header-path mono" title={workflow.path}>
+              {readOnly ? workflow.path : `${LOCATION_ROOT[workflow.location]}${workflow.dir ? `${workflow.dir}/` : ""}${workflow.file}`}
+            </span>
+          </div>
+        </div>
+        {!readOnly && problems.length > 0 && (
+          <button className="problems-chip" onClick={() => setProblemsOpen((v) => !v)}>
+            {problems.length} problem{problems.length === 1 ? "" : "s"}
+          </button>
+        )}
+        {!readOnly && dirty && workflow.onDisk && (
+          <button className="discard-btn" onClick={onDiscard}>
+            Discard changes
+          </button>
+        )}
+        {!readOnly && (
+          <button
+            className={`save-btn${dirty && !problems.length ? " is-enabled" : " is-disabled"}`}
+            disabled={!dirty || !!problems.length}
+            title={problems.length ? "Fix the problems to save" : ""}
+            onClick={onSave}
+          >
+            Save…
+          </button>
+        )}
+        {problemsOpen && (
+          <div className="problems-popover">
+            {problems.map((p, i) => (
+              <button key={i} className="problems-popover-row" onClick={() => onProblem(p.stepIndex)}>
+                <span className="mono">
+                  {p.stepIndex >= 0 ? `${p.stepIndex + 1} · ${steps[p.stepIndex]?.id ?? ""}` : "workflow"}
+                </span>
+                <span className="problems-popover-msg">{p.message}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      {linked && (
-        <div className="run-banner-links">
-          {run.parent && (
-            <span>
-              child of step <span className="mono">{run.parent.step}</span> of
-              <RunLinkButton slug={run.parent.slug} run={findRun(run.parent.slug)} onOpen={onOpenRun} />
-            </span>
-          )}
-          {run.after && (
-            <span>
-              started after
-              <RunLinkButton slug={run.after} run={findRun(run.after)} onOpen={onOpenRun} />
-            </span>
-          )}
-          {(run.startedAfter?.length ?? 0) > 0 && (
-            <span>
-              started after it
-              {run.startedAfter!.map((slug) => (
-                <RunLinkButton key={slug} slug={slug} run={findRun(slug)} onOpen={onOpenRun} />
-              ))}
-            </span>
-          )}
+      {disk && !readOnly && (
+        <div className="disk-banner">
+          <span>
+            {workflow.file} changed on disk at {disk.at}. Your working copy has unsaved edits.
+          </span>
+          <button onClick={onCompareDisk}>Compare</button>
+          <button onClick={onLoadDisk}>Load disk version</button>
+          <button className="keep" onClick={onKeepEdits}>
+            Keep my edits
+          </button>
         </div>
       )}
-      <div className="run-legend">
-        {Object.values(RUN_STATE).map((state) => (
-          <span key={state.className}>
-            <i className={state.className} />
-            {state.label}
-          </span>
-        ))}
+      <div className="toolbar">
+        <span className="toolbar-counts">
+          {plural(steps.length, "step")} · {plural(artifactCount(steps), "artifact")} ·{" "}
+          {plural(routeBackCount(steps), "route")} back
+        </span>
+        <span className="grow" />
+        <button className={`toggle-pill-btn${showPaths ? " is-on" : ""}`} onClick={() => setShowPaths((v) => !v)}>
+          paths
+        </button>
+        <button
+          className={`toggle-pill-btn${showDescriptions ? " is-on" : ""}`}
+          onClick={() => setShowDescriptions((v) => !v)}
+        >
+          descriptions
+        </button>
       </div>
+      {children}
     </div>
   );
 }
@@ -848,7 +865,7 @@ function ModalView({
   session,
   workflow,
   structural,
-  activeRuns,
+  activeWorkstreams,
   onConfirm,
 }: {
   modal: Modal;
@@ -856,21 +873,21 @@ function ModalView({
   session: Session;
   workflow: OpenWorkflow;
   structural: string[];
-  activeRuns: WorkstreamSummary[];
+  activeWorkstreams: WorkstreamSummary[];
   onConfirm: () => void;
 }) {
   const asNew = modal.type === "new" || modal.asNew;
   const valid = /^[a-z0-9][a-z0-9-]*$/.test(modal.name);
   const location = session.locations.find((x) => x.id === modal.location)!;
   const preview = `${location.path}/${modal.folder ? `${modal.folder.replace(/^\/+|\/+$/g, "")}/` : ""}${modal.name || "…"}.yml`;
-  const warning = modal.type === "save" && !modal.asNew && structural.length > 0 && activeRuns.length > 0;
+  const warning = modal.type === "save" && !modal.asNew && structural.length > 0 && activeWorkstreams.length > 0;
   const patch = (fields: Partial<Modal>) => setModal({ ...modal, ...fields } as Modal);
   return (
     <div className="modal-backdrop" onClick={() => setModal(null)}>
       <div className="save-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <h2>{modal.type === "new" ? "New workflow" : `Save ${workflow.file}`}</h2>
-          <button className="icon-mini" onClick={() => setModal(null)}>
+          <button className="icon-mini" title="Close" aria-label="Close" onClick={() => setModal(null)}>
             <X />
           </button>
         </div>
@@ -929,10 +946,10 @@ function ModalView({
         {warning && (
           <div className="workstream-warning">
             <strong>
-              {activeRuns.length} workstream{activeRuns.length === 1 ? "" : "s"} in progress on this workflow. Progress
+              {activeWorkstreams.length} workstream{activeWorkstreams.length === 1 ? "" : "s"} in progress on this workflow. Progress
               is stored by step id.
             </strong>
-            {activeRuns.map((run) => (
+            {activeWorkstreams.map((run) => (
               <div key={run.slug}>
                 {run.slug} · {run.summary?.status.toLowerCase().replaceAll("_", " ")}
                 {run.summary?.currentStep ? ` at ${run.summary.currentStep}` : ""}
@@ -943,7 +960,9 @@ function ModalView({
         )}
         {modal.error && <div className="field-error">{modal.error}</div>}
         <div className="modal-actions">
-          <button onClick={() => setModal(null)}>Cancel</button>
+          <button className="secondary-button" onClick={() => setModal(null)}>
+            Cancel
+          </button>
           <button className="primary-button" disabled={asNew && !valid} onClick={onConfirm}>
             {modal.type === "new" ? "Create" : warning ? "Save anyway" : "Save"}
           </button>

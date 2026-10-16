@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Structured edits to a fuse-flow workflow YAML file that patch the source
-// text instead of re-serializing the whole document: `yaml`'s Document.toString
-// is not byte-identical for these files (folded scalars rewrap), so every
-// edit here finds the exact source range of the node or key it changes and
-// splices new text into the original string. Everything the edit does not
-// touch survives byte for byte, including comments. No React, no DOM, no
+// Structured edits to a fuse-flow workflow YAML file. No React, no DOM, no
 // Node APIs: this module runs in the browser as well as in tests.
 //
 // API:
@@ -19,18 +14,34 @@
 // gates in). applyEdit throws a plain Error with a clear message when the
 // edit cannot apply (bad index, duplicate id, etc).
 //
-// Technique: parse with `yaml`'s parseDocument to get a tree of nodes whose
-// `.range` is `[start, valueEnd, nodeEnd]` byte offsets into the original
-// string. To change a value in place, replace the value node's range with a
-// freshly rendered fragment at the same indentation. To add or remove a key,
-// splice before/after the right sibling's range, using the enclosing
-// mapping's indentation. New fragments are written by hand (not through
-// `doc.createNode` + `toString`) so their formatting matches the project's
-// conventions exactly: flow lists `[a, b]`, one-key gate mappings, output
-// entries as block mappings, folded instructions wrapped at ~100 columns.
+// How an edit is written, in three parts:
+//
+// 1. The model. The file's data (`toJS`, aliases resolved) is copied, and the
+//    edit is applied to that copy as plain JavaScript (editModel). This says
+//    what the file must mean afterwards; it knows nothing about formatting.
+//
+// 2. The writer. The parsed Document is brought in line with the new data
+//    (reconcile): a node whose data did not change is kept as it is, a scalar
+//    that changed gets its new value, mappings and lists are matched item by
+//    item so their other items keep their nodes, comments and anchors, and
+//    new nodes are created only for new data. `yaml`'s Document.toString is
+//    not byte-identical for these files (it rewraps folded scalars), so the
+//    whole file is never written again. Instead, only the parts that changed
+//    are rendered by `yaml` and spliced into the original text: a top-level
+//    key (name, description, ...) as a whole, and in a block `steps` list each
+//    step on its own. Every other step and key keeps its bytes, and moving a
+//    step moves its text. Inside a rendered part, every scalar and every
+//    one-line flow collection that did not change is written as its source
+//    text, so quoting, escapes and line breaks stay as they were, and `yaml`
+//    writes only the structure around them and what is new.
+//
+// 3. The safety net (verify). The result is parsed again and its data is
+//    compared with the model's. If it does not parse, or means anything else,
+//    applyEdit throws and nothing is written. Whatever the writer gets wrong,
+//    the file on disk cannot change meaning by accident.
 
-import YAML from "yaml";
-import { Pair, Scalar, YAMLMap, YAMLSeq } from "yaml";
+import YAML, { Alias, Document, isAlias, isCollection, isMap, isNode, isPair, isScalar, isSeq, Pair, Scalar, visit, YAMLMap, YAMLSeq } from "yaml";
+import type { CollectionTag, ScalarTag } from "yaml";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -41,8 +52,9 @@ export type GateKind = "owner-action" | "check" | "script" | "agent" | "workflow
 // is read too wherever a condition is, so a file that wrongly uses one as a
 // condition can still be edited; the engine reports it.
 const GATE_KINDS: readonly GateKind[] = ["owner-action", "check", "script", "agent", "workflow"];
-// The keys only a workflow gate has. Komposer does not edit them; it keeps
-// them as written, and removes them when the gate becomes another kind.
+// The keys only a workflow gate has. Komposer edits the child's slug and a
+// returns list; it keeps the rest as written, and removes them all when the
+// gate becomes another kind.
 const WORKFLOW_GATE_KEYS = ["slug", "inputs", "returns"] as const;
 
 export interface ConditionValue {
@@ -58,6 +70,10 @@ export interface GateFields {
   max_rounds?: number | null;
   guide?: string | null;
   route_back_to?: string[];
+  // A workflow gate's child slug, and the ids its child returns, written as a
+  // list (each id maps to itself). null or an empty list removes the key.
+  slug?: string | null;
+  returns?: string[] | null;
 }
 
 export interface OutputFields {
@@ -86,10 +102,16 @@ export type Edit =
 // ---------------------------------------------------------------------------
 // Shared helpers
 
+// The order new keys are inserted in: before the first existing key that comes
+// later in this order. Keys not listed keep their place and are skipped.
+const ROOT_KEY_ORDER = ["version", "name", "description", "inputs", "hands_off_to", "steps"] as const;
 const STEP_KEY_ORDER = ["id", "title", "phase", "description", "instruction", "condition", "consumes", "produces", "optional_produces", "updates", "gates"] as const;
 const OUTPUT_KEY_ORDER = ["artifact", "path", "description"] as const;
+const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to"] as const;
+const CONDITION_KEY_ORDER = [...GATE_KINDS, "description"] as const;
 
-type Range = [number, number, number];
+// Folded scalars that Komposer writes are wrapped at this many columns.
+const FOLD_WIDTH = 100;
 
 class EditError extends Error {}
 
@@ -97,76 +119,69 @@ function fail(message: string): never {
   throw new EditError(message);
 }
 
-function isMap(node: unknown): node is InstanceType<typeof YAMLMap> {
-  return node instanceof YAMLMap;
-}
-function isSeq(node: unknown): node is InstanceType<typeof YAMLSeq> {
-  return node instanceof YAMLSeq;
-}
-function isScalar(node: unknown): node is InstanceType<typeof Scalar> {
-  return node instanceof Scalar;
+type Obj = Record<string, unknown>;
+type Range = [number, number, number];
+
+function isObj(value: unknown): value is Obj {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseDoc(text: string): YAML.Document.Parsed {
-  const doc = YAML.parseDocument(text, { keepSourceTokens: true });
+// Data equality: lists by position, mappings by key regardless of key order.
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => deepEqual(x, b[i]));
+  }
+  if (isObj(a) && isObj(b)) {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((k) => Object.hasOwn(b, k) && deepEqual(a[k], b[k]));
+  }
+  return Number.isNaN(a) && Number.isNaN(b);
+}
+
+// Where two data values first differ, as a dotted path, for error messages.
+function firstDifference(a: unknown, b: unknown, path = ""): string | null {
+  if (deepEqual(a, b)) return null;
+  const at = (k: string | number) => (path ? `${path}.${k}` : String(k));
+  if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) {
+    for (let i = 0; i < a.length; i++) {
+      const d = firstDifference(a[i], b[i], at(i));
+      if (d !== null) return d;
+    }
+  }
+  if (isObj(a) && isObj(b)) {
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      const d = firstDifference(a[k], b[k], at(k));
+      if (d !== null) return d;
+    }
+  }
+  return path || "(the whole file)";
+}
+
+// A deep copy of plain data in which nothing is shared: toJS gives the same
+// object for every alias of an anchor, and editing one must not edit the rest.
+function copyData(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(copyData);
+  if (isObj(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, copyData(v)]));
+  return value;
+}
+
+function toData(doc: Document, node: unknown): unknown {
+  return isNode(node) ? node.toJS(doc, { maxAliasCount: -1 }) : node;
+}
+
+function parseDoc(text: string): Document.Parsed {
+  const doc = YAML.parseDocument(text);
   if (doc.errors.length) fail(`not valid YAML: ${doc.errors[0].message}`);
   return doc;
 }
 
-function rootMap(doc: YAML.Document.Parsed): InstanceType<typeof YAMLMap> {
-  const contents = doc.contents;
-  if (!isMap(contents)) fail("workflow file does not have a top-level mapping");
-  return contents;
+function keyOf(pair: Pair): string | undefined {
+  return isScalar(pair.key) ? String(pair.key.value) : undefined;
 }
 
-function findPair(map: InstanceType<typeof YAMLMap>, key: string): InstanceType<typeof Pair> | undefined {
-  return map.items.find((p) => isScalar(p.key) && p.key.value === key);
-}
-
-function stepsSeq(doc: YAML.Document.Parsed): InstanceType<typeof YAMLSeq> {
-  const steps = findPair(rootMap(doc), "steps")?.value;
-  if (!isSeq(steps)) fail("workflow has no steps list");
-  return steps;
-}
-
-function stepMap(doc: YAML.Document.Parsed, index: number): InstanceType<typeof YAMLMap> {
-  const steps = stepsSeq(doc);
-  const item = steps.items[index];
-  if (!item) fail(`step index ${index} is out of range (workflow has ${steps.items.length} steps)`);
-  if (!isMap(item)) fail(`step ${index} is not a mapping`);
-  return item;
-}
-
-function stepIdOf(step: InstanceType<typeof YAMLMap>): string {
-  const idPair = findPair(step, "id");
-  const v = idPair?.value;
-  return isScalar(v) ? String(v.value) : "";
-}
-
-// The number of columns from the start of `offset`'s line to `offset`
-// itself, as a string of spaces. Unlike `indentAt`, this does not stop at
-// the first non-space character, so it correctly measures the column of a
-// key in `  - id: x` (4) rather than the leading-space run before the `-`
-// (2).
-function columnIndent(text: string, offset: number): string {
-  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
-  return " ".repeat(offset - lineStart);
-}
-
-// The indentation of a mapping's own keys (the column its first key starts
-// at), whether or not the mapping is itself a sequence item.
-function fieldIndent(text: string, map: InstanceType<typeof YAMLMap>): string {
-  const first = map.items[0];
-  const offset = first && isScalar(first.key) ? (first.key.range as Range)[0] : (map.range as Range)[0];
-  return columnIndent(text, offset);
-}
-
-// The indentation of the `- ` marker that introduces a sequence item whose
-// node starts at `offset` (which points at the item's own content, e.g. a
-// mapping's first key, two columns after the dash).
-function dashIndent(text: string, offset: number): string {
-  const col = columnIndent(text, offset);
-  return col.slice(0, Math.max(0, col.length - 2));
+function findPair(map: YAMLMap, key: string): Pair | undefined {
+  return map.items.find((p) => keyOf(p) === key);
 }
 
 function lineStartOf(text: string, offset: number): number {
@@ -180,7 +195,871 @@ function lineEndOf(text: string, offset: number): number {
   return nl === -1 ? text.length : nl + 1;
 }
 
-// A splice edit: replace text[start:end) with `insert`.
+// ---------------------------------------------------------------------------
+// The model: the edit applied to the file's data as plain JavaScript
+
+// A scalar style the edit asks for, which data alone cannot say: the block
+// style of an instruction.
+interface StyleHint {
+  path: (string | number)[];
+  type: Scalar.Type;
+  // The edit is about the style itself, so it fails where the style cannot be
+  // written (in a flow collection) rather than leaving it to yaml.
+  strict: boolean;
+}
+
+interface Model {
+  data: Obj;
+  styles: StyleHint[];
+}
+
+// `obj` with `key` set to `value`. An existing key keeps its place; a new key
+// goes before the first existing key that comes later in `order`, or last.
+function withKey(obj: Obj, key: string, value: unknown, order: readonly string[]): Obj {
+  if (Object.hasOwn(obj, key)) return { ...obj, [key]: value };
+  const rank = order.indexOf(key);
+  if (rank === -1) fail(`internal error: unknown key "${key}"`);
+  const entries = Object.entries(obj);
+  const at = entries.findIndex(([k]) => order.indexOf(k) > rank);
+  entries.splice(at === -1 ? entries.length : at, 0, [key, value]);
+  return Object.fromEntries(entries);
+}
+
+function withoutKey(obj: Obj, key: string): Obj {
+  return Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key));
+}
+
+// `obj` with key `from` replaced, in its place, by `to` with `value`.
+function renamedKey(obj: Obj, from: string, to: string, value: unknown): Obj {
+  return Object.fromEntries(Object.entries(obj).map(([k, v]) => (k === from ? [to, value] : [k, v])));
+}
+
+function text(value: unknown): string {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function stepAt(steps: unknown[], index: number): Obj {
+  if (!Number.isInteger(index) || index < 0 || index >= steps.length) {
+    fail(`step index ${index} is out of range (workflow has ${steps.length} steps)`);
+  }
+  const step = steps[index];
+  if (!isObj(step)) fail(`step ${index} is not a mapping`);
+  return step;
+}
+
+// The block text an instruction is written with: its own text, ending in one
+// newline, as a block scalar with the default (clip) chomping reads.
+function blockText(value: string): string {
+  return `${value.replace(/\n+$/, "")}\n`;
+}
+
+// Is `text` short enough for a new step's instruction to be a plain scalar,
+// as real workflow files write short instructions ("Polish it.")?
+function shouldUsePlainScalar(value: string): boolean {
+  return !value.includes("\n") && value.length <= 80;
+}
+
+// A condition or gate written as a string, e.g. `script("bun run check")` or
+// `check: default`, the way the engine's schema reads it.
+function readStringGate(raw: string): { kind: GateKind; text: string } | null {
+  const match = /^([a-z-]+)\s*(?:\(\s*"?(.*?)"?\s*\)|:(.*))$/s.exec(raw.trim());
+  if (!match) return null;
+  return { kind: match[1] as GateKind, text: (match[2] ?? match[3] ?? "").trim() };
+}
+
+// The key of a gate or condition mapping that names its kind.
+function kindKeyOf(obj: Obj): GateKind | undefined {
+  return Object.keys(obj).find((k): k is GateKind => GATE_KINDS.includes(k as GateKind));
+}
+
+function readCondition(value: unknown): ConditionValue | null {
+  if (isObj(value)) {
+    const kind = kindKeyOf(value);
+    if (!kind) return null;
+    const description = value.description === undefined || value.description === null ? undefined : text(value.description);
+    return { kind, text: text(value[kind]), ...(description === undefined ? {} : { description }) };
+  }
+  return typeof value === "string" ? readStringGate(value) : null;
+}
+
+// The step's outputs of one mode as a list: a single mapping is a list of one.
+function outputList(step: Obj, mode: OutputMode): unknown[] | undefined {
+  const value = step[mode];
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return [...value];
+  if (isObj(value)) return [value];
+  fail(`${mode} is neither a mapping nor a list`);
+}
+
+// The step's gates as a list: a single gate, mapping or string, is a list of one.
+function gateList(step: Obj): unknown[] | undefined {
+  const value = step.gates;
+  if (value === undefined || value === null) return undefined;
+  return Array.isArray(value) ? [...value] : [value];
+}
+
+// A step with one mode's outputs or its gates set to `list`; an empty list
+// removes the key.
+function withList(step: Obj, key: string, list: unknown[]): Obj {
+  return list.length ? withKey(step, key, list, STEP_KEY_ORDER) : withoutKey(step, key);
+}
+
+// A gate's logical fields, read from its mapping or string form the way the
+// engine's gate schema reads them.
+interface GateItem {
+  kind: GateKind;
+  text: string;
+  description?: string;
+  guide?: string;
+  max_rounds?: number;
+  route_back_to: string[];
+  slug?: unknown;
+  returns?: unknown;
+}
+
+function readGateItem(item: unknown): GateItem {
+  if (isObj(item)) {
+    const kind = kindKeyOf(item);
+    if (!kind) fail("gate mapping has no kind key");
+    const optional = (key: string) => (item[key] === undefined || item[key] === null ? undefined : text(item[key]));
+    const rbt = item.route_back_to;
+    const route_back_to = Array.isArray(rbt) ? rbt.map(text) : rbt === undefined || rbt === null ? [] : [text(rbt)];
+    const gate: GateItem = { kind, text: text(item[kind]), route_back_to };
+    if (optional("description") !== undefined) gate.description = optional("description");
+    if (optional("guide") !== undefined) gate.guide = optional("guide");
+    if (typeof item.max_rounds === "number") gate.max_rounds = item.max_rounds;
+    if (item.slug !== undefined) gate.slug = item.slug;
+    if (item.returns !== undefined) gate.returns = item.returns;
+    return gate;
+  }
+  const read = typeof item === "string" ? readStringGate(item) : null;
+  if (!read) fail(`cannot read gate "${text(item)}"`);
+  return { ...read, route_back_to: [] };
+}
+
+// Whether a returns value already says the ids of `list`: as that list, or as
+// the mapping of each id to itself.
+function sameReturns(current: unknown, list: string[]): boolean {
+  if (Array.isArray(current)) return deepEqual(current.map(text), list);
+  if (isObj(current)) return deepEqual(current, Object.fromEntries(list.map((id) => [id, id])));
+  return false;
+}
+
+function patchGate(current: GateItem, fields: GateFields): GateItem {
+  const next: GateItem = { ...current, route_back_to: [...current.route_back_to] };
+  const set = <K extends keyof GateItem>(key: K, value: GateItem[K] | undefined) => {
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+  };
+  if (fields.kind !== undefined) next.kind = fields.kind;
+  if (fields.text !== undefined) next.text = fields.text;
+  if ("description" in fields) set("description", fields.description ?? undefined);
+  if ("max_rounds" in fields) set("max_rounds", fields.max_rounds ?? undefined);
+  if ("guide" in fields) set("guide", fields.guide ?? undefined);
+  if (fields.route_back_to !== undefined) next.route_back_to = [...fields.route_back_to];
+  if (next.kind !== "agent") {
+    set("max_rounds", undefined);
+    set("guide", undefined);
+  }
+  if (next.kind !== "workflow") {
+    set("slug", undefined);
+    set("returns", undefined);
+  } else {
+    if ("slug" in fields) set("slug", fields.slug || undefined);
+    if ("returns" in fields) {
+      const list = fields.returns ?? [];
+      set("returns", list.length === 0 ? undefined : sameReturns(current.returns, list) ? current.returns : [...list]);
+    }
+  }
+  return next;
+}
+
+// The gate as written after the edit. A mapping keeps its other keys where they
+// are; a gate in string form becomes a mapping in the engine's key order.
+function writeGate(item: unknown, current: GateItem, next: GateItem): Obj {
+  const routeBack = (targets: string[]) => (targets.length === 1 ? targets[0] : targets);
+  if (!isObj(item)) {
+    const gate: Obj = { [next.kind]: next.text };
+    if (next.slug !== undefined) gate.slug = next.slug;
+    if (next.returns !== undefined) gate.returns = next.returns;
+    if (next.description !== undefined) gate.description = next.description;
+    if (next.guide !== undefined) gate.guide = next.guide;
+    if (next.max_rounds !== undefined) gate.max_rounds = next.max_rounds;
+    if (next.route_back_to.length) gate.route_back_to = routeBack(next.route_back_to);
+    return gate;
+  }
+  let gate = item;
+  if (next.kind !== current.kind || next.text !== current.text) gate = renamedKey(gate, current.kind, next.kind, next.text);
+  if (next.kind !== "workflow") for (const key of WORKFLOW_GATE_KEYS) gate = withoutKey(gate, key);
+  for (const key of ["slug", "returns", "description", "guide", "max_rounds"] as const) {
+    if (deepEqual(next[key], current[key])) continue;
+    gate = next[key] === undefined ? withoutKey(gate, key) : withKey(gate, key, next[key], GATE_KEY_ORDER);
+  }
+  if (!deepEqual(next.route_back_to, current.route_back_to)) {
+    gate = next.route_back_to.length ? withKey(gate, "route_back_to", routeBack(next.route_back_to), GATE_KEY_ORDER) : withoutKey(gate, "route_back_to");
+  }
+  return gate;
+}
+
+// Rename every route_back_to target `from` in a step's gates to `to`.
+function renameRoutes(step: unknown, from: string, to: string): unknown {
+  if (!isObj(step)) return step;
+  const rename = (gate: unknown): unknown => {
+    if (!isObj(gate) || !Object.hasOwn(gate, "route_back_to")) return gate;
+    const rbt = gate.route_back_to;
+    if (Array.isArray(rbt)) return { ...gate, route_back_to: rbt.map((t) => (text(t) === from ? to : t)) };
+    return text(rbt) === from ? { ...gate, route_back_to: to } : gate;
+  };
+  const gates = step.gates;
+  if (Array.isArray(gates)) return { ...step, gates: gates.map(rename) };
+  if (isObj(gates)) return { ...step, gates: rename(gates) };
+  return step;
+}
+
+// The edit applied to a copy of `before`. `styleAt` tells the current scalar
+// style at a path, so an instruction already written in the requested style
+// is left alone.
+function editModel(before: unknown, edit: Edit, styleAt: (path: (string | number)[]) => Scalar.Type | undefined): Model {
+  if (!isObj(before)) fail("workflow file does not have a top-level mapping");
+  let root = copyData(before) as Obj;
+  const styles: StyleHint[] = [];
+  if (!Array.isArray(root.steps)) fail("workflow has no steps list");
+  const steps: unknown[] = root.steps;
+
+  switch (edit.op) {
+    case "setWorkflowField": {
+      if (edit.value === null) {
+        if (edit.key === "name") fail("name is required and cannot be cleared");
+        root = withoutKey(root, edit.key);
+      } else root = withKey(root, edit.key, edit.value, ROOT_KEY_ORDER);
+      break;
+    }
+    case "setStepField": {
+      const step = stepAt(steps, edit.step);
+      if (edit.key !== "id") {
+        steps[edit.step] = edit.value === null ? withoutKey(step, edit.key) : withKey(step, edit.key, edit.value, STEP_KEY_ORDER);
+        break;
+      }
+      if (edit.value === null) fail("id is required and cannot be cleared");
+      const oldId = text(step.id);
+      if (oldId === edit.value) break;
+      if (steps.some((other, i) => i !== edit.step && isObj(other) && text(other.id) === edit.value)) {
+        fail(`step id "${edit.value}" is already used by another step`);
+      }
+      steps[edit.step] = { ...step, id: edit.value };
+      for (let i = 0; i < steps.length; i++) steps[i] = renameRoutes(steps[i], oldId, edit.value);
+      break;
+    }
+    case "setInstruction": {
+      const step = stepAt(steps, edit.step);
+      if (step.instruction === undefined || step.instruction === null) fail("step has no instruction to edit");
+      const path = ["steps", edit.step, "instruction"];
+      const type = edit.style === ">" ? Scalar.BLOCK_FOLDED : Scalar.BLOCK_LITERAL;
+      // The same text in the same style is left as written, chomping included.
+      if (styleAt(path) === type && text(step.instruction).trim() === edit.text.trim()) break;
+      steps[edit.step] = { ...step, instruction: blockText(edit.text) };
+      styles.push({ path, type, strict: true });
+      break;
+    }
+    case "setCondition": {
+      const step = stepAt(steps, edit.step);
+      const wanted = edit.condition;
+      if (wanted === null) {
+        if (Object.hasOwn(step, "condition")) steps[edit.step] = withoutKey(step, "condition");
+        break;
+      }
+      const current = readCondition(step.condition);
+      if (current && current.kind === wanted.kind && current.text === wanted.text && current.description === wanted.description) break;
+      // A condition mapping keeps its other keys; only the kind, its text and
+      // the description change.
+      const existing = step.condition;
+      const kind = isObj(existing) ? kindKeyOf(existing) : undefined;
+      let next: Obj;
+      if (isObj(existing) && kind) {
+        next = renamedKey(existing, kind, wanted.kind, wanted.text);
+        next = wanted.description === undefined ? withoutKey(next, "description") : withKey(next, "description", wanted.description, CONDITION_KEY_ORDER);
+      } else {
+        next = { [wanted.kind]: wanted.text, ...(wanted.description === undefined ? {} : { description: wanted.description }) };
+      }
+      steps[edit.step] = withKey(step, "condition", next, STEP_KEY_ORDER);
+      break;
+    }
+    case "setConsumes": {
+      const step = stepAt(steps, edit.step);
+      if (edit.ids.length === 0) {
+        if (Object.hasOwn(step, "consumes")) steps[edit.step] = withoutKey(step, "consumes");
+        break;
+      }
+      const current = step.consumes;
+      if (Array.isArray(current) && deepEqual(current.map(text), edit.ids)) break;
+      steps[edit.step] = withKey(step, "consumes", [...edit.ids], STEP_KEY_ORDER);
+      break;
+    }
+    case "addOutput": {
+      const step = stepAt(steps, edit.step);
+      const entry: Obj = { artifact: edit.artifact, path: edit.path };
+      if (edit.description !== undefined) entry.description = edit.description;
+      steps[edit.step] = withList(step, edit.mode, [...(outputList(step, edit.mode) ?? []), entry]);
+      break;
+    }
+    case "removeOutput": {
+      const step = stepAt(steps, edit.step);
+      const list = outputList(step, edit.mode);
+      if (!list) fail(`step has no ${edit.mode} list`);
+      if (!Number.isInteger(edit.index) || edit.index < 0 || edit.index >= list.length) fail(`${edit.mode} index ${edit.index} is out of range`);
+      list.splice(edit.index, 1);
+      steps[edit.step] = withList(step, edit.mode, list);
+      break;
+    }
+    case "setOutput": {
+      const step = stepAt(steps, edit.step);
+      const value = step[edit.mode];
+      const entry = Array.isArray(value) ? value[edit.index] : edit.index === 0 ? value : undefined;
+      if (!isObj(entry)) fail(`${edit.mode} index ${edit.index} is out of range`);
+      let next = entry;
+      for (const key of OUTPUT_KEY_ORDER) {
+        if (!(key in edit.fields)) continue;
+        const field = edit.fields[key];
+        // Only the description can be removed; an output always has the rest.
+        if (field === null || field === undefined) {
+          if (key === "description") next = withoutKey(next, key);
+        } else if (text(next[key]) !== field || next[key] === undefined) next = withKey(next, key, field, OUTPUT_KEY_ORDER);
+      }
+      if (deepEqual(next, entry)) break;
+      if (Object.keys(next).length === 0) {
+        fail(`cannot remove "description": it is the only key of its list item, and removing it would leave an empty item`);
+      }
+      if (Array.isArray(value)) {
+        const list = [...value];
+        list[edit.index] = next;
+        steps[edit.step] = { ...step, [edit.mode]: list };
+      } else steps[edit.step] = { ...step, [edit.mode]: next };
+      break;
+    }
+    case "changeOutputMode": {
+      if (edit.mode === edit.to) break;
+      const step = stepAt(steps, edit.step);
+      const list = outputList(step, edit.mode);
+      if (!list) fail(`step has no ${edit.mode} list`);
+      const entry = list[edit.index];
+      if (!isObj(entry)) fail(`${edit.mode} index ${edit.index} is out of range`);
+      list.splice(edit.index, 1);
+      const moved = withList(step, edit.mode, list);
+      steps[edit.step] = withList(moved, edit.to, [...(outputList(moved, edit.to) ?? []), entry]);
+      break;
+    }
+    case "addGate": {
+      const step = stepAt(steps, edit.step);
+      steps[edit.step] = withList(step, "gates", [...(gateList(step) ?? []), { [edit.gate.kind]: edit.gate.text }]);
+      break;
+    }
+    case "removeGate": {
+      const step = stepAt(steps, edit.step);
+      const list = gateList(step);
+      if (!list) fail("step has no gates list");
+      if (!Number.isInteger(edit.index) || edit.index < 0 || edit.index >= list.length) fail(`gate index ${edit.index} is out of range`);
+      list.splice(edit.index, 1);
+      steps[edit.step] = withList(step, "gates", list);
+      break;
+    }
+    case "setGate": {
+      const step = stepAt(steps, edit.step);
+      const list = gateList(step);
+      const item = list?.[edit.index];
+      if (!list || !Number.isInteger(edit.index) || edit.index < 0 || (!isObj(item) && typeof item !== "string")) fail(`gate index ${edit.index} is out of range`);
+      const current = readGateItem(item);
+      const next = patchGate(current, edit.fields);
+      if (deepEqual(current, next)) break;
+      const gate = writeGate(item, current, next);
+      // A single gate stays a single gate; one in a list is replaced there.
+      if (Array.isArray(step.gates)) {
+        list[edit.index] = gate;
+        steps[edit.step] = { ...step, gates: list };
+      } else steps[edit.step] = { ...step, gates: gate };
+      break;
+    }
+    case "insertStep": {
+      if (!Number.isInteger(edit.at) || edit.at < 0 || edit.at > steps.length) fail(`insert index ${edit.at} is out of range (workflow has ${steps.length} steps)`);
+      if (steps.some((other) => isObj(other) && text(other.id) === edit.step.id)) fail(`step id "${edit.step.id}" is already used`);
+      const plain = shouldUsePlainScalar(edit.step.instruction);
+      steps.splice(edit.at, 0, { id: edit.step.id, instruction: plain ? edit.step.instruction : blockText(edit.step.instruction) });
+      if (!plain) styles.push({ path: ["steps", edit.at, "instruction"], type: Scalar.BLOCK_FOLDED, strict: false });
+      break;
+    }
+    case "deleteStep": {
+      stepAt(steps, edit.index);
+      if (steps.length === 1) fail("a workflow needs at least one step");
+      steps.splice(edit.index, 1);
+      break;
+    }
+    case "moveStep": {
+      stepAt(steps, edit.from);
+      if (!Number.isInteger(edit.to) || edit.to < 0 || edit.to >= steps.length) fail(`step index ${edit.to} is out of range (workflow has ${steps.length} steps)`);
+      const [moved] = steps.splice(edit.from, 1);
+      steps.splice(edit.to, 0, moved);
+      break;
+    }
+    default: {
+      const _exhaustive: never = edit;
+      fail(`unknown edit op: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+  root.steps = steps;
+  return { data: root, styles };
+}
+
+// ---------------------------------------------------------------------------
+// Matching list items (and mapping keys) between the old data and the new
+
+// For each new item, the old item it continues: `same` when its data is
+// unchanged, otherwise the old item it replaces at the same place, which is
+// then edited rather than written anew. Unchanged items are matched in order
+// first (longest common subsequence); unmatched items between two matches
+// pair up by position; an unchanged item that moved is found last. null: a
+// new item.
+type Match = { from: number; same: boolean } | null;
+
+function matchItems(a: unknown[], b: unknown[], equal: (x: unknown, y: unknown) => boolean = deepEqual): Match[] {
+  const n = a.length;
+  const m = b.length;
+  const eq = a.map((x) => b.map((y) => equal(x, y)));
+  const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) lcs[i][j] = eq[i][j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  }
+  const plan: Match[] = new Array<Match>(m).fill(null);
+  const anchors: [number, number][] = [[-1, -1]];
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (eq[i][j]) {
+      plan[j] = { from: i, same: true };
+      anchors.push([i, j]);
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+    else j++;
+  }
+  anchors.push([n, m]);
+  const used = new Set(plan.flatMap((p) => (p ? [p.from] : [])));
+  // An unchanged item that moved.
+  for (let j = 0; j < m; j++) {
+    if (plan[j]) continue;
+    const i = a.findIndex((_x, k) => !used.has(k) && eq[k][j]);
+    if (i !== -1) {
+      plan[j] = { from: i, same: true };
+      used.add(i);
+    }
+  }
+  // Changed items between two matches, paired by position.
+  for (let k = 0; k + 1 < anchors.length; k++) {
+    const olds = [];
+    const news = [];
+    for (let i = anchors[k][0] + 1; i < anchors[k + 1][0]; i++) if (!used.has(i)) olds.push(i);
+    for (let j = anchors[k][1] + 1; j < anchors[k + 1][1]; j++) if (!plan[j]) news.push(j);
+    for (let t = 0; t < olds.length && t < news.length; t++) {
+      plan[news[t]] = { from: olds[t], same: false };
+      used.add(olds[t]);
+    }
+  }
+  return plan;
+}
+
+// ---------------------------------------------------------------------------
+// The writer: bring the parsed Document in line with the new data
+
+// What the original file says about each of its nodes, before any change.
+interface Source {
+  text: string;
+  doc: Document.Parsed;
+  data: WeakMap<object, unknown>;
+  scalars: WeakMap<Scalar, { value: unknown; type: Scalar.Type | undefined }>;
+  collections: WeakSet<object>;
+  // The comment lines after each block collection's last item.
+  trailing: WeakMap<object, string | null | undefined>;
+  // Each alias, with the data it stood for and a copy of the node it named.
+  aliases: Map<Alias, { data: unknown; node: unknown }>;
+}
+
+// A copy of `node` in which every alias is a copy of the node it names, so
+// the copy still means the same once it stands where those anchors are gone.
+// Read before any change, while every anchor is still in the document.
+function resolvedCopy<T extends Scalar | YAMLMap | YAMLSeq>(doc: Document.Parsed, node: T): T {
+  const copy = node.clone() as T;
+  visit(copy as never, {
+    Alias(_k, alias) {
+      const target = alias.resolve(doc);
+      return isNode(target) ? (target.clone() as never) : undefined;
+    },
+  });
+  return copy;
+}
+
+function readSource(text: string): Source {
+  const doc = parseDoc(text);
+  const src: Source = { text, doc, data: new WeakMap(), scalars: new WeakMap(), collections: new WeakSet(), trailing: new WeakMap(), aliases: new Map() };
+  visit(doc, {
+    Node(_key, node) {
+      if (isAlias(node)) {
+        const target = node.resolve(doc);
+        src.aliases.set(node, { data: toData(doc, target), node: target ? resolvedCopy(doc, target) : undefined });
+        return;
+      }
+      src.data.set(node, toData(doc, node));
+      if (isScalar(node)) src.scalars.set(node, { value: node.value, type: node.type });
+      else {
+        src.collections.add(node);
+        src.trailing.set(node, node.comment);
+      }
+    },
+  });
+  return src;
+}
+
+class Writer {
+  // Collections whose items changed.
+  readonly touched = new WeakSet<object>();
+  // Items created for new data, and old items that were removed: a removed
+  // item whose data comes back elsewhere (an output moved to another mode)
+  // takes the new item's place, with its comments.
+  readonly created: { list: YAMLSeq; index: number; data: unknown }[] = [];
+  readonly removed: unknown[] = [];
+
+  constructor(readonly src: Source) {}
+
+  dataOf(node: unknown): unknown {
+    if (isAlias(node)) return this.src.aliases.get(node)?.data;
+    return isNode(node) ? this.src.data.get(node) : node;
+  }
+
+  // The node for `value` where `old` was: `old` itself when its data did not
+  // change, `old` edited when it can be, otherwise a new node.
+  reconcile(old: unknown, value: unknown, inFlow: boolean): unknown {
+    if ((isAlias(old) || (isNode(old) && this.src.data.has(old))) && deepEqual(this.dataOf(old), value)) return old;
+    if (isScalar(old) && !isObj(value) && !Array.isArray(value)) {
+      // A changed scalar is written in the style yaml picks for its new
+      // value, unless the edit asks for one.
+      old.value = value;
+      old.type = undefined;
+      return old;
+    }
+    if (isMap(old) && isObj(value)) {
+      this.reconcileMap(old, value, inFlow || !!old.flow);
+      return old;
+    }
+    if (isSeq(old) && Array.isArray(value)) {
+      this.reconcileSeq(old, value, inFlow);
+      return old;
+    }
+    // A single entry that becomes a list (a second gate or output) keeps its
+    // node as the list's item.
+    if (Array.isArray(value) && isNode(old) && value.some((item) => deepEqual(this.dataOf(old), item))) {
+      const list = new YAMLSeq();
+      list.flow = inFlow;
+      let kept = false;
+      list.items = value.map((item, index) => {
+        if (!kept && deepEqual(this.dataOf(old), item)) {
+          kept = true;
+          return old;
+        }
+        return this.createItem(list, index, item, inFlow);
+      });
+      return list;
+    }
+    this.remove(old);
+    return this.create(value, inFlow);
+  }
+
+  reconcileMap(map: YAMLMap, value: Obj, inFlow: boolean): void {
+    const pairs = map.items as Pair[];
+    const keys = Object.keys(value);
+    // A key matched to an old key of another name is a renamed key (a gate
+    // whose kind changed): its pair, with its comments, stays.
+    const plan = matchItems(pairs.map(keyOf), keys, (a, b) => a === b);
+    const used = new Set(plan.flatMap((p) => (p ? [p.from] : [])));
+    // The comment lines above a removed key stay, above the next key that
+    // stays, or after the mapping's last key.
+    pairs.forEach((pair, i) => {
+      if (used.has(i)) return;
+      this.remove(pair.value);
+      const comment = isNode(pair.key) ? pair.key.commentBefore : undefined;
+      if (!comment) return;
+      const next = pairs.slice(i + 1).find((_p, k) => used.has(i + 1 + k));
+      if (next && isNode(next.key)) next.key.commentBefore = next.key.commentBefore ? `${comment}\n${next.key.commentBefore}` : comment;
+      else map.comment = map.comment ? `${comment}\n${map.comment}` : comment;
+    });
+    map.items = keys.map((key, i) => {
+      const match = plan[i];
+      if (!match) return new Pair(new Scalar(key), this.create(value[key], inFlow));
+      const pair = pairs[match.from];
+      if (!match.same && isScalar(pair.key)) {
+        pair.key.value = key;
+        pair.key.type = undefined;
+      }
+      pair.value = this.reconcile(pair.value, value[key], inFlow);
+      return pair;
+    });
+    this.touched.add(map);
+  }
+
+  reconcileSeq(seq: YAMLSeq, value: unknown[], inFlow: boolean): void {
+    // `[]` is how an empty list is written, not a choice of style: a list
+    // that gets mappings or lists is written as a block.
+    if (seq.flow && !inFlow && seq.items.length === 0 && value.some((v) => isObj(v) || Array.isArray(v))) seq.flow = false;
+    const flow = inFlow || !!seq.flow;
+    const items = seq.items;
+    const plan = matchItems(items.map((item) => this.dataOf(item)), value);
+    const used = new Set(plan.flatMap((p) => (p ? [p.from] : [])));
+    items.forEach((item, i) => {
+      if (!used.has(i)) this.remove(item);
+    });
+    seq.items = value.map((v, i) => {
+      const match = plan[i];
+      if (!match) return this.createItem(seq, i, v, flow);
+      return match.same ? items[match.from] : this.reconcile(items[match.from], v, flow);
+    });
+    this.touched.add(seq);
+  }
+
+  // A new node. A new list of scalars is a flow list, `[a, b]`; a new list
+  // of mappings, and a new mapping, are blocks, unless inside a flow
+  // collection.
+  create(value: unknown, inFlow: boolean): unknown {
+    if (Array.isArray(value)) {
+      const seq = new YAMLSeq();
+      seq.flow = inFlow || value.every((v) => !isObj(v) && !Array.isArray(v));
+      seq.items = value.map((v, i) => this.createItem(seq, i, v, seq.flow!));
+      return seq;
+    }
+    if (isObj(value)) {
+      const map = new YAMLMap();
+      map.flow = inFlow;
+      map.items = Object.entries(value).map(([k, v]) => new Pair(new Scalar(k), this.create(v, inFlow)));
+      return map;
+    }
+    return new Scalar(value);
+  }
+
+  createItem(list: YAMLSeq, index: number, value: unknown, inFlow: boolean): unknown {
+    this.created.push({ list, index, data: value });
+    return this.create(value, inFlow);
+  }
+
+  remove(node: unknown): void {
+    this.removed.push(node);
+    if (isSeq(node)) this.removed.push(...node.items);
+  }
+
+  // A removed item whose data was created again elsewhere takes the place of
+  // the new item.
+  reuseRemoved(): void {
+    const free = this.removed.filter((node) => isNode(node) && !isAlias(node) && this.src.data.has(node));
+    for (const { list, index, data } of this.created) {
+      const at = free.findIndex((node) => deepEqual(this.dataOf(node), data));
+      if (at === -1) continue;
+      list.items[index] = free[at];
+      free.splice(at, 1);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering a changed part with yaml
+
+// The source text of an unchanged scalar or one-line flow collection, written
+// as it stood. `ownsComment`: the text includes the node's own comment.
+class RawText {
+  constructor(
+    readonly first: string,
+    readonly rest: string[],
+    readonly ownsComment: boolean,
+  ) {}
+}
+
+const BUILTIN = new Document().schema.tags;
+const builtinTag = (tag: string) => BUILTIN.find((t) => t.tag === tag)!;
+const STR_TAG = builtinTag("tag:yaml.org,2002:str") as ScalarTag;
+
+// The tags a changed part is rendered with, ahead of yaml's own:
+// - RawText is written as its source; continuation lines keep their indentation
+//   relative to the first of them, at the depth yaml gives the node now.
+// - A folded block scalar is wrapped at FOLD_WIDTH columns of the file (the
+//   part is rendered at column 0 and shifted by `shift`); every other string
+//   stays on its line.
+// - Flow lists are written `[a, b]`, flow mappings `{ a: b }`, as the
+//   workflow files write them.
+function renderTags(shift: number): (CollectionTag | ScalarTag)[] {
+  const raw: ScalarTag = {
+    tag: "tag:komposer.local,2026:raw",
+    default: true,
+    identify: (value) => value instanceof RawText,
+    resolve: (value) => value,
+    stringify(node, ctx, onComment) {
+      const raw = (node as Scalar).value as RawText;
+      if (raw.ownsComment) onComment?.();
+      return [raw.first, ...raw.rest.map((line) => (line ? ctx.indent + line : line))].join("\n");
+    },
+  };
+  const str: ScalarTag = {
+    ...STR_TAG,
+    stringify(node, ctx, onComment, onChompKeep) {
+      const lineWidth = (node as Scalar).type === Scalar.BLOCK_FOLDED ? Math.max(40, FOLD_WIDTH - shift) : 0;
+      return STR_TAG.stringify!(node, { ...ctx, options: { ...ctx.options, lineWidth } }, onComment, onChompKeep);
+    },
+  };
+  const padded = (tag: string, padding: string) => {
+    const base = builtinTag(tag) as CollectionTag;
+    return {
+      ...base,
+      stringify(node: YAMLMap | YAMLSeq, ctx: { flowCollectionPadding: string }, onComment?: () => void, onChompKeep?: () => void) {
+        return node.toString({ ...ctx, flowCollectionPadding: padding } as never, onComment, onChompKeep);
+      },
+    } as unknown as CollectionTag;
+  };
+  return [raw, str, padded("tag:yaml.org,2002:seq", ""), padded("tag:yaml.org,2002:map", " ")];
+}
+
+// Continuation lines of a node's source, with the indentation they share
+// removed, or null if they cannot be moved (tabs).
+function continuation(lines: string[]): string[] | null {
+  const indents = lines.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length);
+  if (lines.some((l) => /^\s*\t/.test(l))) return null;
+  const base = indents.length ? Math.min(...indents) : 0;
+  return lines.map((l) => (l.trim() ? l.slice(base) : ""));
+}
+
+// The comment after a scalar on its line, with the space before it, as
+// written ("   # why"), or null if the scalar has none there.
+function sameLineComment(text: string, node: Scalar): string | null {
+  if (!node.comment || node.comment.includes("\n") || !node.range) return null;
+  const end = node.range[1];
+  const rest = text.slice(end, lineEndOf(text, end)).replace(/\r?\n$/, "");
+  const match = /^([ \t]+#(.*))$/.exec(rest);
+  return match && match[2].trimEnd() === node.comment.trimEnd() ? match[1].trimEnd() : null;
+}
+
+// A changed scalar with a comment on its line, written by yaml with the
+// comment after it as it was spaced, or null when that does not fit on one line.
+function commentedScalar(src: Source, node: Scalar, inFlow: boolean): RawText | null {
+  if (inFlow || node.tag || node.type === Scalar.BLOCK_FOLDED || node.type === Scalar.BLOCK_LITERAL) return null;
+  const comment = sameLineComment(src.text, node);
+  if (comment === null) return null;
+  const alone = new Document(null);
+  const scalar = new Scalar(node.value);
+  scalar.type = node.type;
+  alone.contents = scalar as never;
+  const value = alone.toString({ lineWidth: 0, singleQuote: true }).replace(/\n$/, "");
+  return value.includes("\n") ? null : new RawText(`${value}${comment}`, [], true);
+}
+
+// The source of an unchanged scalar, or null when it must be rendered (it
+// changed, has a tag, or its source cannot be moved as text).
+function rawScalar(src: Source, node: Scalar, inFlow: boolean): RawText | null {
+  const info = src.scalars.get(node);
+  if (!info || info.value !== node.value || info.type !== node.type || node.tag || !node.range) return null;
+  const { text } = src;
+  const [start, end] = node.range;
+  let source = text.slice(start, end);
+  let ownsComment = false;
+  // Inside a flow collection a block scalar cannot stand, and a plain one
+  // cannot hold the characters that delimit the collection: such a value,
+  // moved from block lines into braces or brackets, is rendered afresh.
+  if (inFlow && (node.type === Scalar.BLOCK_FOLDED || node.type === Scalar.BLOCK_LITERAL)) return null;
+  if (inFlow && node.type === Scalar.PLAIN && /[,[\]{}]/.test(source)) return null;
+  if (node.type === Scalar.BLOCK_FOLDED || node.type === Scalar.BLOCK_LITERAL) {
+    const header = source.slice(0, source.indexOf("\n") === -1 ? source.length : source.indexOf("\n"));
+    // Keep chomping holds trailing blank lines yaml would have to place, and an
+    // explicit indentation indicator counts from the parent's column.
+    if (/^[|>][^#]*[+0-9]/.test(header)) return null;
+    if (node.comment) {
+      if (!header.includes("#")) return null;
+      ownsComment = true;
+    }
+    source = source.replace(/(\n[ \t]*)+$/, "");
+  } else if (!inFlow) {
+    const comment = sameLineComment(text, node);
+    if (comment !== null) {
+      source += comment;
+      ownsComment = true;
+    }
+  }
+  const [first, ...more] = source.split("\n");
+  const rest = continuation(more);
+  return rest ? new RawText(first, rest, ownsComment) : null;
+}
+
+// The node, ready to render: unchanged scalars and one-line flow collections
+// become their source text. Returns the node to use in its place.
+function asRendered(src: Source, w: Writer, node: unknown, inFlow: boolean): unknown {
+  if (isPair(node)) {
+    node.key = asRendered(src, w, node.key, inFlow);
+    node.value = asRendered(src, w, node.value, inFlow);
+    return node;
+  }
+  if (isScalar(node)) {
+    if (node.value instanceof RawText) return node;
+    const raw = rawScalar(src, node, inFlow) ?? commentedScalar(src, node, inFlow);
+    if (raw) node.value = raw;
+    return node;
+  }
+  if (isCollection(node)) {
+    const range = node.range;
+    if (node.flow && src.collections.has(node) && !w.touched.has(node) && range && !node.tag) {
+      const source = src.text.slice(range[0], range[1]);
+      if (!source.includes("\n")) {
+        const scalar = new Scalar(new RawText(source, [], false));
+        scalar.anchor = node.anchor;
+        scalar.comment = node.comment;
+        scalar.commentBefore = node.commentBefore;
+        scalar.spaceBefore = node.spaceBefore;
+        return scalar;
+      }
+    }
+    const flow = inFlow || !!node.flow;
+    node.items = node.items.map((item) => asRendered(src, w, item, flow)) as typeof node.items;
+    return node;
+  }
+  return node;
+}
+
+// The comment lines the file has after the last item of a block collection,
+// and of its last item's value and so on, are text after the part being
+// replaced: they stay in the file where they are, so they are not rendered
+// again. Comments moved there by the edit are.
+function dropTrailingComments(src: Source, node: unknown): void {
+  while (isCollection(node) && !node.flow) {
+    const original = src.trailing.get(node);
+    if (original && node.comment?.endsWith(original)) node.comment = node.comment.slice(0, -original.length).replace(/\n$/, "") || undefined;
+    const last = node.items[node.items.length - 1];
+    node = isPair(last) ? last.value : last;
+  }
+}
+
+// One part of the file rendered by yaml at column `shift`: a top-level pair
+// (`key: value`) or a step (`- id: ...`), without a trailing newline.
+function render(src: Source, w: Writer, unit: Pair | unknown, shift: number, indentSeq: boolean): string {
+  const node = asRendered(src, w, unit, false);
+  const wrapper = isPair(node) ? new YAMLMap() : new YAMLSeq();
+  (wrapper.items as unknown[]) = [node];
+  // The comment lines above the part stay in the file where they are.
+  const lead = isPair(node) ? node.key : node;
+  if (isNode(lead)) {
+    lead.commentBefore = undefined;
+    lead.spaceBefore = false;
+  }
+  dropTrailingComments(src, isPair(node) ? node.value : node);
+  const doc = new Document(null, { customTags: (tags) => [...renderTags(shift), ...tags] });
+  doc.contents = wrapper as never;
+  const out = doc
+    .toString({ indent: 2, indentSeq, lineWidth: 0, singleQuote: true, verifyAliasOrder: false })
+    .replace(/\n$/, "");
+  return out
+    .split("\n")
+    .map((line) => (line ? " ".repeat(shift) + line : line))
+    .join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Splicing the rendered parts into the original text
+
 interface Splice {
   start: number;
   end: number;
@@ -188,1110 +1067,298 @@ interface Splice {
 }
 
 function applySplices(text: string, splices: Splice[]): string {
-  const sorted = [...splices].sort((a, b) => a.start - b.start);
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].start < sorted[i - 1].end) fail("internal error: overlapping edits");
-  }
+  const sorted = [...splices].sort((a, b) => a.start - b.start || a.end - b.end);
   let out = "";
   let pos = 0;
   for (const s of sorted) {
+    if (s.start < pos) fail("internal error: overlapping edits");
     out += text.slice(pos, s.start) + s.insert;
     pos = s.end;
   }
-  out += text.slice(pos);
-  return out;
+  return out + text.slice(pos);
 }
 
-// Collection node ranges include their terminating newline. Preserve it when
-// replacing a whole mapping/list node so the following key or sequence item
-// cannot be joined onto the replacement's last line.
-function replacementSplice(text: string, start: number, end: number, insert: string): Splice {
-  const keepsNewline = text.slice(start, end).endsWith("\n") && !insert.endsWith("\n");
-  return { start, end, insert: keepsNewline ? insert + "\n" : insert };
+function columnOf(text: string, offset: number): number {
+  return offset - lineStartOf(text, offset);
 }
 
-// YAML plain-scalar safety: quote a string value if it is not safe to write
-// unquoted (empty, looks like another type, has special leading/trailing
-// chars, or contains a colon-space / comment-start sequence).
-function plainScalar(value: string): string {
-  const needsQuote =
-    value === "" ||
-    /^[\s]/.test(value) ||
-    /[\s]$/.test(value) ||
-    /^[-?:,\[\]{}#&*!|>'"%@`]/.test(value) ||
-    /: |:$/.test(value) ||
-    / #/.test(value) ||
-    /^(true|false|null|~|yes|no)$/i.test(value) ||
-    /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(value) ||
-    value.includes("\n") ||
-    value.includes('"') === false && value.includes("'") && false; // placeholder, no-op
-  if (!needsQuote) return value;
-  // Prefer single quotes, doubling embedded single quotes, unless the value
-  // contains characters that need double-quote escaping (none of our values
-  // do in practice, but fall back safely).
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-function scalarLine(key: string, value: string): string {
-  return `${key}: ${plainScalar(value)}`;
-}
-
-// Render a flow list, e.g. "[a, b]".
-function flowList(values: string[]): string {
-  return `[${values.map(plainScalar).join(", ")}]`;
-}
-
-// Fold `text` at the given indentation, wrapped at ~100 columns, YAML `>`
-// style: each physical line becomes one wrapped paragraph; blank lines
-// (paragraph breaks) are preserved as truly blank lines, which the folded
-// style turns back into a single newline when parsed.
-function foldText(text: string, indent: string, width = 100): string {
-  // In a folded scalar a single line break reads as a space, and each empty
-  // line reads as one newline. So a run of k newlines in the text is written
-  // as k empty lines, and each paragraph between them is wrapped.
-  const avail = Math.max(20, width - indent.length);
-  const wrap = (para: string) => {
-    const words = para.split(/\s+/).filter(Boolean);
-    const lines: string[] = [];
-    let cur = "";
-    for (const word of words) {
-      if (cur && cur.length + 1 + word.length > avail) {
-        lines.push(cur);
-        cur = word;
-      } else {
-        cur = cur ? `${cur} ${word}` : word;
-      }
-    }
-    if (cur) lines.push(cur);
-    return lines.map((l) => indent + l);
-  };
-  const out: string[] = [];
-  for (const part of text.split(/(\n+)/)) {
-    if (part.startsWith("\n")) out.push(...Array<string>(part.length).fill(""));
-    else if (part) out.push(...wrap(part));
-  }
-  return out.join("\n");
-}
-
-function blockScalarLines(key: string, indent: string, text: string, style: ">" | "|"): string {
-  const body = text.replace(/\n+$/, "");
-  const bodyIndent = indent + "  ";
-  if (style === "|") {
-    const lines = body.split("\n").map((l) => (l ? bodyIndent + l : ""));
-    return `${indent}${key}: |\n${lines.join("\n")}\n`;
-  }
-  const folded = foldText(body, bodyIndent);
-  return `${indent}${key}: >\n${folded}\n`;
-}
-
-// Does `text` fit comfortably as a plain scalar on one line (no block style
-// needed)? Used to decide whether setInstruction with style '>' still
-// produces a block or can stay a short plain scalar when parsed back and
-// re-edited. setInstruction always honors the chosen style
-// when the text is written as a block; but a very short instruction reads
-// fine as a plain scalar too. We only use a plain scalar when the text has
-// no newlines and is short enough that a reader would normally not use a
-// block style, mirroring how real workflow files are written (short
-// instructions, like "Polish it.", are plain scalars).
-function shouldUsePlainScalar(text: string): boolean {
-  return !text.includes("\n") && text.length <= 80;
-}
-
-// ---------------------------------------------------------------------------
-// Find where in a mapping a new key belongs, given a fixed key order, and
-// build the splice that inserts it. `rendered` must already be fully
-// indented (including its first line) and must NOT end with a newline.
-function insertKeySplice(text: string, map: InstanceType<typeof YAMLMap>, keyOrder: readonly string[], key: string, rendered: string): Splice {
-  const myRank = keyOrder.indexOf(key);
-  if (myRank === -1) fail(`internal error: unknown key "${key}"`);
-  // Find the first existing key whose rank is greater than ours; insert
-  // before it. If none, append after the last existing key (or as the first
-  // key in an empty mapping, which should not happen for steps/workflow).
-  let insertBeforeOffset: number | undefined;
-  let lastEnd: number | undefined;
-  for (const pair of map.items) {
-    if (!isScalar(pair.key)) continue;
-    const k = String(pair.key.value);
-    const rank = keyOrder.indexOf(k);
-    const pairRange = pairRangeOf(pair);
-    if (rank === -1) continue;
-    if (rank > myRank && insertBeforeOffset === undefined) insertBeforeOffset = pairRange[0];
-    lastEnd = pairRange[2];
-  }
-  if (insertBeforeOffset !== undefined) {
-    const at = lineStartOf(text, insertBeforeOffset);
-    return { start: at, end: at, insert: rendered + "\n" };
-  }
-  if (lastEnd !== undefined) {
-    const at = lineEndOf(text, lastEnd - 1);
-    return { start: at, end: at, insert: rendered + "\n" };
-  }
-  fail("internal error: empty mapping has no key to anchor insertion");
-}
-
-// The full source range of a Pair (key start through value end, including
-// any trailing same-line comment but not the newline).
-function pairRangeOf(pair: InstanceType<typeof Pair>): Range {
-  const key = pair.key;
-  const value = pair.value;
-  const start = isScalar(key) || isMap(key) || isSeq(key) ? (key.range as Range)[0] : 0;
-  let end: number;
-  if (value && (isScalar(value) || isMap(value) || isSeq(value))) {
-    end = (value.range as Range)[2];
-  } else if (isScalar(key)) {
-    end = (key.range as Range)[2];
-  } else {
-    end = start;
-  }
-  return [start, end, end];
-}
-
-// Remove an entire key: value line(s), including its leading comment lines
-// that are directly attached (commentBefore) and the line's own trailing
-// newline. If this is the only remaining key the mapping is left empty;
-// callers that need to drop the key entirely when it becomes empty do that
-// separately (removeMappingKey below).
-function removeKeySplice(text: string, map: InstanceType<typeof YAMLMap>, key: string): Splice {
-  const pair = findPair(map, key);
-  if (!pair) fail(`internal error: key "${key}" not found`);
-  const range = pairRangeOf(pair);
-  const start = lineStartOf(text, range[0]);
-  const end = lineEndOf(text, range[1] - 1 >= range[0] ? range[1] - 1 : range[0]);
-  return { start, end, insert: "" };
-}
-
-// ---------------------------------------------------------------------------
-// setWorkflowField / setStepField (scalar string|null fields)
-
-function applySetWorkflowField(text: string, edit: { key: "name" | "description"; value: string | null }): string {
-  const doc = parseDoc(text);
-  const map = rootMap(doc);
-  return applyScalarField(text, map, ["version", "name", "description", "inputs", "hands_off_to", "steps"], edit.key, edit.value, { required: edit.key === "name" });
-}
-
-function applyScalarField(
-  text: string,
-  map: InstanceType<typeof YAMLMap>,
-  keyOrder: readonly string[],
-  key: string,
-  value: string | null,
-  opts: { required: boolean },
-): string {
-  const pair = findPair(map, key);
-  const current = pair && isScalar(pair.value) ? String(pair.value.value) : undefined;
-  if (value === null) {
-    if (opts.required) fail(`${key} is required and cannot be cleared`);
-    if (pair === undefined) return text; // no-op
-    return applySplices(text, [removeKeySplice(text, map, key)]);
-  }
-  if (current === value) return text; // no-op
-  if (pair) {
-    const valueNode = pair.value;
-    if (!isScalar(valueNode)) fail(`internal error: ${key} is not a scalar`);
-    const range = valueNode.range as Range;
-    return applySplices(text, [{ start: range[0], end: range[1], insert: plainScalar(value) }]);
-  }
-  const indent = fieldIndent(text, map);
-  const splice = insertKeySplice(text, map, keyOrder, key, `${indent}${scalarLine(key, value)}`);
-  return applySplices(text, [splice]);
-}
-
-function applySetStepField(text: string, edit: { step: number; key: "id" | "title" | "phase" | "description"; value: string | null }): string {
-  const doc = parseDoc(text);
-  const step = stepMap(doc, edit.step);
-  if (edit.key === "id") return applyRenameId(text, doc, edit.step, edit.value);
-  return applyScalarField(text, step, STEP_KEY_ORDER, edit.key, edit.value, { required: false });
-}
-
-function applyRenameId(text: string, doc: YAML.Document.Parsed, stepIndex: number, value: string | null): string {
-  if (value === null) fail("id is required and cannot be cleared");
-  const step = stepMap(doc, stepIndex);
-  const oldId = stepIdOf(step);
-  if (oldId === value) return text; // no-op
-
-  const steps = stepsSeq(doc);
-  for (const other of steps.items) {
-    if (isMap(other) && other !== step && stepIdOf(other) === value) fail(`step id "${value}" is already used by another step`);
-  }
-
-  const splices: Splice[] = [];
-  const idPair = findPair(step, "id");
-  if (!idPair || !isScalar(idPair.value)) fail("internal error: step has no id scalar");
-  const idRange = idPair.value.range as Range;
-  splices.push({ start: idRange[0], end: idRange[1], insert: plainScalar(value) });
-
-  // Rewrite every route_back_to, in any step, that named the old id.
-  for (const other of steps.items) {
-    if (!isMap(other)) continue;
-    const gatesPair = findPair(other, "gates");
-    const gatesValue = gatesPair?.value;
-    const gateMaps: InstanceType<typeof YAMLMap>[] = [];
-    if (isSeq(gatesValue)) gateMaps.push(...gatesValue.items.filter(isMap));
-    else if (isMap(gatesValue)) gateMaps.push(gatesValue);
-    for (const gateMap of gateMaps) {
-      const rbtPair = findPair(gateMap, "route_back_to");
-      if (!rbtPair) continue;
-      const rbtValue = rbtPair.value;
-      if (isScalar(rbtValue) && String(rbtValue.value) === oldId) {
-        const r = rbtValue.range as Range;
-        splices.push({ start: r[0], end: r[1], insert: plainScalar(value) });
-      } else if (isSeq(rbtValue)) {
-        for (const item of rbtValue.items) {
-          if (isScalar(item) && String(item.value) === oldId) {
-            const r = item.range as Range;
-            splices.push({ start: r[0], end: r[1], insert: plainScalar(value) });
-          }
-        }
-      }
-    }
-  }
-  return applySplices(text, splices);
-}
-
-// ---------------------------------------------------------------------------
-// setInstruction
-
-function applySetInstruction(text: string, edit: { step: number; text: string; style: ">" | "|" }): string {
-  const doc = parseDoc(text);
-  const step = stepMap(doc, edit.step);
-  const pair = findPair(step, "instruction");
-  if (!pair || !pair.value) fail("step has no instruction to edit");
-  const valueNode = pair.value;
-  if (!isScalar(valueNode)) fail("internal error: instruction is not a scalar");
-
-  // Determine the full range to replace: for a block scalar this is the key
-  // line through the end of the block body; for a plain/quoted scalar it is
-  // just the value.
-  const keyNode = pair.key;
-  if (!isScalar(keyNode)) fail("internal error: instruction key is not a scalar");
-  const keyRange = keyNode.range as Range;
-  const indent = columnIndent(text, keyRange[0]);
-  const valueRange = valueNode.range as Range;
-  const fullStart = keyRange[0];
-  let fullEnd = valueRange[1];
-  const requestedType = edit.style === ">" ? Scalar.BLOCK_FOLDED : Scalar.BLOCK_LITERAL;
-  if (valueNode.type === requestedType && String(valueNode.value).trim() === edit.text.trim()) return text;
-
-  // A comment on the instruction's line moves to the new block's header. Left
-  // where it was, after a plain value it would become part of the block's text.
-  const lineEnd = (from: number) => (text.indexOf("\n", from) === -1 ? text.length : text.indexOf("\n", from));
-  // Comments between the key and the value: the one on the key's line stays
-  // on the new header, the others get their own lines above the key, since
-  // they cannot sit inside the new block. A value may start on a later line,
-  // block indicator included.
-  const beforeValue = text.slice(keyRange[1], valueRange[0]).match(/#[^\n]*/g) ?? [];
-  const onKeyLine = /#[^\n]*/.exec(text.slice(keyRange[1], Math.min(valueRange[0], lineEnd(keyRange[1]))))?.[0];
-  const above = beforeValue.filter((c) => c !== onKeyLine).map((c) => c.trimEnd());
-  // The comment after the value: on a block's indicator line, or after a plain
-  // or quoted value's last line.
-  let afterValue: string | undefined;
-  if (valueNode.type === Scalar.BLOCK_FOLDED || valueNode.type === Scalar.BLOCK_LITERAL) {
-    afterValue = /^[>|][-+0-9]*[ \t]+(#.*)$/.exec(text.slice(valueRange[0], lineEnd(valueRange[0])))?.[1];
-  } else {
-    afterValue = /^[ \t]+(#.*)$/.exec(text.slice(valueRange[1], lineEnd(valueRange[1])))?.[1];
-    if (afterValue) fullEnd = lineEnd(valueRange[1]);
-  }
-  const comment = [onKeyLine, afterValue].filter(Boolean).map((c) => c!.trimEnd()).join(" ") || undefined;
-
-  // setInstruction always honors the selected block style, even for short
-  // text; the style is explicit editor state, not a formatting hint.
-  let rendered = blockScalarLines("instruction", indent, edit.text, edit.style)
-    .slice(indent.length)
-    .replace(/\n$/, "");
-  // A callback, so `$&` or `$'` in the comment is inserted as written.
-  if (comment) rendered = rendered.replace("\n", () => ` ${comment.trimEnd()}\n`);
-  if (above.length) rendered = above.map((c) => `${c}\n${indent}`).join("") + rendered;
-
-  // Replace from the start of the key line to the end of the value
-  // (including, for block scalars, all its body lines) but not the trailing
-  // newline, so the splice is line-content-only and existing line endings
-  // stay intact.
-  return applySplices(text, [replacementSplice(text, fullStart, fullEnd, rendered)]);
-}
-
-// ---------------------------------------------------------------------------
-// setCondition
-
-function conditionLines(kind: GateKind, text: string, description: string | undefined, indent: string): string {
-  let out = `${indent}condition:\n${indent}  ${kind}: ${plainScalar(text)}`;
-  if (description !== undefined) out += `\n${indent}  description: ${plainScalar(description)}`;
-  return out;
-}
-
-function readCondition(node: unknown): ConditionValue {
-  if (isMap(node)) {
-    const kindPair = node.items.find((p) => isScalar(p.key) && GATE_KINDS.includes(String(p.key.value) as GateKind));
-    if (!kindPair || !isScalar(kindPair.key) || !isScalar(kindPair.value)) fail("condition mapping has no kind key");
-    const description = scalarOf(node, "description");
-    return { kind: String(kindPair.key.value) as GateKind, text: String(kindPair.value.value), ...(description === undefined ? {} : { description }) };
-  }
-  if (isScalar(node)) {
-    const raw = String(node.value).trim();
-    const match = /^([a-z-]+)\s*(?:\(\s*"?(.*?)"?\s*\)|:(.*))$/s.exec(raw);
-    if (!match) fail(`cannot read condition string "${raw}"`);
-    return { kind: match[1] as GateKind, text: (match[2] ?? match[3] ?? "").trim() };
-  }
-  fail("condition must be a mapping or string");
-}
-
-function sameCondition(a: ConditionValue, b: ConditionValue): boolean {
-  return a.kind === b.kind && a.text === b.text && a.description === b.description;
-}
-
-function applySetCondition(text: string, edit: { step: number; condition: ConditionValue | null }): string {
-  const doc = parseDoc(text);
-  const step = stepMap(doc, edit.step);
-  const pair = findPair(step, "condition");
-  const indent = fieldIndent(text, step);
-
-  if (edit.condition === null) {
-    if (!pair) return text; // no-op
-    return applySplices(text, [removeKeySplice(text, step, "condition")]);
-  }
-  if (pair?.value && sameCondition(readCondition(pair.value), edit.condition)) return text;
-
-  // A condition mapping: change only the kind and text and the description,
-  // so the other lines and their comments stay as written.
-  if (pair && isMap(pair.value)) {
-    const current = readCondition(pair.value);
-    {
-      let out = text;
-      if (current.kind !== edit.condition.kind || current.text !== edit.condition.text) {
-        const kindPair = findPair(pair.value, current.kind)!;
-        const k = (kindPair.key as InstanceType<typeof Scalar>).range as Range;
-        const r = (kindPair.value as InstanceType<typeof Scalar>).range as Range;
-        out = applySplices(out, [{ start: k[0], end: r[1], insert: `${edit.condition.kind}: ${plainScalar(edit.condition.text)}` }]);
-      }
-      if (current.description !== edit.condition.description) {
-        const condition = findPair(stepMap(parseDoc(out), edit.step), "condition")!.value as InstanceType<typeof YAMLMap>;
-        out = applyScalarField(out, condition, [...GATE_KINDS, "description"], "description", edit.condition.description ?? null, {
-          required: false,
-        });
-      }
-      return out;
-    }
-  }
-
-  const rendered = conditionLines(edit.condition.kind, edit.condition.text, edit.condition.description, indent);
-
-  if (pair) {
-    const range = pairRangeOf(pair);
-    return applySplices(text, [replacementSplice(text, range[0], range[1], rendered.slice(indent.length))]);
-  }
-  const splice = insertKeySplice(text, step, STEP_KEY_ORDER, "condition", rendered);
-  return applySplices(text, [splice]);
-}
-
-// ---------------------------------------------------------------------------
-// setConsumes
-
-function applySetConsumes(text: string, edit: { step: number; ids: string[] }): string {
-  const doc = parseDoc(text);
-  const step = stepMap(doc, edit.step);
-  const pair = findPair(step, "consumes");
-
-  if (edit.ids.length === 0) {
-    if (!pair) return text;
-    return applySplices(text, [removeKeySplice(text, step, "consumes")]);
-  }
-  if (pair?.value && isSeq(pair.value)) {
-    const current = pair.value.items.filter(isScalar).map((item) => String(item.value));
-    if (current.length === edit.ids.length && current.every((id, index) => id === edit.ids[index])) return text;
-  }
-
-  // A block list: remove and append items one by one, so the items that stay
-  // keep their lines and comments. Only a reorder rewrites the list.
-  if (pair?.value && isSeq(pair.value) && !pair.value.flow && pair.value.items.length > 0) {
-    const items = pair.value.items.filter(isScalar);
-    const current = items.map((item) => String(item.value));
-    const kept = current.filter((id) => edit.ids.includes(id));
-    const added = edit.ids.filter((id) => !current.includes(id));
-    if ([...kept, ...added].join("\n") === edit.ids.join("\n") && kept.length > 0) {
-      const dash = dashIndent(text, (items[0].range as Range)[0]);
-      const splices: Splice[] = items
-        .filter((item) => !edit.ids.includes(String(item.value)))
-        .map((item) => ({ ...itemFullRange(text, item as { range?: Range }), insert: "" }));
-      if (added.length) {
-        const last = items[items.length - 1].range as Range;
-        const at = lineEndOf(text, Math.max(last[0], last[2] - 1));
-        splices.push({ start: at, end: at, insert: added.map((id) => `${dash}- ${plainScalar(id)}\n`).join("") });
-      }
-      return applySplices(text, splices);
-    }
-  }
-
-  const indent = fieldIndent(text, step);
-  const rendered = `${indent}consumes: ${flowList(edit.ids)}`;
-
-  if (pair) {
-    const range = pairRangeOf(pair);
-    return applySplices(text, [replacementSplice(text, range[0], range[1], rendered.slice(indent.length))]);
-  }
-  const splice = insertKeySplice(text, step, STEP_KEY_ORDER, "consumes", rendered);
-  return applySplices(text, [splice]);
-}
-
-// ---------------------------------------------------------------------------
-// Outputs: addOutput, removeOutput, setOutput, changeOutputMode
-
-function outputEntryLines(indent: string, fields: { artifact: string; path: string; description?: string }): string {
-  const lines = [`${indent}- artifact: ${plainScalar(fields.artifact)}`, `${indent}  path: ${plainScalar(fields.path)}`];
-  if (fields.description !== undefined) lines.push(`${indent}  description: ${plainScalar(fields.description)}`);
-  return lines.join("\n");
-}
-
-// Normalize a mode's value to a list of its item maps, converting a single
-// (non-list) mapping to a one-item list in the source when needed. Returns
-// the (possibly rewritten) text plus a fresh doc/pair/items for continued
-// editing, since a conversion changes offsets.
-// Rewrite a step key whose value is a single entry (`produces:` with one
-// artifact mapping, `gates:` with one gate) as a one-item list, keeping every
-// byte of the entry: a block mapping's lines, comments included, move from the
-// mapping's column to the list item's, and its first key line gets the "- ".
-// A flow mapping or a string entry moves onto its own "- " line unchanged.
-function singletonAsList(text: string, stepIndex: number, key: string): string {
-  const step = stepMap(parseDoc(text), stepIndex);
-  const pair = findPair(step, key);
-  if (!pair || !isScalar(pair.key)) fail(`internal error: step has no ${key}`);
-  const value = pair.value;
-  const dash = fieldIndent(text, step) + "  ";
-  if (isMap(value) && !value.flow && value.items.length > 0 && isScalar(value.items[0].key)) {
-    const firstKey = (value.items[0].key.range as Range)[0];
-    const base = columnIndent(text, firstKey).length;
-    const range = value.range as Range;
-    const start = lineEndOf(text, (pair.key.range as Range)[0]);
-    const end = lineEndOf(text, Math.max(range[0], range[2] - 1));
-    const firstLine = text.slice(start, firstKey).split("\n").length - 1;
-    const lines = text
-      .slice(start, end)
-      .split("\n")
-      .map((line, i) => {
-        if (line.trim() === "") return line;
-        const lead = line.length - line.trimStart().length;
-        const body = line.trimStart();
-        if (i === firstLine) return `${dash}- ${body}`;
-        return `${" ".repeat(dash.length + 2 + Math.max(0, lead - base))}${body}`;
-      });
-    return applySplices(text, [{ start, end, insert: lines.join("\n") }]);
-  }
-  if (!isMap(value) && !isScalar(value)) fail(`${key} must be a mapping, string, or list`);
-  const range = value.range as Range;
-  const source = text.slice(range[0], range[1]);
-  const keyEnd = (pair.key.range as Range)[1];
-  return applySplices(text, [{ start: keyEnd, end: range[1], insert: `:\n${dash}- ${source}` }]);
-}
-
-// Rewrite a step key whose value is a non-empty flow list (`[a, b]`,
-// `[{ artifact: x, path: y }]`) as a block list, one "- " line per item, each
-// item's source kept as written. Edits that add, remove or move one item work
-// on block lists only.
-function flowListAsBlock(text: string, stepIndex: number, key: string): string {
-  const step = stepMap(parseDoc(text), stepIndex);
-  return flowSeqAsBlock(text, step, key, fieldIndent(text, step) + "  ");
-}
-
-// The same for any mapping's key, with the list items' "- " at `dash`.
-function flowSeqAsBlock(text: string, map: InstanceType<typeof YAMLMap>, key: string, dash: string): string {
-  const pair = findPair(map, key);
-  if (!pair || !isScalar(pair.key) || !isSeq(pair.value) || !pair.value.flow || pair.value.items.length === 0) return text;
-  const items = pair.value.items.map((item) => {
-    const r = (item as { range: Range }).range;
-    return `${dash}- ${text.slice(r[0], r[1])}`;
-  });
-  const keyEnd = (pair.key.range as Range)[1];
-  const end = (pair.value.range as Range)[1];
-  return applySplices(text, [{ start: keyEnd, end, insert: `:\n${items.join("\n")}` }]);
-}
-
-// Steps written as a flow list become a block list before a step is
-// inserted, deleted or moved, each step as written.
-function blockSteps(text: string): string {
-  return flowSeqAsBlock(text, rootMap(parseDoc(text)), "steps", "  ");
-}
-
-// Replace an empty flow list (`key: []`) with a block list holding `entry`
-// (fully indented lines, no trailing newline).
-function fillEmptyList(text: string, map: InstanceType<typeof YAMLMap>, key: string, entry: string): string {
-  const pair = findPair(map, key);
-  if (!pair || !isScalar(pair.key) || !isSeq(pair.value)) fail(`internal error: ${key} is not a list`);
-  const keyEnd = (pair.key.range as Range)[1];
-  const end = (pair.value.range as Range)[1];
-  return applySplices(text, [{ start: keyEnd, end, insert: `:\n${entry}` }]);
-}
-
-function ensureOutputList(text: string, stepIndex: number, mode: OutputMode): { text: string; doc: YAML.Document.Parsed; step: InstanceType<typeof YAMLMap> } {
-  const doc = parseDoc(text);
-  const step = stepMap(doc, stepIndex);
-  const pair = findPair(step, mode);
-  if (!pair || !pair.value) return { text, doc, step };
-  if (isSeq(pair.value)) {
-    if (!pair.value.flow || pair.value.items.length === 0) return { text, doc, step };
-    const newText = flowListAsBlock(text, stepIndex, mode);
-    const newDoc = parseDoc(newText);
-    return { text: newText, doc: newDoc, step: stepMap(newDoc, stepIndex) };
-  }
-  if (isMap(pair.value)) {
-    const newText = singletonAsList(text, stepIndex, mode);
-    const newDoc = parseDoc(newText);
-    return { text: newText, doc: newDoc, step: stepMap(newDoc, stepIndex) };
-  }
-  fail(`internal error: ${mode} is neither a mapping nor a list`);
-}
-
-function scalarOf(map: InstanceType<typeof YAMLMap>, key: string): string | undefined {
-  const pair = findPair(map, key);
-  return pair && isScalar(pair.value) ? String(pair.value.value) : undefined;
-}
-
-function applyAddOutput(text: string, edit: { step: number; mode: OutputMode; artifact: string; path: string; description?: string }): string {
-  const normalized = ensureOutputList(text, edit.step, edit.mode);
-  const { doc, step } = normalized;
-  text = normalized.text;
-  const pair = findPair(step, edit.mode);
-  const fieldLevelIndent = fieldIndent(text, step);
-  const seqForIndent = pair && pair.value && isSeq(pair.value) ? pair.value : undefined;
-  const itemIndent = seqForIndent && seqForIndent.items.length > 0 ? dashIndent(text, (seqForIndent.items[0] as { range?: Range }).range![0]) : fieldLevelIndent + "  ";
-  const entry = outputEntryLines(itemIndent, { artifact: edit.artifact, path: edit.path, description: edit.description });
-
-  if (!pair || !pair.value) {
-    const rendered = `${fieldLevelIndent}${edit.mode}:\n${entry}`;
-    const splice = insertKeySplice(text, step, STEP_KEY_ORDER, edit.mode, rendered);
-    return applySplices(text, [splice]);
-  }
-  const seq = pair.value;
-  if (!isSeq(seq)) fail(`internal error: ${edit.mode} is not a list after normalization`);
-  if (seq.items.length === 0) return fillEmptyList(text, step, edit.mode, entry);
-  const lastItem = seq.items[seq.items.length - 1];
-  const lastRange = (lastItem as { range?: Range }).range as Range;
-  const insertAt = lineEndOf(text, lastRange[1] - 1 >= lastRange[0] ? lastRange[1] - 1 : lastRange[0]);
-  return applySplices(text, [{ start: insertAt, end: insertAt, insert: entry + "\n" }]);
-  void doc;
-}
-
-function outputList(step: InstanceType<typeof YAMLMap>, mode: OutputMode): InstanceType<typeof YAMLSeq> | undefined {
-  const pair = findPair(step, mode);
-  if (!pair || !pair.value) return undefined;
-  if (isSeq(pair.value)) return pair.value;
-  return undefined;
-}
-
-function applyRemoveOutput(text: string, edit: { step: number; mode: OutputMode; index: number }): string {
-  const normalized = ensureOutputList(text, edit.step, edit.mode);
-  text = normalized.text;
-  const { step } = normalized;
-  const seq = outputList(step, edit.mode);
-  if (!seq) fail(`step has no ${edit.mode} list`);
-  const item = seq.items[edit.index];
-  if (!item) fail(`${edit.mode} index ${edit.index} is out of range`);
-
-  if (seq.items.length === 1) {
-    return applySplices(text, [removeKeySplice(text, step, edit.mode)]);
-  }
-  const { start, end } = itemFullRange(text, item as { range?: Range });
-  return applySplices(text, [{ start, end, insert: "" }]);
-}
-
-function outputItemAt(step: InstanceType<typeof YAMLMap>, mode: OutputMode, index: number): InstanceType<typeof YAMLMap> | undefined {
-  const value = findPair(step, mode)?.value;
-  if (isMap(value)) return index === 0 ? value : undefined;
-  if (isSeq(value)) {
-    const item = value.items[index];
-    return isMap(item) ? item : undefined;
-  }
-  return undefined;
-}
-
-function outputFieldsDiffer(entry: InstanceType<typeof YAMLMap>, fields: OutputFields): boolean {
-  if (fields.artifact !== undefined && scalarOf(entry, "artifact") !== fields.artifact) return true;
-  if (fields.path !== undefined && scalarOf(entry, "path") !== fields.path) return true;
-  if ("description" in fields) {
-    const requested = fields.description === null ? undefined : fields.description;
-    if (scalarOf(entry, "description") !== requested) return true;
-  }
-  return false;
-}
-
-function applySetOutput(text: string, edit: { step: number; mode: OutputMode; index: number; fields: OutputFields }): string {
-  const originalStep = stepMap(parseDoc(text), edit.step);
-  const originalEntry = outputItemAt(originalStep, edit.mode, edit.index);
-  if (!originalEntry) fail(`${edit.mode} index ${edit.index} is out of range`);
-  if (!outputFieldsDiffer(originalEntry, edit.fields)) return text;
-
-  // Only a single mapping needs to become a list first; an entry already in a
-  // list, block or flow, is patched where it is.
-  const current = findPair(originalStep, edit.mode)?.value;
-  const normalized = isSeq(current) ? { text, step: originalStep } : ensureOutputList(text, edit.step, edit.mode);
-  text = normalized.text;
-  const { step } = normalized;
-  const seq = outputList(step, edit.mode);
-  if (!seq) fail(`step has no ${edit.mode} list`);
-  const entryMap = seq.items[edit.index];
-  if (!entryMap || !isMap(entryMap)) fail(`${edit.mode} index ${edit.index} is out of range`);
-
-  // A flow entry (`{ artifact: x, path: y }`) that gains or loses a key is
-  // written again on its one line; a flow mapping holds no comments.
-  const addsOrRemoves = OUTPUT_KEY_ORDER.some(
-    (key) => key in edit.fields && (edit.fields[key] === null || edit.fields[key] === undefined) !== !findPair(entryMap, key),
-  );
-  if (entryMap.flow && addsOrRemoves) {
-    const merged = { artifact: scalarOf(entryMap, "artifact"), path: scalarOf(entryMap, "path"), description: scalarOf(entryMap, "description") };
-    for (const key of OUTPUT_KEY_ORDER) if (key in edit.fields) merged[key] = edit.fields[key] ?? undefined;
-    const body = OUTPUT_KEY_ORDER.filter((key) => merged[key] !== undefined).map((key) => `${key}: ${plainScalar(merged[key]!)}`);
-    const r = entryMap.range as Range;
-    return applySplices(text, [{ start: r[0], end: r[1], insert: `{ ${body.join(", ")} }` }]);
-  }
-
-  const splices: Splice[] = [];
-  for (const key of OUTPUT_KEY_ORDER) {
-    if (!(key in edit.fields)) continue;
-    const value = edit.fields[key];
-    const pair = findPair(entryMap, key);
-    if (value === null || value === undefined) {
-      if (key === "description" && pair) splices.push(removeKeySplice(text, entryMap, key));
-      continue;
-    }
-    if (pair && isScalar(pair.value)) {
-      const r = pair.value.range as Range;
-      splices.push({ start: r[0], end: r[1], insert: plainScalar(value) });
-    } else if (!pair) {
-      const indent = fieldIndent(text, entryMap);
-      splices.push(insertKeySplice(text, entryMap, OUTPUT_KEY_ORDER, key, `${indent}${key}: ${plainScalar(value)}`));
-    }
-  }
-  if (splices.length === 0) return text;
-  return applySplices(text, splices);
-}
-
-function applyChangeOutputMode(text: string, edit: { step: number; mode: OutputMode; index: number; to: OutputMode }): string {
-  if (edit.mode === edit.to) return text;
-  const normalized = ensureOutputList(text, edit.step, edit.mode);
-  text = normalized.text;
-  const { step } = normalized;
-  const seq = outputList(step, edit.mode);
-  if (!seq) fail(`step has no ${edit.mode} list`);
-  const entry = seq.items[edit.index];
-  if (!entry || !isMap(entry)) fail(`${edit.mode} index ${edit.index} is out of range`);
-
-  // The entry's own lines, with the comment lines it owns (itemFullRange).
-  // They move to the other list as written.
-  const range = entry.range as Range;
-  const { start } = itemFullRange(text, entry as { range?: Range });
-  const end = lineEndOf(text, Math.max(range[0], range[2] - 1));
-  const dashColumn = dashIndent(text, range[0]).length;
-  const block = text.slice(start, end);
-  const removed =
-    seq.items.length === 1
-      ? applySplices(text, [removeKeySplice(text, step, edit.mode)])
-      : applySplices(text, [{ start, end, insert: "" }]);
-
-  const targetStep = stepMap(parseDoc(removed), edit.step);
-  const target = findPair(targetStep, edit.to);
-  const fieldLevel = fieldIndent(removed, targetStep);
-  const reindent = (dash: string) =>
-    block
-      .replace(/\n$/, "")
-      .split("\n")
-      .map((line) => (line.trim() === "" ? line : dash + line.slice(dashColumn)))
-      .join("\n");
-  if (!target || !target.value) {
-    const rendered = `${fieldLevel}${edit.to}:\n${reindent(fieldLevel + "  ")}`;
-    return applySplices(removed, [insertKeySplice(removed, targetStep, STEP_KEY_ORDER, edit.to, rendered)]);
-  }
-  const list = ensureOutputList(removed, edit.step, edit.to);
-  const listSeq = outputList(list.step, edit.to);
-  if (!listSeq) fail(`internal error: ${edit.to} is not a list after normalization`);
-  if (listSeq.items.length === 0) return fillEmptyList(list.text, list.step, edit.to, reindent(fieldLevel + "  "));
-  const rangeOf = (node: unknown) => (node as { range: Range }).range;
-  const last = rangeOf(listSeq.items[listSeq.items.length - 1]);
-  const at = lineEndOf(list.text, Math.max(last[0], last[2] - 1));
-  const dash = dashIndent(list.text, rangeOf(listSeq.items[0])[0]);
-  return applySplices(list.text, [{ start: at, end: at, insert: `${reindent(dash)}\n` }]);
-}
-
-// ---------------------------------------------------------------------------
-// Gates
-
-function gateLines(indent: string, kind: GateKind, text: string, fields: { description?: string; route_back_to?: string[]; max_rounds?: number; guide?: string }): string {
-  // Key order: the kind, then description, guide, max_rounds, route_back_to
-  // (GATE_KEY_ORDER).
-  const lines = [`${indent}- ${kind}: ${plainScalar(text)}`];
-  const sub = indent + "  ";
-  if (fields.description !== undefined) lines.push(`${sub}description: ${plainScalar(fields.description)}`);
-  if (kind === "agent") {
-    if (fields.guide !== undefined) lines.push(`${sub}guide: ${plainScalar(fields.guide)}`);
-    if (fields.max_rounds !== undefined) lines.push(`${sub}max_rounds: ${fields.max_rounds}`);
-  }
-  if (fields.route_back_to !== undefined && fields.route_back_to.length > 0) lines.push(`${sub}route_back_to: ${routeBackValue(fields.route_back_to)}`);
-  return lines.join("\n");
-}
-
-function ensureGateList(text: string, stepIndex: number): { text: string; doc: YAML.Document.Parsed; step: InstanceType<typeof YAMLMap> } {
-  const doc = parseDoc(text);
-  const step = stepMap(doc, stepIndex);
-  const pair = findPair(step, "gates");
-  if (!pair || !pair.value) return { text, doc, step };
-  if (isSeq(pair.value)) {
-    if (!pair.value.flow || pair.value.items.length === 0) return { text, doc, step };
-    const newText = flowListAsBlock(text, stepIndex, "gates");
-    const newDoc = parseDoc(newText);
-    return { text: newText, doc: newDoc, step: stepMap(newDoc, stepIndex) };
-  }
-  // A single gate, as a mapping or a string: a one-item list, with the gate
-  // itself kept as written.
-  const newText = singletonAsList(text, stepIndex, "gates");
-  const newDoc = parseDoc(newText);
-  return { text: newText, doc: newDoc, step: stepMap(newDoc, stepIndex) };
-}
-
-function gateMapsOf(step: InstanceType<typeof YAMLMap>): InstanceType<typeof YAMLSeq> | undefined {
-  const pair = findPair(step, "gates");
-  if (!pair || !pair.value || !isSeq(pair.value)) return undefined;
-  return pair.value;
-}
-
-function applyAddGate(text: string, edit: { step: number; gate: { kind: GateKind; text: string } }): string {
-  const normalized = ensureGateList(text, edit.step);
-  text = normalized.text;
-  const { step } = normalized;
-  const pair = findPair(step, "gates");
-  const fieldLevelIndent = fieldIndent(text, step);
-  const seqForIndent = pair && pair.value && isSeq(pair.value) ? pair.value : undefined;
-  const itemIndent = seqForIndent && seqForIndent.items.length > 0 ? dashIndent(text, (seqForIndent.items[0] as { range?: Range }).range![0]) : fieldLevelIndent + "  ";
-  const entry = gateLines(itemIndent, edit.gate.kind, edit.gate.text, {});
-
-  if (!pair || !pair.value) {
-    const rendered = `${fieldLevelIndent}gates:\n${entry}`;
-    const splice = insertKeySplice(text, step, STEP_KEY_ORDER, "gates", rendered);
-    return applySplices(text, [splice]);
-  }
-  const seq = pair.value;
-  if (!isSeq(seq)) fail("internal error: gates is not a list after normalization");
-  if (seq.items.length === 0) return fillEmptyList(text, step, "gates", entry);
-  const lastItem = seq.items[seq.items.length - 1];
-  const lastRange = (lastItem as { range?: Range }).range as Range;
-  const insertAt = lineEndOf(text, lastRange[1] - 1 >= lastRange[0] ? lastRange[1] - 1 : lastRange[0]);
-  return applySplices(text, [{ start: insertAt, end: insertAt, insert: entry + "\n" }]);
-}
-
-function applyRemoveGate(text: string, edit: { step: number; index: number }): string {
-  const normalized = ensureGateList(text, edit.step);
-  text = normalized.text;
-  const { step } = normalized;
-  const seq = gateMapsOf(step);
-  if (!seq) fail("step has no gates list");
-  const item = seq.items[edit.index];
-  if (!item) fail(`gate index ${edit.index} is out of range`);
-
-  if (seq.items.length === 1) {
-    return applySplices(text, [removeKeySplice(text, step, "gates")]);
-  }
-  const { start, end } = itemFullRange(text, item as { range?: Range });
-  return applySplices(text, [{ start, end, insert: "" }]);
-}
-
-// Read a gate list item (mapping or string) into its logical fields,
-// resolving string form the same way the engine's gate schema does, well
-// enough to re-render it. Used by setGate when it must rewrite the whole
-// entry (kind change, or a string-form gate being edited for the first
-// time). A workflow gate's slug, inputs and returns are kept as their source
-// text, since Komposer does not edit them.
-interface GateItem {
-  kind: GateKind;
-  text: string;
-  description?: string;
-  route_back_to: string[];
-  max_rounds?: number;
-  guide?: string;
-  workflowKeys: { key: (typeof WORKFLOW_GATE_KEYS)[number]; source: string }[];
-}
-
-function readGateItem(source: string, item: InstanceType<typeof YAMLMap> | InstanceType<typeof Scalar>): GateItem {
-  if (isMap(item)) {
-    const kindEntry = item.items.find((p) => isScalar(p.key) && GATE_KINDS.includes(String(p.key.value) as GateKind));
-    if (!kindEntry || !isScalar(kindEntry.key) || !isScalar(kindEntry.value)) fail("internal error: gate mapping has no kind key");
-    const kind = String(kindEntry.key.value) as GateKind;
-    const gateText = String(kindEntry.value.value);
-    const description = scalarOf(item, "description");
-    const guide = scalarOf(item, "guide");
-    const maxRoundsRaw = findPair(item, "max_rounds")?.value;
-    const max_rounds = isScalar(maxRoundsRaw) && typeof maxRoundsRaw.value === "number" ? maxRoundsRaw.value : undefined;
-    const rbtValue = findPair(item, "route_back_to")?.value;
-    let route_back_to: string[] = [];
-    if (isScalar(rbtValue)) route_back_to = [String(rbtValue.value)];
-    else if (isSeq(rbtValue)) route_back_to = rbtValue.items.filter(isScalar).map((s) => String(s.value));
-    const workflowKeys = WORKFLOW_GATE_KEYS.flatMap((key) => {
-      const value = findPair(item, key)?.value;
-      if (!isScalar(value) && !isMap(value) && !isSeq(value)) return [];
-      const r = value.range as Range;
-      return [{ key, source: source.slice(r[0], r[1]).trimEnd() }];
-    });
-    return { kind, text: gateText, description, route_back_to, max_rounds, guide, workflowKeys };
-  }
-  // String form, e.g. `script("bun run check")` or `check: default`.
-  const raw = String(item.value).trim();
-  const m = /^([a-z-]+)\s*(?:\(\s*"?(.*?)"?\s*\)|:(.*))$/s.exec(raw);
-  if (!m) fail(`cannot read gate string "${raw}"`);
-  const kind = m[1] as GateKind;
-  const gateText = (m[2] ?? m[3] ?? "").trim();
-  return { kind, text: gateText, route_back_to: [], workflowKeys: [] };
-}
-
-function gateItemAt(step: InstanceType<typeof YAMLMap>, index: number): InstanceType<typeof YAMLMap> | InstanceType<typeof Scalar> | undefined {
-  const value = findPair(step, "gates")?.value;
-  if (isMap(value) || isScalar(value)) return index === 0 ? value : undefined;
-  if (isSeq(value)) {
-    const item = value.items[index];
-    return isMap(item) || isScalar(item) ? item : undefined;
-  }
-  return undefined;
-}
-
-function patchGate(current: GateItem, fields: GateFields): GateItem {
-  const next = { ...current };
-  if (fields.kind !== undefined) next.kind = fields.kind;
-  if (fields.text !== undefined) next.text = fields.text;
-  if ("description" in fields) next.description = fields.description === null ? undefined : fields.description;
-  if ("max_rounds" in fields) next.max_rounds = fields.max_rounds === null ? undefined : fields.max_rounds;
-  if ("guide" in fields) next.guide = fields.guide === null ? undefined : fields.guide;
-  if (fields.route_back_to !== undefined) next.route_back_to = fields.route_back_to;
-  if (next.kind !== "agent") {
-    next.max_rounds = undefined;
-    next.guide = undefined;
-  }
-  if (next.kind !== "workflow") next.workflowKeys = [];
-  return next;
-}
-
-// One route_back_to target as a scalar, several as a flow list.
-function routeBackValue(targets: string[]): string {
-  return targets.length === 1 ? plainScalar(targets[0]) : flowList(targets);
-}
-
-// The keys of a gate mapping, in the order new keys are inserted: the kind
-// key first (only one of the kinds is ever present), then a workflow gate's
-// own keys.
-const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to"] as const;
-
-// The gate mapping at `index` of an already-normalized gates list.
-function gateMapAt(text: string, stepIndex: number, index: number): InstanceType<typeof YAMLMap> {
-  const seq = gateMapsOf(stepMap(parseDoc(text), stepIndex));
-  const item = seq?.items[index];
-  if (!isMap(item)) fail(`gate index ${index} is not a gate mapping`);
-  return item;
-}
-
-// Set, replace or remove one key of a gate mapping, leaving its other lines
-// (and their comments) as they are. `rendered` is the value as YAML source,
-// or null to remove the key.
-function setGateKey(text: string, stepIndex: number, index: number, key: (typeof GATE_KEY_ORDER)[number], rendered: string | null): string {
-  const gate = gateMapAt(text, stepIndex, index);
-  const pair = findPair(gate, key);
-  if (rendered === null) return pair ? applySplices(text, [removeKeySplice(text, gate, key)]) : text;
-  if (pair && pair.value && (isScalar(pair.value) || isSeq(pair.value))) {
-    const range = pair.value.range as Range;
-    if (text.slice(range[0], range[1]) === rendered) return text;
-    return applySplices(text, [{ start: range[0], end: range[1], insert: rendered }]);
-  }
-  const indent = fieldIndent(text, gate);
-  return applySplices(text, [insertKeySplice(text, gate, GATE_KEY_ORDER, key, `${indent}${key}: ${rendered}`)]);
-}
-
-function applySetGate(text: string, edit: { step: number; index: number; fields: GateFields }): string {
-  const originalStep = stepMap(parseDoc(text), edit.step);
-  const originalItem = gateItemAt(originalStep, edit.index);
-  if (!originalItem) fail(`gate index ${edit.index} is out of range`);
-  const current = readGateItem(text, originalItem);
-  const next = patchGate(current, edit.fields);
-  if (JSON.stringify(current) === JSON.stringify(next)) return text;
-
-  // A gate inside a flow list (`gates: [{ agent: review }, ...]`) is written
-  // again as one flow mapping, in its place; the rest of the list is untouched.
-  const gatesValue = findPair(originalStep, "gates")?.value;
-  if (isSeq(gatesValue) && gatesValue.flow) {
-    const parts = [`${next.kind}: ${plainScalar(next.text)}`, ...next.workflowKeys.map(({ key, source }) => `${key}: ${source}`)];
-    if (next.description !== undefined) parts.push(`description: ${plainScalar(next.description)}`);
-    if (next.guide !== undefined) parts.push(`guide: ${plainScalar(next.guide)}`);
-    if (next.max_rounds !== undefined) parts.push(`max_rounds: ${next.max_rounds}`);
-    if (next.route_back_to.length) parts.push(`route_back_to: ${routeBackValue(next.route_back_to)}`);
-    const r = (originalItem as { range: Range }).range;
-    return applySplices(text, [{ start: r[0], end: r[1], insert: `{ ${parts.join(", ")} }` }]);
-  }
-
-  const normalized = ensureGateList(text, edit.step);
-  text = normalized.text;
-  const seq = gateMapsOf(normalized.step);
-  if (!seq) fail("step has no gates list");
-  const item = seq.items[edit.index];
-  if (!isMap(item) && !isScalar(item)) fail(`gate index ${edit.index} is out of range`);
-
-  // A gate in string form is rewritten as a mapping the first time it is
-  // edited.
-  if (isScalar(item)) {
-    const indent = dashIndent(text, (item.range as Range)[0]);
-    const rendered = gateLines(indent, next.kind, next.text, next);
-    const range = item.range as Range;
-    // `rendered` starts with "<indent>- "; item.range[0] starts right after
-    // that marker, so only the part from there on is the replacement.
-    return applySplices(text, [replacementSplice(text, range[0], range[1], rendered.slice(indent.length + 2))]);
-  }
-
-  // A mapping: change only the keys whose value changed.
-  if (next.kind !== current.kind || next.text !== current.text) {
-    const kindPair = item.items.find((p) => isScalar(p.key) && String(p.key.value) === current.kind)!;
-    const keyRange = (kindPair.key as InstanceType<typeof Scalar>).range as Range;
-    const valueRange = (kindPair.value as InstanceType<typeof Scalar>).range as Range;
-    text = applySplices(text, [{ start: keyRange[0], end: valueRange[1], insert: `${next.kind}: ${plainScalar(next.text)}` }]);
-  }
-  const value = (v: string | undefined) => (v === undefined ? null : plainScalar(v));
-  for (const { key } of current.workflowKeys) {
-    if (!next.workflowKeys.some((k) => k.key === key)) text = setGateKey(text, edit.step, edit.index, key, null);
-  }
-  if (next.description !== current.description) text = setGateKey(text, edit.step, edit.index, "description", value(next.description));
-  if (next.guide !== current.guide) text = setGateKey(text, edit.step, edit.index, "guide", value(next.guide));
-  if (next.max_rounds !== current.max_rounds) {
-    text = setGateKey(text, edit.step, edit.index, "max_rounds", next.max_rounds === undefined ? null : String(next.max_rounds));
-  }
-  if (JSON.stringify(next.route_back_to) !== JSON.stringify(current.route_back_to)) {
-    text = setGateKey(text, edit.step, edit.index, "route_back_to", next.route_back_to.length ? routeBackValue(next.route_back_to) : null);
-  }
-  return text;
-}
-
-// ---------------------------------------------------------------------------
-// insertStep, deleteStep, moveStep
-
-function stepLines(indent: string, step: { id: string; instruction: string }): string {
-  const lines = [`${indent}- id: ${plainScalar(step.id)}`];
-  if (shouldUsePlainScalar(step.instruction)) {
-    lines.push(`${indent}  instruction: ${plainScalar(step.instruction)}`);
-  } else {
-    lines.push(blockScalarLines("instruction", indent + "  ", step.instruction, ">"));
-  }
-  return lines.join("\n").replace(/\n$/, "");
-}
-
-// A list item's lines: from its "- " line, widened over the comment lines
-// directly above it at the dash's own column, which belong to it and move or
-// go with it, to its last line. A comment indented deeper belongs to the
-// previous item's fields and stays with that item.
-function itemFullRange(text: string, item: { range?: Range | null }): { start: number; end: number } {
-  const range = item.range as Range;
-  let start = lineStartOf(text, range[0]);
-  const dashColumn = dashIndent(text, range[0]).length;
+// The start of the comment lines directly above `lineStart` written at
+// `column`, which belong to the key or list item on that line and go with it.
+function headStart(text: string, lineStart: number, column: number): number {
+  let start = lineStart;
   while (start > 0) {
     const prevStart = lineStartOf(text, start - 1);
     const prev = text.slice(prevStart, start - 1);
-    if (!/^\s*#/.test(prev) || prev.length - prev.trimStart().length !== dashColumn) break;
+    if (!/^\s*#/.test(prev) || prev.length - prev.trimStart().length !== column) break;
     start = prevStart;
   }
-  const end = lineEndOf(text, range[1] - 1 >= range[0] ? range[1] - 1 : range[0]);
-  return { start, end };
+  return start;
 }
 
-function applyInsertStep(text: string, edit: { at: number; step: { id: string; instruction: string } }): string {
-  text = blockSteps(text);
-  const doc = parseDoc(text);
-  const seq = stepsSeq(doc);
-  if (edit.at < 0 || edit.at > seq.items.length) fail(`insert index ${edit.at} is out of range (workflow has ${seq.items.length} steps)`);
-  for (const other of seq.items) {
-    if (isMap(other) && stepIdOf(other) === edit.step.id) fail(`step id "${edit.step.id}" is already used`);
-  }
-
-  const itemIndent = seq.items[0] ? dashIndent(text, (seq.items[0] as { range?: Range }).range![0]) : "  ";
-  const rendered = stepLines(itemIndent, edit.step) + "\n";
-
-  if (seq.items.length === 0) {
-    // `steps: []` (or an empty block): the new step becomes the whole list.
-    const pair = findPair(rootMap(doc), "steps")!;
-    const keyEnd = ((pair.key as InstanceType<typeof Scalar>).range as Range)[1];
-    const end = (seq.range as Range)[1];
-    return applySplices(text, [{ start: keyEnd, end, insert: `:\n${rendered.replace(/\n$/, "")}` }]);
-  }
-  if (edit.at === seq.items.length) {
-    const last = itemFullRange(text, seq.items[seq.items.length - 1] as { range?: Range });
-    return applySplices(text, [{ start: last.end, end: last.end, insert: rendered }]);
-  }
-  const target = itemFullRange(text, seq.items[edit.at] as { range?: Range });
-  return applySplices(text, [{ start: target.start, end: target.start, insert: rendered }]);
+// The end (after its newline) of the line holding the last character of a
+// node's own content, before any comment lines after it.
+function contentEnd(text: string, node: unknown): number {
+  const range = (node as { range?: Range }).range;
+  if (!range) fail("internal error: a node of the file has no source range");
+  return lineEndOf(text, Math.max(range[0], range[1] - 1));
 }
 
-function applyDeleteStep(text: string, edit: { index: number }): string {
-  text = blockSteps(text);
-  const doc = parseDoc(text);
-  const seq = stepsSeq(doc);
-  const item = seq.items[edit.index];
-  if (!item) fail(`step index ${edit.index} is out of range (workflow has ${seq.items.length} steps)`);
-  if (seq.items.length === 1) fail("a workflow needs at least one step");
-  const { start, end } = itemFullRange(text, item as { range?: Range });
-  return applySplices(text, [{ start, end, insert: "" }]);
+// A top-level pair's lines: from its key's line to the end of its value.
+// A top-level pair's lines, measured on the value it had in the file (`value`):
+// a changed value, such as an alias's copy of what it named, carries the
+// range of another place or none.
+function pairLines(text: string, pair: Pair, value: unknown = pair.value): { head: number; start: number; end: number } {
+  const key = pair.key as Scalar;
+  const start = lineStartOf(text, key.range![0]);
+  if (start !== key.range![0]) fail("the workflow's top-level keys must each start a line");
+  const valueNode = isNode(value) && value.range ? value : key;
+  return { head: headStart(text, start, 0), start, end: contentEnd(text, valueNode) };
 }
 
-function applyMoveStep(text: string, edit: { from: number; to: number }): string {
-  if (edit.from === edit.to) return text;
-  text = blockSteps(text);
-  const doc = parseDoc(text);
-  const seq = stepsSeq(doc);
-  const fromItem = seq.items[edit.from];
-  if (!fromItem) fail(`step index ${edit.from} is out of range (workflow has ${seq.items.length} steps)`);
-  if (edit.to < 0 || edit.to >= seq.items.length) fail(`step index ${edit.to} is out of range (workflow has ${seq.items.length} steps)`);
-  if (edit.from === edit.to) return text;
+// A step's lines: `head`, its comment lines; `start`, its "- " line; `end`, the
+// end of its content; `next`, where the next step's comments begin (its own
+// comment lines after its content and blank lines go with it).
+interface StepLines {
+  head: number;
+  start: number;
+  end: number;
+  next: number;
+  // The column of the "- ".
+  dash: number;
+}
 
-  const fromRange = itemFullRange(text, fromItem as { range?: Range });
-  const block = text.slice(fromRange.start, fromRange.end);
-  const withoutBlock = text.slice(0, fromRange.start) + text.slice(fromRange.end);
+function stepLines(text: string, items: unknown[], regionEnd: number): StepLines[] {
+  const lines = items.map((item, i) => {
+    const range = (item as { range?: Range }).range;
+    if (!range) fail(`internal error: step ${i} has no source range`);
+    const start = lineStartOf(text, range[0]);
+    const prefix = /^([ \t]*)-(?:[ \t]|$)/.exec(text.slice(start, range[0]));
+    if (!prefix) fail(`step ${i} does not start a line with "- "; write it on its own line to edit it`);
+    return { head: headStart(text, start, prefix[1].length), start, end: contentEnd(text, item), next: 0, dash: prefix[1].length };
+  });
+  lines.forEach((l, i) => (l.next = i + 1 < lines.length ? lines[i + 1].head : regionEnd));
+  return lines;
+}
 
-  // Recompute the target position in the text with the moved block removed.
-  const doc2 = parseDoc(withoutBlock);
-  const seq2 = stepsSeq(doc2);
-  // In the reduced list, inserting before index `to` produces the requested
-  // final index. When `to` equals the reduced length, append at the end.
-  if (edit.to >= seq2.items.length) {
-    const last = itemFullRange(withoutBlock, seq2.items[seq2.items.length - 1] as { range?: Range });
-    return applySplices(withoutBlock, [{ start: last.end, end: last.end, insert: block }]);
+// The end of a block list's text, after its last non-blank line.
+function blockEnd(text: string, seq: YAMLSeq): number {
+  let end = seq.range![2];
+  while (end > 0) {
+    const start = lineStartOf(text, end - 1);
+    if (text.slice(start, end).trim()) break;
+    end = start;
   }
-  const targetItem = seq2.items[edit.to];
-  const target = itemFullRange(withoutBlock, targetItem as { range?: Range });
-  return applySplices(withoutBlock, [{ start: target.start, end: target.start, insert: block }]);
+  return end === 0 ? 0 : lineEndOf(text, end - 1);
+}
+
+// The pairs and nodes from `root` down to the node at `path`.
+function nodesAlong(root: YAMLMap, path: (string | number)[]): unknown[] {
+  const nodes: unknown[] = [];
+  let at: unknown = root;
+  for (const key of path) {
+    const item = isMap(at) ? at.items.find((p) => keyOf(p as Pair) === key) : isSeq(at) ? at.items[key as number] : undefined;
+    if (item === undefined) break;
+    nodes.push(item);
+    at = isPair(item) ? item.value : item;
+    if (isPair(item)) nodes.push(at);
+  }
+  return nodes;
+}
+
+// The writer, end to end: the new text for `after`, the model's data.
+function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
+  const { text, doc } = src;
+  const root = doc.contents;
+  if (!isMap(root) || root.flow) fail("the workflow must be a block mapping at the top level to be edited");
+  const w = new Writer(src);
+  const pairs = root.items as Pair[];
+  const keys = Object.keys(after);
+  const stepsPair = findPair(root, "steps");
+  const stepsSeq = stepsPair && isSeq(stepsPair.value) && !stepsPair.value.flow && stepsPair.value.items.length > 0 ? stepsPair.value : undefined;
+  const byStep = stepsSeq !== undefined && Array.isArray(after.steps) && after.steps.length > 0;
+  // Lists are indented under their key as the steps are, `steps:\n  - id: a`.
+  const indentSeq = stepsSeq ? columnOf(text, (stepsSeq.items[0] as { range: Range }).range[0]) > 0 : true;
+
+  // The top-level keys: kept, changed, removed or new. With steps written as
+  // a block list, each step is a part of its own.
+  const changed = new Set<object>();
+  const kept = new Map<string, Pair>();
+  for (const pair of pairs) {
+    const key = keyOf(pair);
+    if (key !== undefined && Object.hasOwn(after, key)) kept.set(key, pair);
+  }
+  const removedPairs = pairs.filter((p) => !kept.has(keyOf(p) ?? "\0"));
+  // Each pair's value as the file has it, for its lines once it has changed.
+  const valueBefore = new Map(pairs.map((p) => [p, p.value]));
+  const linesOf = (pair: Pair) => pairLines(text, pair, valueBefore.get(pair));
+  let stepPlan: Match[] = [];
+  let oldSteps: unknown[] = [];
+  for (const [key, pair] of kept) {
+    if (byStep && pair === stepsPair) continue;
+    if (deepEqual(w.dataOf(pair.value), after[key])) continue;
+    pair.value = w.reconcile(pair.value, after[key], false);
+    changed.add(pair);
+  }
+  if (byStep && stepsSeq) {
+    oldSteps = stepsSeq.items;
+    const newSteps = after.steps as unknown[];
+    stepPlan = matchItems(oldSteps.map((s) => w.dataOf(s)), newSteps);
+    stepsSeq.items = newSteps.map((value, i) => {
+      const match = stepPlan[i];
+      if (!match) {
+        const node = w.create(value, false);
+        changed.add(node as object);
+        return node;
+      }
+      if (match.same) return oldSteps[match.from];
+      const node = w.reconcile(oldSteps[match.from], value, false);
+      changed.add(node as object);
+      return node;
+    }) as typeof stepsSeq.items;
+  }
+  const newPairs = keys.filter((k) => !kept.has(k)).map((k) => new Pair(new Scalar(k), w.create(after[k], false)));
+  (root.items as Pair[]) = keys.map((k) => kept.get(k) ?? newPairs.find((p) => keyOf(p) === k)!);
+  w.reuseRemoved();
+
+  // The part of the file a node is in: a top-level pair, or a step.
+  const partOf = (path: readonly unknown[]): object | undefined => {
+    const pair = path[2];
+    if (!isPair(pair)) return undefined;
+    if (byStep && pair === stepsPair) return path[4] as object | undefined;
+    return pair;
+  };
+  const touchPath = (path: readonly unknown[]) => {
+    for (const node of path) if (isCollection(node)) w.touched.add(node);
+  };
+
+  // An alias whose anchor changed, moved after it or went away stands for
+  // what it stood for before: it becomes a copy of the node it named.
+  visit(doc, {
+    Alias(_key, node, path) {
+      const before = src.aliases.get(node);
+      if (!before || deepEqual(toData(doc, node.resolve(doc)), before.data)) return undefined;
+      const copy = isNode(before.node) ? before.node.clone() : new Scalar(before.data);
+      // The copy names no anchor; aliases inside it were already copied out
+      // when the file was read (see readSource).
+      visit(copy as never, {
+        Node(_k, n) {
+          if (!isAlias(n)) n.anchor = undefined;
+        },
+      });
+      touchPath(path);
+      const part = partOf(path);
+      if (part) changed.add(part);
+      return copy as never;
+    },
+  });
+
+  // The styles the edit asks for. A block scalar cannot be written inside a
+  // flow collection. Comments between a key and its value cannot stay between
+  // the key and a block's header: the one on the key's line joins the
+  // header's comment, the others go above the key.
+  for (const { path, type, strict } of styles) {
+    const nodes = nodesAlong(root, path);
+    const node = nodes[nodes.length - 1];
+    const pair = nodes[nodes.length - 2];
+    if (!isScalar(node) || node.type === type) continue;
+    if (nodes.some((n) => isCollection(n) && n.flow)) {
+      if (!strict) continue;
+      fail(`step ${path[1]} is written as a flow mapping ({ ... }), or inside one, where its ${path[path.length - 1]} cannot be a block; write the step as a block mapping to make this edit`);
+    }
+    node.type = type;
+    if (isPair(pair) && isScalar(pair.key)) {
+      const key = pair.key;
+      const before = node.commentBefore?.split("\n") ?? [];
+      const keyEnd = key.range?.[1];
+      const firstOnKeyLine = keyEnd !== undefined && /^[ \t]*:[ \t]*#/.test(text.slice(keyEnd, lineEndOf(text, keyEnd)));
+      const onKeyLine = [key.comment, firstOnKeyLine ? before.shift() : undefined];
+      const header = [...onKeyLine, node.comment].filter((c): c is string => !!c?.trim()).map((c) => c.trim());
+      node.comment = header.length ? ` ${header.join(" # ")}` : undefined;
+      key.comment = undefined;
+      node.commentBefore = undefined;
+      if (before.length) key.commentBefore = [key.commentBefore, ...before].filter((c) => c !== undefined).join("\n");
+    }
+    touchPath(nodes);
+    const part = partOf([doc, root, ...nodes]);
+    if (part) changed.add(part);
+  }
+
+  const splices: Splice[] = [];
+
+  for (const pair of removedPairs) {
+    const lines = linesOf(pair);
+    splices.push({ start: lines.head, end: lines.end, insert: "" });
+  }
+  for (const pair of kept.values()) {
+    if (!changed.has(pair)) continue;
+    const lines = linesOf(pair);
+    splices.push({ start: lines.start, end: lines.end, insert: `${render(src, w, pair, 0, indentSeq)}\n` });
+  }
+  for (const pair of newPairs) {
+    // Before the next key that was already there, with its comments; or last.
+    const nextKey = keys.slice(keys.indexOf(keyOf(pair)!) + 1).find((k) => kept.has(k));
+    const rendered = `${render(src, w, pair, 0, indentSeq)}\n`;
+    if (nextKey) {
+      const at = linesOf(kept.get(nextKey)!).head;
+      splices.push({ start: at, end: at, insert: rendered });
+    } else {
+      const end = text.length;
+      splices.push({ start: end, end, insert: text.endsWith("\n") || end === 0 ? rendered : `\n${rendered}` });
+    }
+  }
+
+  if (byStep && stepsSeq) {
+    const regionEnd = blockEnd(text, stepsSeq);
+    const lines = stepLines(text, oldSteps, regionEnd);
+    const shift = lines[0].dash;
+    const anyChange = stepsSeq.items.some((node, i) => changed.has(node as object) || !stepPlan[i] || stepPlan[i]!.from !== i) || stepPlan.length !== oldSteps.length;
+    if (anyChange) {
+      const withNewline = (s: string) => (s.endsWith("\n") ? s : `${s}\n`);
+      let region = "";
+      stepsSeq.items.forEach((node, i) => {
+        const match = stepPlan[i];
+        if (!match) {
+          region += `${render(src, w, node, shift, indentSeq)}\n`;
+          return;
+        }
+        const l = lines[match.from];
+        if (!changed.has(node as object)) region += withNewline(text.slice(l.head, l.next));
+        else region += withNewline(text.slice(l.head, l.start) + render(src, w, node, shift, indentSeq) + "\n" + text.slice(l.end, l.next));
+      });
+      if (!text.slice(lines[0].head, regionEnd).endsWith("\n")) region = region.replace(/\n$/, "");
+      splices.push({ start: lines[0].head, end: regionEnd, insert: region });
+    }
+  }
+  return applySplices(text, splices);
+}
+
+// ---------------------------------------------------------------------------
+// The safety net
+
+// The written text must parse and mean exactly the model's data; otherwise
+// nothing is written. applyEdit runs it on every edit; it is exported for its
+// own tests.
+export function verifyEdit(out: string, expected: unknown): void {
+  const doc = YAML.parseDocument(out);
+  if (doc.errors.length) fail(`internal error: this edit would make the file invalid YAML (${doc.errors[0].message}), so it was not applied`);
+  const got = doc.toJS({ maxAliasCount: -1 });
+  const at = firstDifference(got, expected);
+  if (at !== null) fail(`internal error: this edit would also change ${at}, so it was not applied`);
 }
 
 // ---------------------------------------------------------------------------
 // Dispatch
 
 export function applyEdit(text: string, edit: Edit): string {
-  switch (edit.op) {
-    case "setWorkflowField":
-      return applySetWorkflowField(text, edit);
-    case "setStepField":
-      return applySetStepField(text, edit);
-    case "setInstruction":
-      return applySetInstruction(text, edit);
-    case "setCondition":
-      return applySetCondition(text, edit);
-    case "setConsumes":
-      return applySetConsumes(text, edit);
-    case "addOutput":
-      return applyAddOutput(text, edit);
-    case "removeOutput":
-      return applyRemoveOutput(text, edit);
-    case "setOutput":
-      return applySetOutput(text, edit);
-    case "changeOutputMode":
-      return applyChangeOutputMode(text, edit);
-    case "addGate":
-      return applyAddGate(text, edit);
-    case "removeGate":
-      return applyRemoveGate(text, edit);
-    case "setGate":
-      return applySetGate(text, edit);
-    case "insertStep":
-      return applyInsertStep(text, edit);
-    case "deleteStep":
-      return applyDeleteStep(text, edit);
-    case "moveStep":
-      return applyMoveStep(text, edit);
-    default: {
-      const _exhaustive: never = edit;
-      throw new EditError(`unknown edit op: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
+  const src = readSource(text);
+  const before = src.doc.toJS({ maxAliasCount: -1 });
+  const styleAt = (path: (string | number)[]) => {
+    const node = src.doc.getIn(path, true);
+    return isScalar(node) ? node.type : undefined;
+  };
+  const { data, styles } = editModel(before, edit, styleAt);
+  if (deepEqual(before, data) && styles.every((s) => styleAt(s.path) === s.type)) return text;
+  const out = writeData(src, data, styles);
+  verifyEdit(out, data);
+  return out;
 }

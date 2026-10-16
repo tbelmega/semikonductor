@@ -97,6 +97,26 @@ export function swapPair<T>(pair: [T, T]): [T, T] {
   return [pair[1], pair[0]];
 }
 
+// The two workflows the Compare page shows. The left side is always the
+// workflow selected for every page; only the right side is the page's own,
+// kept while it is listed and differs from the left.
+export function comparePair(keys: string[], selected: string | null, right: string | null): [string | null, string | null] {
+  const [left, fallback] = defaultComparePair(keys, selected);
+  return [left, right !== null && right !== left && keys.includes(right) ? right : fallback];
+}
+
+// What a pick on the Compare page changes: the workflow to select for every
+// page, which becomes the left side, and the right side to keep. Picking the
+// right side's workflow for the left, or for the right the left's, trades them.
+export function comparePick(
+  [left, right]: [string | null, string | null],
+  side: "left" | "right" | "swap",
+  key?: string,
+): { select: string | null; right: string | null } {
+  if (side === "swap" || (side === "left" && key === right) || (side === "right" && key === left)) return { select: right, right: left };
+  return side === "left" ? { select: key ?? left, right } : { select: left, right: key ?? right };
+}
+
 // Where a step copied into `target` goes: in place of the target's step with
 // the same id, or else right after the nearest earlier source step that the
 // target also has, or first when there is none.

@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
+// The Edit page's right rail: a strip of three buttons in scope order
+// (Library, Workflow, Step) that is always shown, and the panel it opens
+// between the diagram and the strip. The panel is closed until a button or a
+// click on a step opens it.
 
 import { useEffect, useState } from "react";
 import YAML, { Scalar } from "yaml";
-import { Plus, X } from "lucide-react";
-import type { FileRef, RunEvent, LibraryEntry, ReviewGuides, WorkstreamSummary } from "./api.ts";
-import { dateTime, duration, projectName, RUN_STATE, runDuration, runState } from "./runView.ts";
+import { BookOpen, Captions, Plus, Settings2, X } from "lucide-react";
+import type { FileRef, LibraryEntry, ReviewGuides, WorkstreamSummary } from "./api.ts";
+import { dateTime, projectName, RUN_STATE, runState } from "./runView.ts";
 import { ARTIFACT_DRAG, resolveLibrary, runKey, suggestPath } from "./api.ts";
 import { winningEntry } from "./model/artifactInstruction.ts";
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
-
-const LEVELS: LibraryEntry["level"][] = ["project", "user", "package"];
-// An entry's place in its library, such as "writing/essay".
-const entryPath = (entry: LibraryEntry) => (entry.group ? `${entry.group}/${entry.id}` : entry.id);
 import { CHECK_KIND } from "../../flow/src/schemas/gate.ts";
 import type { Edit, GateKind, OutputMode } from "./model/yamlEdit.ts";
 import {
@@ -28,24 +28,97 @@ import {
 } from "./workflowView.ts";
 import type { WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
-import { RunLinkButton, WorkflowLinkButton } from "./Links.tsx";
+import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
+import { sectionsWithProblems, type StepSection } from "./model/stepSections.ts";
+import { reviewInEffectRows } from "./model/reviewInEffect.ts";
 import { DOCS, GATE_FIELD_DOCS, GATE_KIND_DOCS } from "./docs.ts";
 import { FieldLabel, InfoTip } from "./InfoTip.tsx";
 import { lineDiff, visibleDiff } from "./diff.ts";
+import { plural } from "./model/workstreams.ts";
 
-export type InspectorTab = "step" | "workflow" | "library" | "run" | "yaml";
-const EDIT_TABS: { id: InspectorTab; label: string }[] = [
-  { id: "step", label: "Step" },
-  { id: "workflow", label: "Workflow" },
-  { id: "library", label: "Library" },
-  { id: "yaml", label: "YAML" },
+const LEVELS: LibraryEntry["level"][] = ["project", "user", "package"];
+const LEVEL_LABEL: Record<LibraryEntry["level"], string> = { project: "Project", user: "Personal", package: "fuse-flow" };
+const LEVEL_ROOT: Record<LibraryEntry["level"], string> = {
+  project: ".konductor/library/artifacts/",
+  user: "~/.konductor/library/artifacts/",
+  package: "fuse-flow/library/artifacts/",
+};
+// An entry's place in its library, such as "writing/essay".
+const entryPath = (entry: LibraryEntry) => (entry.group ? `${entry.group}/${entry.id}` : entry.id);
+
+export type RailTab = "library" | "workflow" | "step";
+export type WorkflowView = "form" | "yaml" | "changes";
+const RAIL_TABS: { id: RailTab; label: string; icon: React.ReactNode }[] = [
+  { id: "library", label: "Library", icon: <BookOpen size={18} strokeWidth={1.75} /> },
+  { id: "workflow", label: "Workflow", icon: <Settings2 size={18} strokeWidth={1.75} /> },
+  { id: "step", label: "Step", icon: <Captions size={18} strokeWidth={1.75} /> },
 ];
+const TAB_TITLE: Record<RailTab, string> = { library: "Library", workflow: "Workflow", step: "Step" };
 
-export function Inspector({
+// The strip at the far right. Clicking the active button closes the panel;
+// Step needs a selected step, and Library an editable workflow.
+export function RailStrip({
+  open,
   tab,
+  stepEnabled,
+  libraryEnabled,
+  stepProblem,
+  dirty,
+  onPick,
+}: {
+  open: boolean;
+  tab: RailTab;
+  stepEnabled: boolean;
+  libraryEnabled: boolean;
+  // The selected step has a problem: a red dot on Step.
+  stepProblem: boolean;
+  // The working copy differs from the file: an accent dot on Workflow.
+  dirty: boolean;
+  // The tab to open, or null to close the panel.
+  onPick: (tab: RailTab | null) => void;
+}) {
+  return (
+    <nav className="rail-strip" aria-label="Detail panel">
+      {RAIL_TABS.map(({ id, label, icon }) => {
+        const disabled = id === "step" ? !stepEnabled : id === "library" ? !libraryEnabled : false;
+        const active = open && tab === id;
+        const tip = disabled
+          ? id === "step"
+            ? "Select a step in the diagram"
+            : "Read-only workflow"
+          : active
+            ? `Close ${label} (Esc)`
+            : `Open ${label}`;
+        const dot = id === "step" ? stepProblem && stepEnabled : id === "workflow" ? dirty : false;
+        return (
+          <button
+            key={id}
+            type="button"
+            className={`rail-strip-btn${active ? " is-active" : ""}`}
+            title={tip}
+            aria-pressed={active}
+            aria-disabled={disabled}
+            onClick={() => !disabled && onPick(active ? null : id)}
+          >
+            <span className="rail-strip-bar" />
+            {icon}
+            <span>{label}</span>
+            {dot && <span className={`rail-strip-dot${id === "step" ? " is-problem" : ""}`} />}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function RailPanel({
+  tab,
+  workflowView,
+  onWorkflowView,
   onTab,
   workflow,
+  readOnly,
   steps,
   selectedIndex,
   problems,
@@ -53,33 +126,30 @@ export function Inspector({
   workstreams,
   root,
   diffBase,
-  compareRequest,
   onEdit,
   onAddArtifact,
   reviewGuides,
   allWorkflows,
-  run,
-  readOnly = false,
-  onOpenRun,
-  onOpenAnyRun,
-  findRun,
+  onOpenWorkstream,
   linkTo,
   onOpenWorkflow,
   onOpenWorkflowStep,
   onClose,
 }: {
-  tab: InspectorTab;
-  onTab: (tab: InspectorTab) => void;
+  tab: RailTab;
+  workflowView: WorkflowView;
+  onWorkflowView: (view: WorkflowView) => void;
+  onTab: (tab: RailTab) => void;
   workflow: OpenWorkflow;
+  readOnly: boolean;
   steps: StepView[];
-  selectedIndex: number;
+  selectedIndex: number | null;
   problems: Problem[];
   library: LibraryEntry[];
   workstreams: WorkstreamSummary[];
   // The project Komposer was started on.
   root: string;
   diffBase: string;
-  compareRequest: number;
   onEdit: (edit: Edit) => void;
   // Adds an artifact to a step and pre-fills the step's instruction from the
   // library's description of the artifact.
@@ -87,14 +157,8 @@ export function Inspector({
   // The review guides of the open text's agent gates, from the server.
   reviewGuides: ReviewGuides | null;
   allWorkflows: OpenWorkflow[];
-  run?: WorkstreamSummary;
-  // Another project's file with no run open: only its YAML is shown.
-  readOnly?: boolean;
-  // Opens a run of the open workflow by its runKey, and a linked run (named by
-  // slug, in the open run's project) in its own workflow.
-  onOpenRun: (key: string) => void;
-  onOpenAnyRun: (slug: string) => void;
-  findRun: (slug: string) => WorkstreamSummary | undefined;
+  // Shows a workstream of this workflow on the Workstreams page.
+  onOpenWorkstream: (workstream: WorkstreamSummary) => void;
   // Where a workflow reference of the open workflow leads, and opening one.
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
@@ -107,61 +171,64 @@ export function Inspector({
     setLibraryFocus((current) => ({ id, n: (current?.n ?? 0) + 1 }));
     onTab("library");
   };
-  // A guide file opened from a gate, shown over the inspector.
+  // A guide file opened from a gate, shown over the panel.
   const [viewing, setViewing] = useState<{ title: string; file: FileRef; text?: string } | null>(null);
+  useEffect(() => setViewing(null), [tab, workflow.path]);
+  const selected = selectedIndex === null ? undefined : steps[selectedIndex];
+  const stepLabel = selected ? `${selectedIndex! + 1} · ${selected.id}` : "";
+  const subtitle =
+    tab === "step" ? stepLabel : tab === "library" ? (selected ? `adds to ${stepLabel}` : "no step selected") : workflow.file;
   return (
-    <div className="inspector">
-      <div className="inspector-tabs">
-        {(run
-          ? [
-              { id: "run" as const, label: "Run" },
-              { id: "yaml" as const, label: "YAML" },
-            ]
-          : readOnly
-            ? [{ id: "yaml" as const, label: "YAML" }]
-            : EDIT_TABS
-        ).map((t) => (
-          <button key={t.id} className={`inspector-tab${tab === t.id ? " is-active" : ""}`} onClick={() => onTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-        <span className="grow" />
-        <button className="icon-mini inspector-close" title="Close the panel (Esc)" aria-label="Close the panel" onClick={onClose}>
-          <X size={16} />
+    <aside className="rail-panel" aria-label={TAB_TITLE[tab]}>
+      <div className="rail-panel-head">
+        <span className="rail-panel-title">{TAB_TITLE[tab]}</span>
+        <span className="rail-panel-sub">{subtitle}</span>
+        <button type="button" className="rail-close" title="Close panel (Esc)" onClick={onClose}>
+          <X size={14} /> Close
         </button>
       </div>
-      <div className="inspector-body">
-        {tab === "step" && (
-          <StepTab
-            step={steps[selectedIndex]}
-            steps={steps}
-            selectedIndex={selectedIndex}
-            problems={problems}
-            library={library}
-            text={workflow.openText}
-            onEdit={onEdit}
-            onAddArtifact={onAddArtifact}
-            onLibrary={() => onTab("library")}
-            onOpenLibraryEntry={openLibraryEntry}
-            reviewGuides={reviewGuides}
-            onViewFile={(title, file) => setViewing({ title, file, text: reviewGuides?.files[file.path] })}
-            inputs={workflowInputs(workflow)}
-            linkTo={linkTo}
-            onOpenWorkflow={onOpenWorkflow}
-          />
-        )}
-        {tab === "workflow" && (
-          <WorkflowTab
-            workflow={workflow}
-            workstreams={workstreams}
-            root={root}
-            onEdit={onEdit}
-            onOpenRun={onOpenRun}
-            linkTo={linkTo}
-            onOpenWorkflow={onOpenWorkflow}
-          />
-        )}
-        {tab === "library" && (
+      {tab === "step" && (
+        <div className="rail-panel-body is-step">
+          {selected && selectedIndex !== null ? (
+            <StepTab
+              step={selected}
+              steps={steps}
+              selectedIndex={selectedIndex}
+              problems={problems}
+              library={library}
+              text={workflow.openText}
+              onEdit={onEdit}
+              onAddArtifact={onAddArtifact}
+              onLibrary={() => onTab("library")}
+              onOpenLibraryEntry={openLibraryEntry}
+              reviewGuides={reviewGuides}
+              onViewFile={(title, file) => setViewing({ title, file, text: reviewGuides?.files[file.path] })}
+              inputs={workflowInputs(workflow)}
+              linkTo={linkTo}
+              onOpenWorkflow={onOpenWorkflow}
+            />
+          ) : (
+            <div className="inspector-empty">Select a step in the diagram.</div>
+          )}
+        </div>
+      )}
+      {tab === "workflow" && (
+        <WorkflowTab
+          workflow={workflow}
+          readOnly={readOnly}
+          view={readOnly ? "yaml" : workflowView}
+          onView={onWorkflowView}
+          diffBase={diffBase}
+          workstreams={workstreams}
+          root={root}
+          onEdit={onEdit}
+          onOpenWorkstream={onOpenWorkstream}
+          linkTo={linkTo}
+          onOpenWorkflow={onOpenWorkflow}
+        />
+      )}
+      {tab === "library" && (
+        <div className="rail-panel-body">
           <LibraryTab
             library={library}
             allWorkflows={allWorkflows}
@@ -171,14 +238,10 @@ export function Inspector({
             onOpenWorkflowStep={onOpenWorkflowStep}
             focus={libraryFocus}
           />
-        )}
-        {tab === "run" && run && (
-          <RunTab run={run} selectedStep={steps[selectedIndex]?.id} findRun={findRun} onOpenRun={onOpenAnyRun} />
-        )}
-        {tab === "yaml" && <YamlTab text={workflow.openText} base={diffBase} compareRequest={compareRequest} />}
-      </div>
-      {viewing && <FileViewer {...viewing} onClose={() => setViewing(null)} />}
-    </div>
+        </div>
+      )}
+      {viewing && <GuideViewer {...viewing} backTo={TAB_TITLE[tab]} onClose={() => setViewing(null)} />}
+    </aside>
   );
 }
 
@@ -247,10 +310,10 @@ function StepTab({
       condition: { kind, text: value, ...(description ? { description } : {}) },
     });
 
-  const hasProblem = (...fields: Problem["field"][]) => problems.some((p) => fields.includes(p.field));
-  const section = (id: StepSection, problem: boolean) => ({
-    open: problem || sections.isOpen(id, id, id === "instruction"),
-    problem,
+  const withProblem = sectionsWithProblems(problems);
+  const section = (id: StepSection) => ({
+    open: withProblem.has(id) || sections.isOpen(id, id, id === "instruction"),
+    problem: withProblem.has(id),
     onToggle: () => sections.toggle(id, id, id === "instruction"),
   });
   const firstWords = (step.instruction ?? "").trim().split(/\s+/).slice(0, 8).join(" ");
@@ -261,7 +324,7 @@ function StepTab({
       <StepSectionView
         title="Basics"
         summary={[step.title ?? step.id, step.phase].filter(Boolean).join(" · ")}
-        {...section("basics", hasProblem("id"))}
+        {...section("basics")}
       >
         <div className="field-grid">
           <label className="field full-span">
@@ -314,7 +377,7 @@ function StepTab({
           (step.condition ? `only if: ${step.condition.text || step.condition.kind} · ` : "") +
           (firstWords ? `${firstWords}…` : "empty")
         }
-        {...section("instruction", hasProblem("instr", "cond"))}
+        {...section("instruction")}
       >
 
         <div className="field-block">
@@ -402,7 +465,7 @@ function StepTab({
       <StepSectionView
         title="Inputs and outputs"
         summary={`reads ${step.consumes.length} · writes ${step.artifacts.length}`}
-        {...section("artifacts", hasProblem("art"))}
+        {...section("artifacts")}
       >
 
         <div className="field-block">
@@ -449,6 +512,7 @@ function StepTab({
                 </button>
               ))}
           </div>
+          {err("consumes") && <div className="field-error">{err("consumes")}</div>}
         </div>
 
         <div className="field-block">
@@ -507,6 +571,8 @@ function StepTab({
                     </button>
                     <button
                       className="icon-mini"
+                      title="Remove output"
+                      aria-label="Remove output"
                       onClick={() => onEdit({ op: "removeOutput", step: selectedIndex, mode: a.role, index })}
                     >
                       <X size={14} />
@@ -608,7 +674,7 @@ function StepTab({
       <StepSectionView
         title="Gates"
         summary={gateKinds || "none"}
-        {...section("gates", hasProblem("gate"))}
+        {...section("gates")}
       >
         <div className="field-block">
           <div className="field-block-head">
@@ -665,6 +731,8 @@ function StepTab({
                     <span className="grow" />
                     <button
                       className="icon-mini"
+                      title="Remove gate"
+                      aria-label="Remove gate"
                       onClick={() => onEdit({ op: "removeGate", step: selectedIndex, index: fileIndex })}
                     >
                       <X size={14} />
@@ -743,7 +811,13 @@ function StepTab({
                     <ReviewInEffect gate={gateGuides(fileIndex)!} onViewFile={onViewFile} />
                   )}
                   {gate.kind === "workflow" && (
-                    <DelegationFields gate={gate} stepId={step.id} link={linkTo(gate.text)} onOpenWorkflow={onOpenWorkflow} />
+                    <DelegationFields
+                      gate={gate}
+                      stepId={step.id}
+                      link={linkTo(gate.text)}
+                      onSet={(fields) => onEdit({ op: "setGate", step: selectedIndex, index: fileIndex, fields })}
+                      onOpenWorkflow={onOpenWorkflow}
+                    />
                   )}
                   <label className="mini-field">
                     <span className="mini-label">
@@ -818,11 +892,11 @@ function StepTab({
               );
             })}
             <div className="gate-adds">
-              {(["check", "script", "agent", "owner-action", "workflow"] as GateKind[]).map((kind) => (
+              {(["check", "script", "agent", "owner-action", "workflow"] as GateKind[])
+                .filter((kind) => kind !== "workflow" || !delegationOf(step))
+                .map((kind) => (
                 <button
                   key={kind}
-                  disabled={kind === "workflow" && !!delegationOf(step)}
-                  title={kind === "workflow" && delegationOf(step) ? "A step waits for one child workflow." : undefined}
                   onClick={() =>
                     onEdit({
                       op: "addGate",
@@ -843,7 +917,7 @@ function StepTab({
           <div className="expand-modal">
             <div className="modal-title-row">
               <h2>Instruction</h2>
-              <button className="icon-mini" onClick={() => setExpand(false)}>
+              <button className="icon-mini" title="Close" aria-label="Close" onClick={() => setExpand(false)}>
                 <X />
               </button>
             </div>
@@ -869,7 +943,6 @@ function StepTab({
 // The step tab's four collapsible sections. Instruction is open by default;
 // the user's choice is kept in localStorage, and a section with a problem is
 // always open.
-type StepSection = "basics" | "instruction" | "artifacts" | "gates";
 
 function StepSectionView({
   title,
@@ -899,104 +972,161 @@ function StepSectionView({
   );
 }
 
+
+// The Workflow tab: the workflow's form, its file, and its changes against
+// the original (or the disk version when the file changed underneath). A
+// read-only workflow shows only its file.
 function WorkflowTab({
   workflow,
+  readOnly,
+  view,
+  onView,
+  diffBase,
   workstreams,
   root,
   onEdit,
-  onOpenRun,
+  onOpenWorkstream,
   linkTo,
   onOpenWorkflow,
 }: {
   workflow: OpenWorkflow;
+  readOnly: boolean;
+  view: WorkflowView;
+  onView: (view: WorkflowView) => void;
+  diffBase: string;
   workstreams: WorkstreamSummary[];
   root: string;
   onEdit: (edit: Edit) => void;
-  onOpenRun: (key: string) => void;
+  onOpenWorkstream: (workstream: WorkstreamSummary) => void;
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
 }) {
+  const changed = lineDiff(diffBase, workflow.openText).filter((l) => l.kind !== " ").length;
   const name = workflow.parsed?.name ?? workflow.rawWorkflow.name;
   const description = workflow.parsed?.description ?? workflow.rawWorkflow.description ?? "";
   const inputs = workflowInputs(workflow);
   const handOffs = workflowHandOffs(workflow);
+  const own = workstreams.filter((w) => w.workflowPath === workflow.path);
   return (
-    <div className="inspector-section-stack">
-      <label className="field">
-        <FieldLabel label="Name" doc={DOCS.wfName} />
-        <input
-          className="field-input"
-          value={name}
-          onChange={(e) => onEdit({ op: "setWorkflowField", key: "name", value: e.target.value })}
-        />
-      </label>
-      <label className="field">
-        <FieldLabel label="Description" doc={DOCS.wfDescription} />
-        <textarea
-          className="field-textarea"
-          rows={4}
-          value={description}
-          onChange={(e) => onEdit({ op: "setWorkflowField", key: "description", value: e.target.value || null })}
-        />
-      </label>
-      <div className="field-block">
-        <div className="field-block-head">
-          <FieldLabel label="Inputs" doc={DOCS.wfInputs} />
-        </div>
-        {inputs.map((input) => (
-          <div key={input.artifact} className="workflow-input-row">
-            <span className="mono">{input.artifact}</span>
-            <span className={`field-tag ${input.required ? "is-required" : "is-optional"}`}>
-              {input.required ? "required" : "optional"}
-            </span>
-            {input.description && <small>{input.description}</small>}
+    <>
+      {!readOnly && (
+        <div className="rail-panel-tools">
+          <div className="segmented rail-segmented">
+            {(
+              [
+                ["form", "Form"],
+                ["yaml", "YAML"],
+                ["changes", `Changes · ${changed}`],
+              ] as const
+            ).map(([id, label]) => (
+              <button key={id} className={`segmented-opt${view === id ? " is-active" : ""}`} onClick={() => onView(id)}>
+                {label}
+              </button>
+            ))}
           </div>
-        ))}
-        {inputs.length === 0 && <div className="inspector-empty">None; the workflow takes nothing from outside.</div>}
-      </div>
-      <div className="field-block">
-        <div className="field-block-head">
-          <FieldLabel label="Hands off to" doc={DOCS.wfHandsOffTo} />
         </div>
-        {handOffs.map((handOff, k) => (
-          <div key={`${handOff.workflow}-${k}`} className="workflow-input-row">
-            <WorkflowLinkButton refText={handOff.workflow} link={linkTo(handOff.workflow)} onOpen={onOpenWorkflow} />
-            {handOff.when && <small>{handOff.when}</small>}
-          </div>
-        ))}
-        {handOffs.length === 0 && <div className="inspector-empty">No workflow comes after this one.</div>}
-        {(inputs.length > 0 || handOffs.length > 0) && (
-          <small className="delegation-note">Shown as written; change inputs and hands_off_to in the file itself.</small>
-        )}
-      </div>
-      <div className="field-block">
-        <div className="field-block-head">
-          <span className="field-label-row">
-            File <FieldLabel label="" doc={DOCS.version} />
-          </span>
-        </div>
-        <div className="location-pill-row">
-          <span className="location-pill">{workflow.location}</span>
-          <span className="file-path mono">{workflow.path}</span>
-        </div>
-      </div>
-      <div className="field-block">
-        <div className="field-block-head">Workstreams</div>
-        {workstreams
-          .filter((w) => w.workflowPath === workflow.path)
-          .map((w) => (
-            <button key={runKey(w)} className="workstream-row" onClick={() => onOpenRun(runKey(w))}>
-              <span className="mono">{w.slug}</span>
-              <span className="workstream-meta">
-                {w.summary?.currentStep ? `at ${w.summary.currentStep} · ` : ""}
-                {w.summary?.status}
-                {w.project !== root ? ` · ${projectName(w.project)}` : ""}
-              </span>
-            </button>
+      )}
+      {view === "yaml" && <pre className="rail-file">{workflow.openText}</pre>}
+      {view === "changes" && (
+        <div className="rail-file rail-diff">
+          {visibleDiff(lineDiff(diffBase, workflow.openText)).map((line, i) => (
+            <div
+              key={i}
+              className={`diff-${line.kind === "…" ? "skip" : line.kind === "+" ? "add" : line.kind === "-" ? "remove" : "same"}`}
+            >
+              <span className="diff-mark">{line.kind === " " || line.kind === "…" ? "" : line.kind}</span>
+              <span className="diff-text">{line.text}</span>
+            </div>
           ))}
-        {!workstreams.some((w) => w.workflowPath === workflow.path) && <div className="inspector-empty">No runs.</div>}
-      </div>
-    </div>
+          {changed === 0 && <div className="inspector-empty rail-diff-none">No changes.</div>}
+        </div>
+      )}
+      {view === "form" && (
+        <div className="rail-panel-body">
+          <div className="inspector-section-stack">
+            <label className="field">
+              <FieldLabel label="Name" doc={DOCS.wfName} />
+              <input
+                className="field-input mono-input"
+                value={name}
+                onChange={(e) => onEdit({ op: "setWorkflowField", key: "name", value: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <FieldLabel label="Description" doc={DOCS.wfDescription} />
+              <textarea
+                className="field-textarea"
+                rows={4}
+                value={description}
+                onChange={(e) => onEdit({ op: "setWorkflowField", key: "description", value: e.target.value || null })}
+              />
+            </label>
+            <div className="field-block">
+              <span className="field-label-row">
+                Inputs · {inputs.length} <InfoTip doc={DOCS.wfInputs} />
+              </span>
+              {inputs.map((input) => (
+                <div key={input.artifact} className="rail-box-row">
+                  <span className="mono rail-box-id">{input.artifact}</span>
+                  <span className={`field-tag ${input.required ? "is-required" : "is-optional"}`}>
+                    {input.required ? "required" : "optional"}
+                  </span>
+                  {input.description && <span className="rail-box-text">{input.description}</span>}
+                </div>
+              ))}
+              {inputs.length === 0 && <span className="rail-none">none</span>}
+            </div>
+            <div className="field-block">
+              <span className="field-label-row">
+                Hands off to · {handOffs.length} <InfoTip doc={DOCS.wfHandsOffTo} />
+              </span>
+              {handOffs.map((handOff, k) => (
+                <WorkflowLinkButton
+                  key={`${handOff.workflow}-${k}`}
+                  refText={handOff.workflow}
+                  link={linkTo(handOff.workflow)}
+                  onOpen={onOpenWorkflow}
+                  when={handOff.when}
+                />
+              ))}
+              {handOffs.length === 0 && <span className="rail-none">none</span>}
+              <span className="rail-none">inputs and hands_off_to: edit in YAML</span>
+            </div>
+            <div className="field-block">
+              <span className="field-label-row">
+                File <InfoTip doc={DOCS.version} />
+              </span>
+              <div className="rail-box-row">
+                <span className="location-pill">{workflow.location}</span>
+                <span className="file-path mono" title={workflow.path}>
+                  {workflow.path}
+                </span>
+              </div>
+            </div>
+            <div className="field-block">
+              <span className="field-label-row">Workstreams · {own.length}</span>
+              {own.map((w) => {
+                const state = RUN_STATE[runState(w.summary?.status)];
+                return (
+                  <button key={runKey(w)} className="rail-workstream-row" onClick={() => onOpenWorkstream(w)}>
+                    <span className="rail-workstream-main">
+                      <span className="mono rail-box-id">{w.slug}</span>
+                      <span className="rail-workstream-meta">
+                        {w.summary?.currentStep && w.summary.status !== "COMPLETED" ? `at ${w.summary.currentStep} · ` : ""}
+                        started {dateTime(w.summary?.started)}
+                        {w.project !== root ? ` · ${projectName(w.project)}` : ""}
+                      </span>
+                    </span>
+                    <span className={`run-state-pill ${state.className}`}>{state.label}</span>
+                  </button>
+                );
+              })}
+              {own.length === 0 && <span className="rail-none">none</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1012,7 +1142,7 @@ function LibraryTab({
   library: LibraryEntry[];
   allWorkflows: OpenWorkflow[];
   steps: StepView[];
-  selectedIndex: number;
+  selectedIndex: number | null;
   onAddArtifact: (step: number, mode: OutputMode, artifact: string, path?: string) => void;
   onOpenWorkflowStep: (workflowKey: string, stepIndex: number) => void;
   focus: { id: string; n: number } | null;
@@ -1023,7 +1153,7 @@ function LibraryTab({
   const [file, setFile] = useState("");
   const [mode, setMode] = useState<OutputMode>("produces");
   const [path, setPath] = useState("");
-  const selectedStep = steps[selectedIndex];
+  const selectedStep = selectedIndex === null ? undefined : steps[selectedIndex];
   const levelLabel = (value: LibraryEntry["level"]) =>
     ({ project: "project", user: "personal", package: "fuse-flow" })[value];
   const usage = (id: string) =>
@@ -1036,7 +1166,7 @@ function LibraryTab({
       ]),
     );
   const add = (id: string, addMode = mode, addPath = path || suggestPath(id)) => {
-    if (!selectedStep) return;
+    if (!selectedStep || selectedIndex === null) return;
     onAddArtifact(selectedIndex, addMode, id, addPath);
   };
   const openEntry = (entry: LibraryEntry) => {
@@ -1077,7 +1207,7 @@ function LibraryTab({
       <div
         key={`${entry.id}-${entry.level}-${entry.folder}`}
         className={`library-row${hidden ? " is-hidden" : ""}`}
-        style={{ paddingLeft: `${4 + depth * 12}px` }}
+        style={{ marginLeft: `${depth * 14}px` }}
         draggable
         onDragStart={(event) => event.dataTransfer.setData(ARTIFACT_DRAG, entry.id)}
         onClick={() => openEntry(entry)}
@@ -1103,12 +1233,14 @@ function LibraryTab({
             </span>
           )}
           <span className="library-used">
-            {used.length ? `${used.length} steps · ${workflows} workflows` : "unused"}
+            {used.length ? `${plural(used.length, "step")} · ${plural(workflows, "workflow")}` : "unused"}
           </span>
         </span>
         <button
           className="icon-mini"
-          title={`Add to ${selectedStep?.id}`}
+          title={selectedStep ? `Add to ${selectedStep.id}` : "Select a step to add to"}
+          aria-label={selectedStep ? `Add to ${selectedStep.id}` : "Select a step to add to"}
+          disabled={!selectedStep}
           onClick={(event) => {
             event.stopPropagation();
             add(entry.id, "produces", suggestPath(entry.id));
@@ -1124,6 +1256,7 @@ function LibraryTab({
     const files = Object.keys(open.files);
     const shownFile = files.includes(file) ? file : files[0];
     const used = usage(open.id);
+    const others = library.filter((entry) => entry.id === open.id && entry.level !== open.level);
     return (
       <div className="inspector-section-stack library-detail">
         <button className="text-button back-button" onClick={() => setOpen(null)}>
@@ -1140,6 +1273,26 @@ function LibraryTab({
             </div>
           )}
           {open.description && <p className="library-detail-description">{open.description}</p>}
+          {others.length > 0 && (
+            <div className="library-others">
+              <span className="rail-kicker">Same id on other levels</span>
+              {others.map((other) => {
+                const inEffect = !other.hiddenBy;
+                return (
+                  <button key={other.level} type="button" className="library-other-row" onClick={() => openEntry(other)}>
+                    <span className="library-level-pill">{levelLabel(other.level)}</span>
+                    <span className={inEffect ? "library-in-effect" : "library-hidden-by"}>
+                      {inEffect ? "in effect" : `hidden by ${LEVEL_LABEL[other.hiddenBy!]}`}
+                    </span>
+                    <span className="library-other-path">
+                      {LEVEL_ROOT[other.level]}
+                      {entryPath(other)}/
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {open.entryProblem && <div className="library-entry-problem">{open.entryProblem}</div>}
           <div className="file-path mono">{open.folder}</div>
           {open.group && <div className="library-override">filed under {open.group}/</div>}
@@ -1162,7 +1315,7 @@ function LibraryTab({
           </>
         )}
         <div className="field-block">
-          <div className="field-block-head">Add to {selectedStep?.id ?? "step"}</div>
+          <div className="field-block-head">Add to {selectedStep?.id ?? "no step selected"}</div>
           <div className="segmented">
             {(["produces", "optional_produces", "updates"] as OutputMode[]).map((value) => (
               <button
@@ -1180,7 +1333,7 @@ function LibraryTab({
             placeholder={suggestPath(open.id)}
             onChange={(event) => setPath(event.target.value)}
           />
-          <button className="primary-button" onClick={() => add(open.id)}>
+          <button className="primary-button" disabled={!selectedStep} onClick={() => add(open.id)}>
             Add
           </button>
         </div>
@@ -1224,7 +1377,7 @@ function LibraryTab({
           ))}
         </div>
         <span className="library-add-to">
-          ADD TO <strong>{selectedStep?.id}</strong>
+          ADD TO <strong>{selectedStep && selectedIndex !== null ? `${selectedIndex + 1} · ${selectedStep.id}` : "no step selected"}</strong>
         </span>
       </div>
       <div className="library-list">
@@ -1240,11 +1393,13 @@ function LibraryTab({
               <button
                 className="library-section-head lane-toggle"
                 aria-expanded={open}
+                title={LEVEL_ROOT[lv]}
                 onClick={() => folders.toggle(`${lv}:`, "", true)}
               >
                 <Chevron open={open} />
-                {levelLabel(lv)}
+                <span className="lane-group-label">{LEVEL_LABEL[lv]}</span>
                 <span className="library-section-count">{inLevel.length}</span>
+                <span className="lane-group-root">{LEVEL_ROOT[lv]}</span>
               </button>
               {open &&
                 inLevel.map((entry) => {
@@ -1260,7 +1415,7 @@ function LibraryTab({
                           key={`folder-${prefix}`}
                           className="lane-folder-row lane-toggle"
                           aria-expanded={folderIsOpen}
-                          style={{ paddingLeft: `${4 + depth * 12}px` }}
+                          style={{ paddingLeft: `${4 + depth * 14}px` }}
                           onClick={() => folders.toggle(`${lv}:${prefix}`, name)}
                         >
                           <Chevron open={folderIsOpen} />
@@ -1291,185 +1446,6 @@ function LibraryTab({
             ))}
           </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-function RunTab({
-  run,
-  selectedStep,
-  findRun,
-  onOpenRun,
-}: {
-  run: WorkstreamSummary;
-  selectedStep?: string;
-  findRun: (slug: string) => WorkstreamSummary | undefined;
-  onOpenRun: (slug: string) => void;
-}) {
-  const [all, setAll] = useState(false);
-  const events = (run.events ?? []).filter((event) => all || event.step === selectedStep);
-  const summary = run.summary;
-  const routes = summary?.routesBack ?? [];
-  const children = run.children ?? [];
-  const inputs = Object.entries(run.inputs ?? {});
-  const linked = !!run.after || !!run.parent || (run.startedAfter?.length ?? 0) > 0 || children.length > 0 || inputs.length > 0;
-  return (
-    <div className="inspector-section-stack">
-      <div className="run-stats">
-        <Stat label="state" value={RUN_STATE[runState(summary?.status)].label} />
-        <Stat label={summary?.status === "COMPLETED" ? "took" : "running for"} value={duration(runDuration(run))} />
-        <Stat label="waited for owner" value={duration(summary?.ownerWaitMs ?? 0)} />
-        <Stat label="sent back" value={routes.length ? `${routes[0].from} → ${routes[0].to}` : "never"} />
-      </div>
-      {linked && (
-        <div className="field-block run-links">
-          <div className="field-block-head">Linked workstreams</div>
-          {run.parent && (
-            <div className="run-link-row">
-              <span className="mini-label">parent</span>
-              <RunLinkButton slug={run.parent.slug} run={findRun(run.parent.slug)} onOpen={onOpenRun} detail={`step ${run.parent.step} waits for this one`} />
-            </div>
-          )}
-          {run.after && (
-            <div className="run-link-row">
-              <span className="mini-label">started after</span>
-              <RunLinkButton slug={run.after} run={findRun(run.after)} onOpen={onOpenRun} />
-            </div>
-          )}
-          {(run.startedAfter ?? []).map((slug) => (
-            <div key={slug} className="run-link-row">
-              <span className="mini-label">started after it</span>
-              <RunLinkButton slug={slug} run={findRun(slug)} onOpen={onOpenRun} />
-            </div>
-          ))}
-          {children.map((child, k) => {
-            const newest = !children.slice(k + 1).some((later) => later.step === child.step);
-            return (
-              <div key={child.slug} className="run-link-row">
-                <span className="mini-label">child of {child.step}</span>
-                <RunLinkButton
-                  slug={child.slug}
-                  run={findRun(child.slug)}
-                  onOpen={onOpenRun}
-                  detail={`${child.pass > 1 ? `pass ${child.pass}` : "first pass"}${newest ? "" : ", earlier"}`}
-                />
-              </div>
-            );
-          })}
-          {inputs.map(([id, path]) => (
-            <div key={id} className="run-link-row">
-              <span className="mini-label">input {id}</span>
-              <span className="mono run-link-path">{path}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="segmented">
-        <button className={`segmented-opt${!all ? " is-active" : ""}`} onClick={() => setAll(false)}>
-          Step · {selectedStep}
-        </button>
-        <button className={`segmented-opt${all ? " is-active" : ""}`} onClick={() => setAll(true)}>
-          All events
-        </button>
-      </div>
-      <div className="event-list">
-        {events.map((event, index) => (
-          <EventRow
-            key={`${event.time}-${event.step}-${index}`}
-            event={event}
-            showStep={all}
-            selected={all && event.step === selectedStep}
-            findRun={findRun}
-            onOpenRun={onOpenRun}
-          />
-        ))}
-        {events.length === 0 && <div className="inspector-empty">No events for this step.</div>}
-      </div>
-    </div>
-  );
-}
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="run-stat">
-      <small>{label}</small>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-function EventRow({
-  event,
-  showStep,
-  selected,
-  findRun,
-  onOpenRun,
-}: {
-  event: RunEvent;
-  showStep: boolean;
-  selected: boolean;
-  findRun: (slug: string) => WorkstreamSummary | undefined;
-  onOpenRun: (slug: string) => void;
-}) {
-  const from = RUN_STATE[runState(event.from)];
-  const to = RUN_STATE[runState(event.to)];
-  return (
-    <div className={`event-row${selected ? " is-selected" : ""}`}>
-      <time>{dateTime(event.time)}</time>
-      <div>
-        {showStep && <div className="event-step">{event.step}</div>}
-        <div className="event-change">
-          {event.from !== event.to && (
-            <>
-              <span className={`run-state-pill ${from.className}`}>{from.label}</span>
-              <span>→</span>
-            </>
-          )}
-          <span className={`run-state-pill ${to.className}`}>{to.label}</span>
-          {event.actor && <span className="event-actor">· {event.actor}</span>}
-        </div>
-        {event.kind === "child-created" ? (
-          <div className="event-detail">
-            created child workstream <RunLinkButton slug={event.detail} run={findRun(event.detail)} onOpen={onOpenRun} />
-          </div>
-        ) : (
-          event.detail && <div className="event-detail">{event.detail}</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function YamlTab({ text, base, compareRequest }: { text: string; base: string; compareRequest: number }) {
-  const [view, setView] = useState<"file" | "changes">("file");
-  useEffect(() => {
-    if (compareRequest > 0) setView("changes");
-  }, [compareRequest]);
-  const changed = lineDiff(base, text).filter((l) => l.kind !== " ").length;
-  return (
-    <div className="yaml-tab">
-      <div className="segmented">
-        <button className={`segmented-opt${view === "file" ? " is-active" : ""}`} onClick={() => setView("file")}>
-          File
-        </button>
-        <button className={`segmented-opt${view === "changes" ? " is-active" : ""}`} onClick={() => setView("changes")}>
-          Changes · {changed}
-        </button>
-      </div>
-      {view === "file" ? (
-        <pre className="yaml-pre">{text}</pre>
-      ) : (
-        <pre className="yaml-pre diff-pre">
-          {visibleDiff(lineDiff(base, text)).map((line, i) => (
-            <span
-              key={i}
-              className={`diff-${line.kind === "…" ? "skip" : line.kind === "+" ? "add" : line.kind === "-" ? "remove" : "same"}`}
-            >
-              {line.kind === " " ? "  " : line.kind === "…" ? "  " : `${line.kind} `}
-              {line.text}
-              {"\n"}
-            </span>
-          ))}
-        </pre>
       )}
     </div>
   );
@@ -1509,73 +1485,87 @@ function gateTextLabel(kind: string) {
   );
 }
 
-// A workflow gate's own fields, read-only: the child workflow it opens, the
-// child's slug, and the documents it gives the child and gets back.
-// Komposer keeps them as written; edit them in the file.
+// A workflow gate's own fields: the child workstream's slug and the ids the
+// child returns, which Komposer edits, and the inputs it gives the child,
+// shown as written. Returns written as a mapping of other names are shown as
+// written too; they are changed in the file.
 function DelegationFields({
   gate,
   stepId,
   link,
+  onSet,
   onOpenWorkflow,
 }: {
   gate: Gate;
   stepId: string;
   link: WorkflowLink;
+  onSet: (fields: { slug?: string | null; returns?: string[] | null }) => void;
   onOpenWorkflow: (key: string) => void;
 }) {
-  const template = gate.slug ?? DEFAULT_CHILD_SLUG;
-  const pairs = (map: Record<string, string> | undefined, left: string, right: string) =>
-    Object.entries(map ?? {}).map(([a, b]) => (
-      <div key={a} className="delegation-pair">
-        <span className="mono" title={left}>{a}</span>
-        <span aria-hidden="true">←</span>
-        <span className="mono" title={right}>{b}</span>
-      </div>
-    ));
+  const returns = Object.entries(gate.returns ?? {});
+  const listForm = returns.every(([id, from]) => id === from);
+  const returnsText = returns.map(([id]) => id).join(", ");
+  const [draft, setDraft] = useState(returnsText);
+  useEffect(() => setDraft(returnsText), [returnsText]);
+  const commit = () => {
+    const ids = draft.split(/[\s,]+/).filter(Boolean);
+    if (ids.join(", ") !== returnsText) onSet({ returns: ids.length ? ids : null });
+  };
+  const inputs = Object.entries(gate.inputs ?? {});
   return (
-    <div className="delegation-fields">
-      <div className="delegation-row">
-        <span className="mini-label">opens</span>
-        <WorkflowLinkButton refText={gate.text || "…"} link={link} onOpen={onOpenWorkflow} />
-      </div>
-      <div className="delegation-row">
-        <span className="mini-label">
-          slug <InfoTip doc={GATE_FIELD_DOCS.slug} />
+    <div className="delegation-grid">
+      <span className="mini-label">
+        child <span className="field-tag is-optional">optional</span>
+        <InfoTip doc={GATE_FIELD_DOCS.slug} />
+      </span>
+      <span className="mini-label">
+        returns <span className="field-tag is-optional">optional</span>
+        <InfoTip doc={GATE_FIELD_DOCS.returns} />
+      </span>
+      <input
+        className="field-input mono-input is-small"
+        value={gate.slug ?? ""}
+        placeholder={DEFAULT_CHILD_SLUG}
+        title={`for workstream <slug>: ${(gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{step}", stepId)}`}
+        onChange={(e) => onSet({ slug: e.target.value || null })}
+      />
+      {listForm ? (
+        <input
+          className="field-input mono-input is-small"
+          value={draft}
+          placeholder="artifact ids, comma separated"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
+        />
+      ) : (
+        <span className="mono delegation-written" title="Written as a mapping; edit in YAML">
+          {returns.map(([id, from]) => (id === from ? id : `${id} ← ${from}`)).join(", ")}
         </span>
-        <span className="mono" title={`for workstream <slug>: ${template.replaceAll("{step}", stepId)}`}>
-          {template}
-          {gate.slug === undefined && <small className="delegation-default"> default</small>}
+      )}
+      {inputs.length > 0 && (
+        <span className="delegation-inputs">
+          <span className="mini-label">
+            inputs <InfoTip doc={GATE_FIELD_DOCS.inputs} />
+          </span>
+          <span className="mono">{inputs.map(([a, b]) => (a === b ? a : `${a} ← ${b}`)).join(", ")}</span>
         </span>
-      </div>
-      <div className="delegation-row">
-        <span className="mini-label">
-          inputs <InfoTip doc={GATE_FIELD_DOCS.inputs} />
-        </span>
-        <div>{gate.inputs ? pairs(gate.inputs, "the child's input", "this workflow's artifact") : <small>none given</small>}</div>
-      </div>
-      <div className="delegation-row">
-        <span className="mini-label">
-          returns <InfoTip doc={GATE_FIELD_DOCS.returns} />
-        </span>
-        <div>{gate.returns ? pairs(gate.returns, "the id in this workflow", "the child's document") : <small>none</small>}</div>
-      </div>
-      <small className="delegation-note">Komposer shows these as written and keeps them through edits; change them in the file itself.</small>
+      )}
+      <button
+        type="button"
+        className="delegation-open"
+        disabled={!link.ok}
+        title={link.ok ? `Open ${link.path}` : link.reason}
+        onClick={() => link.ok && onOpenWorkflow(link.key)}
+      >
+        {link.ok ? `Open ${gate.text || "…"} →` : `${gate.text || "…"} · not found`}
+      </button>
     </div>
   );
 }
 
-const SOURCE_LABEL: Record<string, string> = {
-  "local policy": "your local policy for this project",
-  "team policy": "the team's policy",
-  "project library": "the project's library",
-  gate: "this gate's guide",
-  "user policy": "your policy",
-  "user library": "your library",
-  "package library": "the fuse-flow library",
-};
-
-// What an agent gate reviews each artifact against, as the engine decides it:
-// a gate's own guide is replaced by a project's review guide, for example.
+// What an agent gate reviews against, as the engine decides it for each
+// artifact of its step (see reviewInEffectRows).
 function ReviewInEffect({
   gate,
   onViewFile,
@@ -1583,38 +1573,20 @@ function ReviewInEffect({
   gate: ReviewGuides["gates"][number];
   onViewFile: (title: string, file: FileRef) => void;
 }) {
+  const rows = reviewInEffectRows(gate);
   return (
     <div className="review-in-effect">
-      <span className="mini-label">reviews against</span>
-      {gate.reviews.map((review, index) => (
-        <div key={`${review.artifact ?? ""}-${index}`} className="review-in-effect-row">
-          <span className="mono review-in-effect-what">{review.artifact ?? "the step"}</span>
-          {review.guide ? (
-            <>
-              <button
-                type="button"
-                className="link-button mono"
-                title={review.guide.path}
-                onClick={() => onViewFile(`Review guide for ${review.artifact ?? "the step"}`, review.guide!)}
-              >
-                {review.guide.display}
-              </button>
-              <small>from {SOURCE_LABEL[review.guide.source] ?? review.guide.source}</small>
-            </>
-          ) : review.ownGuide ? (
-            <>
-              <button
-                type="button"
-                className="link-button mono"
-                title={review.ownGuide.path}
-                onClick={() => onViewFile(`Guide for ${review.artifact}`, review.ownGuide!)}
-              >
-                {review.ownGuide.display}
-              </button>
-              <small>its own guide; no review guide</small>
-            </>
-          ) : (
-            <small>the gate's text only; no guide</small>
+      <span className="rail-kicker">Review in effect</span>
+      {rows.map((row) => (
+        <div key={row.key} className="review-in-effect-row">
+          <span className="mono review-in-effect-what" title={row.file?.path}>
+            {row.name}
+          </span>
+          <span className="review-in-effect-from">{row.from}</span>
+          {row.file && (
+            <button type="button" className="text-button is-small" onClick={() => onViewFile(row.title, row.file!)}>
+              Open
+            </button>
           )}
         </div>
       ))}
@@ -1622,39 +1594,40 @@ function ReviewInEffect({
   );
 }
 
-function FileViewer({
+// A guide file opened from a gate, over the whole panel.
+function GuideViewer({
   title,
   file,
   text,
+  backTo,
   onClose,
 }: {
   title: string;
   file: FileRef;
   text?: string;
+  backTo: string;
   onClose: () => void;
 }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="expand-modal file-viewer" onClick={(event) => event.stopPropagation()}>
-        <div className="file-viewer-head">
-          <strong>{title}</strong>
-          <button className="icon-mini" title="Close" onClick={onClose}>
-            <X size={14} />
-          </button>
-        </div>
-        <div className="file-path mono" title={file.path}>
+    <div className="guide-viewer">
+      <div className="guide-viewer-head">
+        <button type="button" className="text-button is-small is-accent" onClick={onClose}>
+          ← Back to {backTo}
+        </button>
+        <span className="guide-viewer-title">{title}</span>
+        <span className="guide-viewer-path" title={file.path}>
           {file.display}
-        </div>
-        {file.outside ? (
-          <div className="inspector-empty">
-            Komposer shows guides only from the project, the libraries and the workflow locations.
-          </div>
-        ) : text === undefined ? (
-          <div className="inspector-empty">The file does not exist.</div>
-        ) : (
-          <pre className="library-file">{text}</pre>
-        )}
+        </span>
       </div>
+      {file.outside ? (
+        <div className="inspector-empty guide-viewer-note">
+          Komposer shows guides only from the project, the libraries and the workflow locations.
+        </div>
+      ) : text === undefined ? (
+        <div className="inspector-empty guide-viewer-note">The file does not exist.</div>
+      ) : (
+        <pre className="rail-file">{text}</pre>
+      )}
     </div>
   );
 }

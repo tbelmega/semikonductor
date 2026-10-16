@@ -80,50 +80,52 @@
   --warning-soft: var(--amber-50);
   --danger-soft:  var(--red-50);
 
-  /* ---- Komposer tints: gate kinds, run states, errors, diffs, routes back ----
-     The light values are fixed literals; [data-theme="dark"]
-     overrides each one, so no tint stays pastel on a dark page. */
-  --tint-danger-line:     oklch(0.58 0.19 25);
-  --tint-danger-dot:      oklch(0.55 0.18 25);
+  /* ---- Komposer tints: error and warning banners, chips and buttons ----
+     The prototype's own literals, outside the semantic formula below.
+     [data-theme="dark"] overrides each one, so no tint stays pastel on a
+     dark page. */
   --tint-danger-border:   oklch(0.85 0.07 25);
   --tint-danger-bg:       oklch(0.97 0.02 25);
   --tint-danger-bg-strong: oklch(0.95 0.04 25);
   --tint-danger-text:     oklch(0.48 0.18 25);
   --tint-danger-text-alt: oklch(0.5 0.18 25);
-
-  --tint-warn-line:       oklch(0.72 0.14 75);
   --tint-warn-border:     oklch(0.82 0.08 85);
   --tint-warn-border-alt: oklch(0.88 0.07 85);
   --tint-warn-button:     oklch(0.8 0.08 85);
   --tint-warn-bg:         oklch(0.97 0.03 85);
-  --tint-warn-pill-bg:    oklch(0.94 0.06 85);
   --tint-warn-chip-bg:    oklch(0.95 0.05 80);
   --tint-warn-chip-text:  oklch(0.45 0.11 65);
-  --tint-warn-text:       oklch(0.44 0.11 70);
   --tint-warn-text-deep:  oklch(0.4 0.1 70);
   --tint-warn-solid:      oklch(0.44 0.11 70);   /* filled button behind white text */
   --tint-warn-marker:     oklch(0.55 0.13 65);   /* "no library entry" marker on a chip */
+  --tint-route-text-alt:  oklch(0.5 0.13 60);   /* a gate's "↩ step" route back */
 
-  --tint-route-back:      oklch(0.62 0.13 65);
-  --tint-route-text:      oklch(0.55 0.13 65);
-  --tint-route-text-alt:  oklch(0.5 0.13 60);
-
-  --tint-ok-line:         oklch(0.62 0.12 155);
-  --tint-ok-bg:           oklch(0.94 0.05 155);
-  --tint-ok-text:         oklch(0.4 0.1 155);
-
-  --tint-agent-bg:        oklch(0.94 0.05 160);
-  --tint-agent-text:      oklch(0.4 0.1 160);
-
-  /* links to another workflow or workstream: hand-offs and delegations */
-  --tint-link-bg:         oklch(0.95 0.04 295);
-  --tint-link-line:       oklch(0.6 0.13 295);
-  --tint-link-text:       oklch(0.42 0.14 295);
-
-  --tint-diff-add-bg:     oklch(0.94 0.05 155);
-  --tint-diff-add-text:   oklch(0.35 0.09 155);
-  --tint-diff-remove-bg:  oklch(0.95 0.035 25);
-  --tint-diff-remove-text: oklch(0.42 0.14 25);
+  /* Semantic tints from the design's formula, by hue: background
+     oklch(0.95 0.045 h), text oklch(0.44 0.12 h), border oklch(0.72 0.14 h);
+     dark 0.33 0.06 / 0.86 0.1 / 0.62 0.13. Each hue serves one meaning on
+     every page:
+       agent  160  agent gates
+       amber   80  owner gates, waiting for owner, changed
+       red     25  blocked, only left, removed
+       green  150  completed, only right, added
+     Check gates and in progress use --accent-soft / --accent-text; script
+     and workflow gates use --surface-sunken with --text-strong or
+     --accent-text. Route back, sent back and error are single colours. */
+  --sem-agent-bg:   oklch(0.95 0.045 160);
+  --sem-agent-text: oklch(0.44 0.12 160);
+  --sem-agent-line: oklch(0.72 0.14 160);
+  --sem-amber-bg:   oklch(0.95 0.045 80);
+  --sem-amber-text: oklch(0.44 0.12 80);
+  --sem-amber-line: oklch(0.72 0.14 80);
+  --sem-red-bg:     oklch(0.95 0.045 25);
+  --sem-red-text:   oklch(0.44 0.12 25);
+  --sem-red-line:   oklch(0.72 0.14 25);
+  --sem-green-bg:   oklch(0.95 0.045 150);
+  --sem-green-text: oklch(0.44 0.12 150);
+  --sem-green-line: oklch(0.72 0.14 150);
+  --sem-route-back: oklch(0.62 0.13 65);
+  --sem-sent-back:  oklch(0.55 0.13 60);
+  --sem-error:      oklch(0.58 0.19 25);
 
   color-scheme: light;
 }
@@ -159,46 +161,37 @@
   --danger-soft:  rgba(216,58,69,0.14);
 
   /* tints: translucent fills, mid-tone borders, light text */
-  --tint-danger-line:     oklch(0.66 0.17 25);
-  --tint-danger-dot:      oklch(0.66 0.17 25);
   --tint-danger-border:   oklch(0.45 0.1 25);
   --tint-danger-bg:       oklch(0.58 0.19 25 / 0.12);
   --tint-danger-bg-strong: oklch(0.58 0.19 25 / 0.2);
   --tint-danger-text:     oklch(0.78 0.12 25);
   --tint-danger-text-alt: oklch(0.8 0.11 25);
-
-  --tint-warn-line:       oklch(0.75 0.14 75);
   --tint-warn-border:     oklch(0.5 0.09 80);
   --tint-warn-border-alt: oklch(0.45 0.08 80);
   --tint-warn-button:     oklch(0.55 0.09 80);
   --tint-warn-bg:         oklch(0.72 0.14 75 / 0.1);
-  --tint-warn-pill-bg:    oklch(0.72 0.14 75 / 0.16);
   --tint-warn-chip-bg:    oklch(0.72 0.14 75 / 0.16);
   --tint-warn-chip-text:  oklch(0.82 0.11 75);
-  --tint-warn-text:       oklch(0.82 0.11 75);
   --tint-warn-text-deep:  oklch(0.85 0.09 80);
   --tint-warn-solid:      oklch(0.5 0.11 70);
   --tint-warn-marker:     oklch(0.78 0.12 70);
-
-  --tint-route-back:      oklch(0.72 0.13 65);
-  --tint-route-text:      oklch(0.78 0.12 70);
   --tint-route-text-alt:  oklch(0.78 0.11 65);
 
-  --tint-ok-line:         oklch(0.68 0.12 155);
-  --tint-ok-bg:           oklch(0.62 0.12 155 / 0.16);
-  --tint-ok-text:         oklch(0.8 0.11 155);
-
-  --tint-agent-bg:        oklch(0.62 0.1 160 / 0.18);
-  --tint-agent-text:      oklch(0.82 0.09 160);
-
-  --tint-link-bg:         oklch(0.6 0.13 295 / 0.16);
-  --tint-link-line:       oklch(0.7 0.12 295);
-  --tint-link-text:       oklch(0.82 0.1 295);
-
-  --tint-diff-add-bg:     oklch(0.62 0.12 155 / 0.16);
-  --tint-diff-add-text:   oklch(0.82 0.1 155);
-  --tint-diff-remove-bg:  oklch(0.58 0.19 25 / 0.16);
-  --tint-diff-remove-text: oklch(0.8 0.1 25);
+  --sem-agent-bg:   oklch(0.33 0.06 160);
+  --sem-agent-text: oklch(0.86 0.1 160);
+  --sem-agent-line: oklch(0.62 0.13 160);
+  --sem-amber-bg:   oklch(0.33 0.06 80);
+  --sem-amber-text: oklch(0.86 0.1 80);
+  --sem-amber-line: oklch(0.62 0.13 80);
+  --sem-red-bg:     oklch(0.33 0.06 25);
+  --sem-red-text:   oklch(0.86 0.1 25);
+  --sem-red-line:   oklch(0.62 0.13 25);
+  --sem-green-bg:   oklch(0.33 0.06 150);
+  --sem-green-text: oklch(0.86 0.1 150);
+  --sem-green-line: oklch(0.62 0.13 150);
+  --sem-route-back: oklch(0.72 0.13 65);
+  --sem-sent-back:  oklch(0.78 0.12 65);
+  --sem-error:      oklch(0.66 0.17 25);
 
   color-scheme: dark;
 }

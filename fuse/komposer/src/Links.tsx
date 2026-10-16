@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Links to another workflow (a hand-off, a workflow gate) or another
-// workstream (the one a run came after, its parent, its children). Komposer
+// workstream (its parent, the one it came after, its children). Komposer
 // never draws one workflow inside another: it links to it, and a click opens
 // it in place of the current one.
 
-import type { WorkstreamSummary } from "./api.ts";
-import { RUN_STATE, runState } from "./runView.ts";
 import type { WorkflowLink } from "./workflowView.ts";
 
 // A workflow reference as written, opening the workflow it resolves to; one
@@ -15,10 +13,13 @@ export function WorkflowLinkButton({
   refText,
   link,
   onOpen,
+  when,
 }: {
   refText: string;
   link: WorkflowLink;
   onOpen: (key: string) => void;
+  // A hand-off's condition, shown after the link.
+  when?: string;
 }) {
   return (
     <button
@@ -31,51 +32,31 @@ export function WorkflowLinkButton({
         if (link.ok) onOpen(link.key);
       }}
     >
-      <span className="mono">{refText}</span>
-      <span aria-hidden="true">{link.ok ? "↗" : link.unavailable ? "unavailable" : "not found"}</span>
+      {refText} {link.ok ? "→" : link.unavailable ? "· unavailable" : "· not found"}
+      {when && <span className="workflow-link-when">when {when}</span>}
     </button>
   );
 }
 
-// A workstream by slug, with its state, opening its run; one Komposer does
-// not list (deleted, or unreadable) is shown as not found.
-export function RunLinkButton({
+// A linked workstream by slug; one Komposer does not list is shown as not found.
+export function WorkstreamLinkButton({
   slug,
-  run,
+  found,
   onOpen,
-  detail,
 }: {
   slug: string;
-  run?: WorkstreamSummary;
+  found: boolean;
   onOpen: (slug: string) => void;
-  detail?: string;
 }) {
-  const openable = !!run?.workflowPath;
-  const state = run?.summary ? RUN_STATE[runState(run.summary.status)] : undefined;
   return (
     <button
       type="button"
-      className={`run-link${openable ? "" : " is-unresolved"}`}
-      title={
-        openable
-          ? `Open the run of ${slug}${run?.workflow ? ` (${run.workflow})` : ""}`
-          : run
-            ? `${slug}: ${run.error ?? "its workflow does not resolve"}`
-            : `no workstream ${slug}`
-      }
-      aria-disabled={!openable}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (openable) onOpen(slug);
-      }}
+      className={`workstream-link${found ? "" : " is-unresolved"}`}
+      title={found ? `Show workstream ${slug}` : `No workstream ${slug} in this project`}
+      aria-disabled={!found}
+      onClick={() => found && onOpen(slug)}
     >
-      <span className="mono">{slug}</span>
-      {detail && <span className="run-link-detail">{detail}</span>}
-      {state ? (
-        <span className={`run-state-pill ${state.className}`}>{state.label}</span>
-      ) : (
-        <span className="run-link-detail">{run ? "unreadable" : "not found"}</span>
-      )}
+      {slug}
     </button>
   );
 }

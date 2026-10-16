@@ -1,95 +1,110 @@
 // SPDX-License-Identifier: Apache-2.0
 // Left lane: the workflow list grouped Project / Personal / fuse-flow, with
-// folder rows that open and close (kept in localStorage), search, and the +
-// button. While searching, every match is shown. The workflow files that runs
-// of other projects follow are not listed here; they open from their run.
-// The fuse-flow section ends with the "workflow compare" entry, which opens
-// compare mode.
+// sections and folder rows that open and close (kept in localStorage),
+// search, and New. While searching, every match is shown. On the Workstreams
+// page the lane also offers "All workstreams" and the workflows of other
+// projects that workstreams follow, and each row counts its workstreams.
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Columns2, Plus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import type { LibraryEntry, WorkstreamSummary } from "./api.ts";
-import { gateCount, workflowKey, type LocationId, type OpenWorkflow } from "./workflowView.ts";
+import { gateCount, workflowKey, type OpenWorkflow, type WorkflowLocation } from "./workflowView.ts";
 import { problemsForText } from "./validate.ts";
 import { stepViews } from "./workflowView.ts";
-import { ThemeToggle } from "./ThemeToggle.tsx";
+import { laneCount, plural } from "./model/workstreams.ts";
+import { projectName } from "./runView.ts";
 
-const LOCATION_ORDER: LocationId[] = ["project", "personal", "fuse-flow"];
-const LOCATION_LABEL: Record<LocationId, string> = {
+const LOCATION_LABEL: Record<WorkflowLocation, string> = {
   project: "Project",
   personal: "Personal",
   "fuse-flow": "fuse-flow",
+  run: "Other projects",
 };
-const LOCATION_ROOT: Record<LocationId, string> = {
+export const LOCATION_ROOT: Record<WorkflowLocation, string> = {
   project: ".konductor/workflows/",
   personal: "~/.konductor/workflows/",
   "fuse-flow": "fuse-flow/workflows/",
+  run: "opened with their workstreams",
 };
-
-export const COMPARE_ENTRY = "workflow compare";
 
 function stem(file: string) {
   return file.replace(/\.ya?ml$/, "");
 }
 
+// A workflow's path inside its location, by which the lane sorts and
+// searches: a folder's files sort with the names next to it, as "docs/" does
+// among the files beside the folder.
+const inLocation = (w: OpenWorkflow) => (w.dir ? `${w.dir}/${w.file}` : w.file);
+
+export type LaneMode = "edit" | "workstreams";
+
 export function WorkflowList({
+  mode,
   workflows,
   currentKey,
   onOpen,
   workstreams,
   onNew,
-  footer,
-  onCompare,
-  compareActive,
+  allWorkstreams,
+  onAllWorkstreams,
 }: {
+  mode: LaneMode;
   workflows: OpenWorkflow[];
+  // The selected workflow; null shows no row selected.
   currentKey: string | null;
   onOpen: (key: string) => void;
   workstreams: WorkstreamSummary[];
   onNew: () => void;
-  // Shown below the list: the projects section.
-  footer?: React.ReactNode;
-  onCompare: () => void;
-  compareActive: boolean;
+  // The Workstreams page's "All workstreams" row.
+  allWorkstreams?: boolean;
+  onAllWorkstreams?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
+  const order: WorkflowLocation[] = mode === "workstreams" ? ["project", "personal", "fuse-flow", "run"] : ["project", "personal", "fuse-flow"];
 
-  const groups = LOCATION_ORDER.map((loc) => {
-    const inLoc = workflows
-      .filter((w) => w.location === loc && (!q || `${w.dir}${w.file}`.toLowerCase().includes(q)))
-      .sort((a, b) => `${a.dir}${a.file}`.localeCompare(`${b.dir}${b.file}`));
-    return { loc, workflows: inLoc };
-  });
-  const compareShown = !q || COMPARE_ENTRY.includes(q);
-  const shownGroups = groups.filter((g) => g.workflows.length > 0 || (g.loc === "fuse-flow" && compareShown));
+  const groups = order
+    .map((loc) => {
+      const inLoc = workflows
+        .filter((w) => w.location === loc && (!q || inLocation(w).toLowerCase().includes(q)))
+        .sort((a, b) => inLocation(a).localeCompare(inLocation(b)));
+      return { loc, workflows: inLoc };
+    });
+  const shownGroups = groups.filter((g) => g.workflows.length > 0);
 
-  const runsFor = (w: OpenWorkflow) => workstreams.filter((ws) => ws.workflowPath === w.path);
   const folders = useFolderState("komposer-workflow-folders");
   // A section or folder is shown open while searching, so no match is hidden.
-  const sectionOpen = (loc: LocationId) => !!q || folders.isOpen(`${loc}:`, "", true);
-  const folderOpen = (loc: LocationId, prefix: string, name: string) => !!q || folders.isOpen(`${loc}:${prefix}`, name);
+  const sectionOpen = (loc: WorkflowLocation) => !!q || folders.isOpen(`${loc}:`, "", true);
+  const folderOpen = (loc: WorkflowLocation, prefix: string, name: string) => !!q || folders.isOpen(`${loc}:${prefix}`, name);
 
   return (
     <div className="lane">
-      <div className="lane-head">
-        <div className="brand-disc" />
-        <div className="brand-name">Komposer</div>
-        <ThemeToggle />
-      </div>
       <div className="lane-search">
         <input
           className="input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search workflows"
+          aria-label="Search workflows"
         />
         <button className="new-workflow-btn" title="New workflow" onClick={onNew}>
-          <Plus size={18} strokeWidth={1.75} />
+          + New
         </button>
       </div>
       <div className="lane-list">
+        {mode === "workstreams" && (
+          <button
+            className={`lane-all${allWorkstreams ? " is-current" : ""}`}
+            title="Show the workstreams of every workflow"
+            onClick={onAllWorkstreams}
+          >
+            <span className="lane-all-label">All workstreams</span>
+            <span className="lane-all-count">
+              {workstreams.length} workstream{workstreams.length === 1 ? "" : "s"}
+            </span>
+          </button>
+        )}
         {shownGroups.map((group) => {
           const shownFolders = new Set<string>();
           return (
@@ -97,6 +112,7 @@ export function WorkflowList({
               <button
                 className="lane-group-head lane-toggle"
                 aria-expanded={sectionOpen(group.loc)}
+                title={LOCATION_ROOT[group.loc]}
                 onClick={() => folders.toggle(`${group.loc}:`, "", true)}
               >
                 <Chevron open={sectionOpen(group.loc)} />
@@ -120,7 +136,7 @@ export function WorkflowList({
                           key={prefix}
                           className="lane-folder-row lane-toggle"
                           aria-expanded={open}
-                          style={{ paddingLeft: `${10 + depth * 12}px` }}
+                          style={{ paddingLeft: `${8 + depth * 12}px` }}
                           onClick={() => folders.toggle(`${group.loc}:${prefix}`, name)}
                         >
                           <Chevron open={open} />
@@ -131,15 +147,19 @@ export function WorkflowList({
                     visible = open;
                   });
                   if (!visible) return <div key={key}>{folderRows}</div>;
+                  const readOnly = w.location === "run";
                   const steps = stepViews(w);
-                  const problemCount = problemsForText(w.openText).length;
-                  const dirty = !w.onDisk || w.openText !== w.text;
-                  const nRuns = runsFor(w).length;
+                  const problemCount = readOnly ? 0 : problemsForText(w.openText).length;
+                  const dirty = !readOnly && (!w.onDisk || w.openText !== w.text);
+                  const counted = mode === "workstreams" ? laneCount(w.path, workstreams) : null;
+                  const meta = counted
+                    ? `${counted.text}${readOnly && w.project ? ` · ${projectName(w.project)}` : ""}`
+                    : `${plural(steps.length, "step")} · ${plural(gateCount(steps), "gate")}`;
                   return (
                     <div key={key}>
                       {folderRows}
                       <button
-                        className={`lane-row${key === currentKey ? " is-current" : ""}`}
+                        className={`lane-row${key === currentKey ? " is-current" : ""}${counted && !counted.count ? " is-faded" : ""}`}
                         onClick={() => onOpen(key)}
                         title={w.path}
                         style={{ paddingLeft: `${10 + parts.length * 12}px` }}
@@ -149,43 +169,23 @@ export function WorkflowList({
                           {problemCount > 0 && <span className="dot dot-problem" title="Has problems" />}
                           {dirty && <span className="dot dot-unsaved" title="Unsaved changes" />}
                         </span>
-                        <span className="lane-row-meta">
-                          {steps.length} steps · {gateCount(steps)} gates
-                          {nRuns ? ` · ${nRuns} runs` : ""}
-                        </span>
+                        <span className="lane-row-meta">{meta}</span>
                       </button>
                     </div>
                   );
                 })}
-              {group.loc === "fuse-flow" && sectionOpen(group.loc) && compareShown && (
-                <button
-                  className={`lane-row lane-compare-row${compareActive ? " is-current" : ""}`}
-                  onClick={onCompare}
-                  title="Compare two workflows side by side"
-                >
-                  <span className="lane-row-head">
-                    <Columns2 size={13} strokeWidth={1.75} className="lane-compare-icon" />
-                    <span className="lane-row-name">{COMPARE_ENTRY}</span>
-                  </span>
-                  <span className="lane-row-meta">compare any two workflows</span>
-                </button>
-              )}
             </div>
           );
         })}
         {shownGroups.length === 0 && <div className="lane-empty">No match.</div>}
       </div>
-      {footer}
     </div>
   );
 }
 
+// The 12px chevron of a section that opens and closes; it turns 90° when open.
 export function Chevron({ open }: { open: boolean }) {
-  return open ? (
-    <ChevronDown size={12} strokeWidth={2} className="lane-chevron" />
-  ) : (
-    <ChevronRight size={12} strokeWidth={2} className="lane-chevron" />
-  );
+  return <ChevronRight size={12} strokeWidth={2.25} className={`lane-chevron${open ? " is-open" : ""}`} />;
 }
 
 export type { LibraryEntry };

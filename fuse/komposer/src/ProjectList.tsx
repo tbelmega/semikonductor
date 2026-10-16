@@ -1,40 +1,49 @@
 // SPDX-License-Identifier: Apache-2.0
-// The Projects section at the bottom of the left lane: every project whose
-// runs Komposer shows, each opening to its runs, plus "Add projects", which
-// looks for runs in a folder and the folders below it. fuse-flow adds a
-// project by itself when it writes a run there; adding by hand is for
-// projects whose runs are older than that.
+// The Workstreams page's right rail: every project whose workstreams
+// Komposer shows, as a divider that opens and closes, with its workstreams
+// beneath; and "Add projects", which looks for workstreams in a folder and
+// the folders below it. fuse-flow adds a project by itself when it writes a
+// workstream there; adding by hand is for workstreams older than that.
 
 import { useState } from "react";
 import { FolderPlus, X } from "lucide-react";
-import { api, runKey, type ProjectSummary, type WorkstreamSummary } from "./api.ts";
+import { api, type ProjectSummary, type WorkstreamSummary } from "./api.ts";
 import { useFolderState } from "./folders.ts";
-import { RUN_STATE, runState } from "./runView.ts";
+import { RUN_STATE } from "./runView.ts";
+import { projectCount, rowTiming, stateOf, workstreamKey, type ProjectGroup } from "./model/workstreams.ts";
 import { Chevron } from "./WorkflowList.tsx";
 
+// The workflow a workstream follows, by its file name without .yml.
+export const workflowStem = (w: WorkstreamSummary) =>
+  (w.workflowPath?.split("/").pop() ?? w.workflow ?? "").replace(/\.ya?ml$/, "");
+
 export function ProjectList({
-  projects,
+  title,
+  groups,
+  filtered,
+  filterFile,
   error,
-  workstreams,
-  currentRun,
-  onOpenRun,
+  selectedKey,
+  onSelect,
   onChanged,
   onMessage,
 }: {
-  projects: ProjectSummary[];
+  // The selected workflow's file, or "All workstreams".
+  title: string;
+  groups: ProjectGroup<ProjectSummary, WorkstreamSummary>[];
+  // Whether the rows are only those of one workflow, filterFile.
+  filtered: boolean;
+  filterFile: string;
   // Why the projects file could not be read.
   error?: string;
-  workstreams: WorkstreamSummary[];
-  // The runKey of the open run.
-  currentRun: string | null;
-  onOpenRun: (run: WorkstreamSummary) => void;
+  selectedKey: string | null;
+  onSelect: (workstream: WorkstreamSummary) => void;
   // Called after projects were added or removed, to reload.
   onChanged: () => void;
   onMessage: (message: string) => void;
 }) {
   const sections = useFolderState("komposer-projects");
   const [adding, setAdding] = useState(false);
-  const open = sections.isOpen("projects:", "", true);
 
   const remove = async (project: ProjectSummary) => {
     try {
@@ -47,91 +56,101 @@ export function ProjectList({
   };
 
   return (
-    <div className="lane-projects">
-      <div className="lane-projects-head">
-        <button className="lane-group-head lane-toggle" aria-expanded={open} onClick={() => sections.toggle("projects:", "", true)}>
-          <Chevron open={open} />
-          <span className="lane-group-label">Projects</span>
-          <span className="lane-group-root">{projects.length}</span>
-        </button>
-        <button className="icon-mini" title="Add projects" aria-label="Add projects" onClick={() => setAdding(true)}>
-          <FolderPlus size={15} />
+    <aside className="ws-rail" aria-label="Workstreams">
+      <div className="ws-rail-head">
+        <div className="ws-rail-heading">
+          <span className="ws-rail-title">{title}</span>
+          <span className="ws-rail-sub">
+            {groups.length} project{groups.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="ws-add-projects"
+          title="Look for workstreams in a folder and the four folder levels below it"
+          onClick={() => setAdding(true)}
+        >
+          <FolderPlus size={15} strokeWidth={1.75} /> Add projects
         </button>
       </div>
-      {open && (
-        <div className="lane-projects-list">
-          {error && <div className="lane-projects-error">{error}</div>}
-          {projects.map((project) => {
-            const runs = workstreams.filter((w) => w.project === project.path);
-            const expanded = sections.isOpen(`project:${project.path}`, project.name, project.current);
-            return (
-              <div key={project.path}>
-                <div className="lane-project-row">
-                  <button
-                    className="lane-folder-row lane-toggle"
-                    aria-expanded={expanded}
-                    title={
-                      project.current
-                        ? `${project.path}, the project Komposer was started on`
-                        : project.example
-                          ? `${project.path}: made-up runs of the custom-example workflows, which ship with Komposer`
-                          : project.path
-                    }
-                    onClick={() => sections.toggle(`project:${project.path}`, project.name, project.current)}
+      <div className="ws-rail-list">
+        {error && <div className="lane-projects-error">{error}</div>}
+        {groups.map((group) => {
+          const { project } = group;
+          const open = sections.isOpen(`project:${project.path}`, project.name, true);
+          const tag = project.current ? "this project" : project.example ? "examples" : "";
+          return (
+            <div key={project.path} className="ws-project">
+              <div className="ws-project-head">
+                <button
+                  type="button"
+                  className="ws-project-toggle lane-toggle"
+                  aria-expanded={open}
+                  title={project.path}
+                  onClick={() => sections.toggle(`project:${project.path}`, project.name, true)}
+                >
+                  <Chevron open={open} />
+                  <span className="lane-group-label">{project.name}</span>
+                  {tag && <span className="ws-project-tag">{tag}</span>}
+                  <span
+                    className={`ws-project-count${project.missing || project.error ? " is-missing" : ""}`}
+                    title={project.error}
                   >
-                    <Chevron open={expanded} />
-                    <span className="lane-project-name">{project.name}</span>
-                    <span className="lane-project-meta" title={project.error}>
-                      {project.missing
-                        ? "folder not found"
-                        : project.error
-                          ? "runs cannot be read"
-                          : `${project.runs ?? 0} run${project.runs === 1 ? "" : "s"}`}
-                    </span>
+                    {projectCount(group, filtered)}
+                  </span>
+                </button>
+                {!project.current && !project.example && (
+                  <button
+                    type="button"
+                    className="ws-project-remove"
+                    title={`Remove ${project.name} from the list; its workstreams stay where they are`}
+                    onClick={() => remove(project)}
+                  >
+                    Remove
                   </button>
-                  {!project.current && !project.example && (
-                    <button
-                      className="icon-mini lane-project-remove"
-                      title={`Remove ${project.path} from the list; its runs stay where they are`}
-                      aria-label={`Remove ${project.name}`}
-                      onClick={() => remove(project)}
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
-                {expanded && (
-                  <div className="lane-project-runs">
-                    {runs.map((run) => {
-                      const state = RUN_STATE[runState(run.summary?.status)];
-                      const reason = run.error ?? (!run.workflowPath ? `its workflow ${run.workflow} is not found` : "");
-                      return (
-                        <button
-                          key={runKey(run)}
-                          className={`lane-run-row${runKey(run) === currentRun ? " is-current" : ""}`}
-                          disabled={!!reason}
-                          title={reason || `${run.workflowPath}`}
-                          onClick={() => onOpenRun(run)}
-                        >
-                          <span className="lane-run-head">
-                            <i className={`lane-run-dot ${state.className}`} />
-                            <span className="mono">{run.slug}</span>
-                          </span>
-                          <span className="lane-row-meta">
-                            {reason ? "cannot be shown" : `${run.workflow} · ${state.label}`}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {!project.missing && !project.error && runs.length === 0 && <div className="lane-empty">No runs.</div>}
-                    {project.error && <div className="lane-projects-error">{project.error}</div>}
-                  </div>
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              {open && (
+                <>
+                  {group.rows.map(({ workstream, depth }) => {
+                    const key = workstreamKey(workstream);
+                    const state = RUN_STATE[stateOf(workstream)];
+                    const reason =
+                      workstream.error ?? (!workstream.workflowPath ? `its workflow ${workstream.workflow ?? ""} is not found` : "");
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`ws-row${key === selectedKey ? " is-current" : ""}`}
+                        style={depth ? { paddingLeft: `${10 + 18 * depth}px` } : undefined}
+                        title={reason || workstream.workflowPath}
+                        onClick={() => onSelect(workstream)}
+                      >
+                        <span className={`ws-dot ${state.className}`} />
+                        <span className="ws-row-main">
+                          <span className="ws-row-slug">
+                            {depth > 0 && <span className="ws-row-child">↳ </span>}
+                            {workstream.slug}
+                          </span>
+                          <span className="ws-row-file">{reason ? "cannot be read" : workflowStem(workstream)}</span>
+                        </span>
+                        <span className="ws-row-side">
+                          <span className={`run-state-pill ${state.className}`}>{state.label}</span>
+                          <span className="ws-row-time">{rowTiming(workstream)}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!project.missing && !project.error && group.rows.length === 0 && (
+                    <div className="ws-empty">{filtered ? `no workstreams of ${filterFile}` : "no workstreams"}</div>
+                  )}
+                  {project.error && <div className="lane-projects-error">{project.error}</div>}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
       {adding && (
         <AddProjectsModal
           onClose={() => setAdding(false)}
@@ -142,7 +161,7 @@ export function ProjectList({
           }}
         />
       )}
-    </div>
+    </aside>
   );
 }
 
@@ -156,8 +175,8 @@ function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
     setError("");
     try {
       const { found, added } = await api.addProjects(path);
-      if (!found.length) setError("No fuse-flow runs in this folder or the four folder levels below it.");
-      else if (!added.length) setError(`Found ${found.length} project${found.length === 1 ? "" : "s"}, all of them listed already.`);
+      if (!found.length) setError("No fuse-flow workstreams in this folder or the four folder levels below it.");
+      else if (!added.length) setError(`Found ${found.length} project${found.length === 1 ? "" : "s"} there, all listed already.`);
       else onAdded(`Added ${added.length} project${added.length === 1 ? "" : "s"}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -167,25 +186,20 @@ function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
   };
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="save-modal" role="dialog" aria-labelledby="add-projects-title" onClick={(e) => e.stopPropagation()}>
+      <div className="save-modal add-projects-modal" role="dialog" aria-labelledby="add-projects-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <h2 id="add-projects-title">Add projects</h2>
-          <button className="icon-mini" aria-label="Close" onClick={onClose}>
+          <button className="icon-mini" title="Close" aria-label="Close" onClick={onClose}>
             <X />
           </button>
         </div>
-        <p className="modal-text">
-          Komposer looks for fuse-flow runs in this folder and up to four folder levels below it, and adds every project
-          that has runs. fuse-flow adds a project by itself when it writes a run there, so this is only needed for runs
-          from before that.
-        </p>
         <label className="field">
           <span className="field-label-row">Folder</span>
           <input
             className="field-input mono-input"
             value={path}
             autoFocus
-            placeholder="~/workplace"
+            placeholder="~/workspace"
             onChange={(e) => {
               setPath(e.target.value);
               setError("");
@@ -193,9 +207,12 @@ function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
         </label>
+        <p className="modal-text">Looks for fuse-flow workstreams in this folder and up to four folder levels below it.</p>
         {error && <div className="field-error">{error}</div>}
         <div className="modal-actions">
-          <button onClick={onClose}>Cancel</button>
+          <button className="secondary-button" onClick={onClose}>
+            Cancel
+          </button>
           <button className="primary-button" disabled={!path.trim() || busy} onClick={submit}>
             {busy ? "Looking…" : "Add"}
           </button>

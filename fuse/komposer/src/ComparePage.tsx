@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// Compare mode: two workflows picked from any location, their diagrams side
-// by side and read-only, each step card marked by how it compares with the
-// other side. A step that differs can be copied to the other side, which
-// becomes an unsaved edit of that workflow; everything else is edited in edit
-// mode, where "Edit" on a side opens it. A YAML view shows the line diff.
+// The Compare page: two workflows picked from any location, their diagrams
+// side by side and read-only, each step card marked by how it compares with
+// the other side. A step that differs can be copied to the other side, which
+// becomes an unsaved edit of that workflow; everything else is edited on the
+// Edit page, where "Edit" on a side opens it. A YAML view shows the line diff.
 
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Pencil } from "lucide-react";
@@ -15,28 +15,8 @@ import type { Edit } from "./model/yamlEdit.ts";
 import { problemsByStep, problemsForText } from "./validate.ts";
 import { stem, stepViews, workflowHandOffs, workflowInputs, workflowKey, type LocationId, type OpenWorkflow, type WorkflowLink } from "./workflowView.ts";
 
-export type Mode = "edit" | "compare";
-
 const LOCATION_ORDER: LocationId[] = ["project", "personal", "fuse-flow"];
 const LOCATION_LABEL: Record<LocationId, string> = { project: "Project", personal: "Personal", "fuse-flow": "fuse-flow" };
-
-export function ModeSwitch({ mode, onMode }: { mode: Mode; onMode: (mode: Mode) => void }) {
-  return (
-    <div className="segmented mode-switch" role="tablist" aria-label="Mode">
-      {(["edit", "compare"] as const).map((m) => (
-        <button
-          key={m}
-          role="tab"
-          aria-selected={mode === m}
-          className={`segmented-opt${mode === m ? " is-active" : ""}`}
-          onClick={() => onMode(m)}
-        >
-          {m === "edit" ? "Edit" : "Compare"}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // The list order of the left navigation: by location, then by folder and file.
 export function compareOrder(workflows: OpenWorkflow[]): OpenWorkflow[] {
@@ -56,7 +36,6 @@ export function ComparePage({
   rightKey,
   onPick,
   onEdit,
-  onMode,
   onSwap,
   onApply,
   resolveLink,
@@ -67,7 +46,6 @@ export function ComparePage({
   rightKey: string | null;
   onPick: (side: "left" | "right", key: string) => void;
   onEdit: (key: string) => void;
-  onMode: (mode: Mode) => void;
   onSwap: () => void;
   // Applies edits to the workflow with this key, as an unsaved change.
   onApply: (key: string, edits: Edit[], message: string) => void;
@@ -91,7 +69,7 @@ export function ComparePage({
             <span className="center-header-status">compare · read-only</span>
           </div>
         </div>
-        <button className="compare-swap-btn" title="Swap the left and right workflows" onClick={onSwap}>
+        <button type="button" className="compare-swap-btn" title="Swap the left and right workflows" onClick={onSwap}>
           <ArrowLeftRight size={14} strokeWidth={1.75} /> Swap sides
         </button>
         <div className="segmented compare-view-switch" role="tablist" aria-label="Compare view">
@@ -107,7 +85,6 @@ export function ComparePage({
             </button>
           ))}
         </div>
-        <ModeSwitch mode="compare" onMode={onMode} />
       </div>
       <div className={`compare-columns${view === "yaml" ? " is-yaml" : ""}`}>
         {(["left", "right"] as const).map((sideName) => {
@@ -217,7 +194,7 @@ function CompareSide({
           })}
         </select>
         {workflow && (
-          <button className="compare-edit-btn" title={`Edit ${workflow.file}`} onClick={() => onEdit(workflowKey(workflow))}>
+          <button type="button" className="compare-edit-btn" title={`Edit ${workflow.file}`} onClick={() => onEdit(workflowKey(workflow))}>
             <Pencil size={13} strokeWidth={1.75} /> Edit
           </button>
         )}
@@ -252,8 +229,6 @@ function CompareSide({
           handOffs={workflowHandOffs(workflow)}
           linkTo={(ref) => resolveLink(ref, workflow)}
           onOpenWorkflow={onEdit}
-          findRun={() => undefined}
-          onOpenRun={noop}
           readOnly
           compare={compare}
           compareAction={copy}
