@@ -255,9 +255,15 @@ script installs plain skills and an always-on instruction block that every suppo
 
   Steps that use one of these as a check inside another artifact, such as a threat model's checks
   in a design, name the guide's path in their instruction.
-- The `backend-review`, `frontend-review` and `adversarial-code-review` skills, now the backend,
-  frontend and adversarial lenses of `code-review`, in `backend.md`, `frontend.md` and
-  `adversarial.md`.
+- The `code-review` skill, with the `backend-review`, `frontend-review` and
+  `adversarial-code-review` skills it had absorbed. Its review checklist is now the `code`
+  artifact's review guide in the artifact library, `code/review.md`, in the P0 to P3 priorities of
+  the other review guides. The backend and frontend standards and the adversarial second pass are
+  `k-backend-review.md`, `k-frontend-review.md` and `k-adversarial-code-review.md` in
+  `fuse/flow/workflows/konductor/`, which the Konductor review workflows that use them name. Its
+  GitHub pull request steps, its own review loop and its pull request description rules are gone:
+  `fuse-pull-request` takes a change through the project's own review process, and the workflows'
+  review gates replace the loop.
 - The `aws-service-validator` skill, now `aws.md`, the AWS check of `doc-accuracy-analyzer`.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in

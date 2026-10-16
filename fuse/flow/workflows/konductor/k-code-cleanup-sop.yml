@@ -20,7 +20,7 @@
 #   document.
 # - The cleanup step has `check: default`, which the SOP does not have. It gives the rule that
 #   the cleanup changes no behavior something that can fail.
-# - The review skills are told to report every finding and leave fixing to the owner
+# - The review lenses are told to report every finding and leave fixing to the owner
 #   (scope_confirmed), because the SOP reports their findings and does not fix them.
 # - The SOP does not commit, so neither does this workflow; the cleanup stays in the working tree
 #   for the owner.
@@ -86,9 +86,10 @@ steps:
       Review the cleaned code and write the cleanup report. This step changes no file other than
       the report.
 
-      Run the code-review skill's backend lens (backend.md in that skill's folder) on the cleaned
-      .ts and .js service and handler files, and its frontend lens (frontend.md) on the cleaned
-      .tsx and .jsx files and the .ts files in component, page or hook paths. Skip file types that
+      Run the backend lens (fuse/flow/workflows/konductor/k-backend-review.md in the fuse-konductor
+      clone) on the cleaned .ts and .js service and handler files, and the frontend lens
+      (k-frontend-review.md next to it) on the cleaned .tsx and .jsx files and the .ts files in
+      component, page or hook paths. Skip file types that
       no lens matches, and say which were skipped. Tell each lens that the scope is confirmed: it
       reports every finding and leaves fixing to the owner, and it does not ask whether to fix them.
 

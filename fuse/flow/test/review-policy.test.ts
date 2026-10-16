@@ -91,13 +91,13 @@ test("the owner's rulings from every policy file are printed with the step, the 
   repo.write("home/.konductor/policy-overrides.yml", "rulings:\n  - Commit messages follow the house rules.\n");
   repo.write(
     ".konductor/policy-overrides.local.yml",
-    "rulings:\n  - In fuse-flow workstreams, the workflow's review gates replace the code-review skill's own review loop.\n",
+    "rulings:\n  - In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill.\n",
   );
   expect(repo.ok("start", "feat")).toContain(
     "STEP build (1 of 1): Build it.\n" +
       "RULINGS: where this workflow and the house rules overlap, the owner ruled:\n" +
       "  - Commit messages follow the house rules.\n" +
-      "  - In fuse-flow workstreams, the workflow's review gates replace the code-review skill's own review loop.\n",
+      "  - In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill.\n",
   );
 });
 

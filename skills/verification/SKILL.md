@@ -75,8 +75,7 @@ Use the checker that matches what you produced. Load its skill and apply its cri
 
 | You produced                              | Checker                                                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Backend code change                       | `code-review`, its backend lens (`backend.md`)                                                          |
-| Frontend code change                      | `code-review`, its frontend lens (`frontend.md`)                                                        |
+| Code change                               | The code review guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/code/review.md`)   |
 | Infrastructure as code change             | `infra-validation`                                                                                      |
 | System design or architecture document    | The design review guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/design/review.md`) |
 | Threat model                              | The quality gate of the threat-model guide (`fuse/flow/library/artifacts/threat-model/guide.md`)        |
@@ -94,8 +93,8 @@ Present checker findings in the order CRITICAL, IMPORTANT, SUGGESTION. Most chec
 severity-ranked findings rather than a score: for those, the artifact passes when no CRITICAL
 finding remains, and the evidence is the finding counts per severity. A checker that defines its
 own pass condition or score uses that instead. Then ask the user "Fix these issues? [y/n]", unless
-the checker's own instructions say the user already confirmed scope or the run is unattended (for
-example the backend lens of `code-review` with `scope_confirmed`); in that case report the findings without asking
+the checker's own instructions say the user already confirmed scope or the run is unattended; in
+that case report the findings without asking
 and leave fixing to the caller, as the checker says.
 
 ## Anti-Patterns

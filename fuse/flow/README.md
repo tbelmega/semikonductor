@@ -357,7 +357,7 @@ review:
         command: opencode run -m amazon-bedrock/us.openai.{model} "$(cat {prompt_file})"
     gpt-6.1-sol: { model: claude-opus-5.5, effort: high }
 rulings:
-  - In fuse-flow workstreams, the workflow's review gates replace the code-review skill's own review loop.
+  - In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill.
 artifacts:
   spec:
     path: docs/specs/{date}-{slug}.md
