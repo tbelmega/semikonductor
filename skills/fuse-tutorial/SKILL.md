@@ -1,6 +1,6 @@
 ---
 name: fuse-tutorial
-description: Use when the user types /fuse-tutorial or /tutorial, asks to start or continue the fuse tutorial or the tutorial, is new to fuse-konductor or Konductor and asks what it is, how to install it, which harnesses it supports, what they can ask it or how skills and workflows differ, even if they only say "how do I get started", or opens a session in the fuse-konductor clone without a specific task. A coach offers to install fuse-konductor with the user (checking their harnesses and conflicting skills or instructions first), to explain what the repository contains, or to teach hands-on: choosing a workflow for a task, working on a real project, building a greenfield demo project with the system and feature workflows, or shaping a workflow to how the user works. Each run has a name and a state file, so several runs can go on in parallel and any run can be resumed.
+description: Use when the user types /fuse-tutorial or /tutorial, asks to start or continue the "fuse tutorial" or the "tutorial", is new to fuse-konductor or Konductor and asks what it is, how to install it, which harnesses it supports, what they can ask it or how skills and workflows differ, even if they only say "how do I get started", or opens a session in the fuse-konductor clone without a specific task. A coach offers to install fuse-konductor with the user (checking their harnesses and conflicting skills or instructions first), to explain what the repository contains, or to teach hands-on: choosing a workflow for a task, working on a real project, building a greenfield demo project with the system and feature workflows, or shaping a workflow to how the user works. Each run has a name and a state file, so several runs can go on in parallel and any run can be resumed.
 version: 2.0.0
 tags: [skill, tutorial, onboarding, install, fuse-flow, komposer]
 ---
@@ -15,11 +15,11 @@ do the rest, check and keep track. Speak plainly. The user may not have installe
 
 The user decides how deep each topic goes. Every rule below follows from this one.
 
-- **At most three to five short paragraphs per message.** A short list counts as one paragraph. A
-  command or a URL the user needs does not count. When a topic needs more, give the part the user
+- **At most three to five short paragraphs per message.** A short list or diagram counts as one paragraph. 
+  A command or a URL the user needs does not count. When a topic needs more, give the part the user
   needs now and hold back the rest.
 - **End every explaining message with the two ways on:** go deeper into this topic, naming what
-  the deeper part would cover, or move on, naming the next topic. For example: "Want more on how
+  the deeper parts would cover, or move on, naming the next topic. For example: "Want more on how
   review rounds are counted, or shall we move on to owner gates?"
 - **In a hands-on step, the way on is the user's "done".** End with what to do and what to say when
   ready, and still offer the deeper explanation in one line when there is one.
@@ -29,6 +29,9 @@ The user decides how deep each topic goes. Every rule below follows from this on
 - **Watch what the user picks.** Someone who keeps asking for more wants a deeper `level`; someone
   who keeps moving on wants a shallower one. Record it (see "Runs") and start the next topic at
   that depth.
+- **The repo is the source of truth, not this skill.** Should this skill no longer match the current
+  shape of the fuse konductor repository, it is your responsibility to add, remove or modify the
+  experience based on what you see in the repo, following the spirit of this skill.
 
 At any point the user may say **skip** (go to the next step), **back** (repeat the last step),
 **pause** (stop here; the run resumes later), **menu** (back to the opening offer) or ask a
@@ -162,8 +165,10 @@ One message per stop, each ending with the offer to go deeper or move on to the 
 Point at the files so the user can open them. The stops:
 
 - **What it is.** Konductor is the original package of skills, SOPs and workflows for the software
-  development cycle. Fuse-Konductor builds on it: a library of modules, and a workflow engine your
-  harness's default agent operates. `README.md` says this in more words.
+  development cycle of the AWS Specialist Engineering organizations. Fuse-Konductor builds on it: 
+  a library of modules, and a workflow engine your harness's default agent operates. `README.md` says this in more words.
+- **The high level repository structure.** Read the current repository content, print a list of the
+  high level structure (no more that 12 lines) and offer to explain them one by one or jump to a section.
 - **The skills,** in `skills/`, one folder per skill, by the agent skills standard. A session loads
   a skill when its `description` matches the task. The difference from a workflow, in one line: a
   skill says what guidance applies to a task, and a workflow keeps the state of a piece of work
