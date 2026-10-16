@@ -40,6 +40,11 @@ Checklist below and use the same severity classes.
   data writes or external API boundaries, or when a workflow asks for a single-lens pass or
   Validator Mode.
 
+The stack lenses and the adversarial pass end by asking whether to fix the findings. When a
+fuse-flow agent gate runs this review as its independent reviewer, that gate confirms the scope
+(`scope_confirmed` is true): return the findings without asking, because the maker decides what
+to fix. Used on its own, in an interactive review, ask the question as the lens says.
+
 ## Explicit Publish Authorization
 
 No action that makes a change visible beyond your own draft goes out

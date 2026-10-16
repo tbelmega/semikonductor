@@ -20,8 +20,15 @@
 #   from the categorized files and asks the owner for the environment when there are infra files.
 # - Step 6 calls the k-adversarial-pull-request-review SOP. fuse-flow cannot call one workflow
 #   from another, so the adversarial step runs its port, k-adversarial-pull-request-review-sop, as
-#   a second workstream, <slug>-adversarial, in the same checkout, and reads that workstream's
-#   report. "Available" means fuse-flow lists that workflow.
+#   a child workstream in the same checkout, a fresh one for each pass of the step
+#   (<slug>-adversarial, then <slug>-adversarial-2 and so on), and copies that child's report into
+#   its own adversarial-report artifact, which names the child. "Available" means fuse-flow lists
+#   that workflow.
+# - Step 6's merge of new adversarial findings happens in the report step, so that the report
+#   step always reads the critique's findings, also when step 6 is skipped. The review findings
+#   file therefore holds the standard findings only, and the report holds both.
+# - When the review falls back to listing every file under source_dir, there is no diff, so the
+#   critique checks quoted code against the files themselves; the SOP names only the diff.
 # - The SOP names the verdicts READY FOR REVIEW and NEEDS FIXES without a rule. Here a surviving
 #   CRITICAL or IMPORTANT issue means NEEDS FIXES, since both skills' gates class IMPORTANT as
 #   "should fix".
@@ -114,10 +121,11 @@ steps:
       positives erode trust in the review. Reject a finding that praises correct code, speculates
       about code that cannot be seen, flags a style-only issue, repeats what a linter run in this
       workflow already reported, or gives a vague suggestion without a concrete fix. Reject a
-      finding whose quoted code does not match the actual diff. Keep only findings that state the
-      problem, why it matters and a concrete fix. Sort the survivors again, CRITICAL, then
-      IMPORTANT, then SUGGESTION. Move each rejected finding to a rejection log at the end of the
-      review findings, with its reason. Change no other file.
+      finding whose quoted code does not match the actual diff, or the file itself when the review
+      scope records that every file under source_dir was treated as changed. Keep only findings
+      that state the problem, why it matters and a concrete fix. Sort the survivors again,
+      CRITICAL, then IMPORTANT, then SUGGESTION. Move each rejected finding to a rejection log at
+      the end of the review findings, with its reason. Change no other file.
     consumes:
       - review-scope
       - review-diff
@@ -133,9 +141,16 @@ steps:
         review_type is not frontend, and `fuse-flow list` shows the workflow
         k-adversarial-pull-request-review-sop. Otherwise skip this step and give that reason
     instruction: |
-      Run the adversarial review to find gaps the standard review missed. Run it as its own
-      workstream, <slug>-adversarial, where <slug> is this workstream's slug: `fuse-flow start
-      <slug>-adversarial --workflow k-adversarial-pull-request-review-sop`, followed to the end.
+      Run the adversarial review to find gaps the standard review missed. Run it as a child
+      workstream of its own, with a fresh slug for each pass of this step, so that a pass after a
+      send-back reviews the current diff: <slug>-adversarial on the first pass, where <slug> is
+      this workstream's slug, then <slug>-adversarial-2, <slug>-adversarial-3 and so on.
+      `fuse-flow list` shows the children that exist. The first line of this step's adversarial
+      report names the child it came from, so a child named there belongs to an earlier pass. When
+      the newest child is not named there and its review diff, if it has one yet, is the same as
+      this review's diff, this pass started it: resume it with `fuse-flow start <child slug>`.
+      Otherwise start the next one with `fuse-flow start <child slug> --workflow
+      k-adversarial-pull-request-review-sop`. Follow it to the end.
       When the harness offers generic subagents, have a fresh subagent run that workstream;
       otherwise run it yourself as a separate pass that does not reuse this review's conclusions.
       Give it the same diff as this review, the review diff, as its diff input; when this review
@@ -143,25 +158,29 @@ steps:
       code review URL, give it as the adversarial review's pull request URL, which is the name that
       workflow uses.
 
-      Apply the critique step's false-positive rules to the adversarial report's findings. Merge
-      each new CRITICAL or IMPORTANT finding that survives into the review findings, marked as
-      coming from the adversarial review, and do not report again a finding the list already has.
-      Change no other file.
+      When the child is complete, copy its report, the file that `fuse-flow status <child slug>`
+      lists under adversarial-review-report, to this step's adversarial report, with the first line
+      `Child workstream: <child slug>` above it. The report step merges its findings. Change no
+      other file.
     consumes:
       - review-scope
       - review-diff
     produces:
-      - artifact: adversarial-review-report
-        path: .konductor/{slug}-adversarial/adversarial-review-report.md
-    updates:
-      - artifact: review-findings
-        path: .konductor/{slug}/review-findings.md
+      - artifact: adversarial-report
+        path: .konductor/{slug}/adversarial-review-report.md
 
   - id: report
     title: 7. Generate the review report
     phase: Report
     instruction: |
-      Write the review report from the review findings, without the rejection log. Give it the
+      When the adversarial review ran, first apply the critique step's false-positive rules to the
+      findings in its adversarial report, and add each new CRITICAL or IMPORTANT finding that
+      survives to the findings for this report, marked as coming from the adversarial review. Do
+      not report again a finding the review findings already have. Change no file other than the
+      code review report.
+
+      Write the review report from the review findings, without their rejection log, and the
+      adversarial findings added to them. Give it the
       title `# Code Review Report`, then the lines `Date: <current date>` and `Files reviewed:
       <count by category>`. Then the section `## Summary` with the line `CRITICAL: N | IMPORTANT: N
       | SUGGESTION: N` and the verdict, then `## Critical Issues`, `## Important Issues` and `##
@@ -172,8 +191,9 @@ steps:
       offer to fix the issues.
     consumes:
       - review-scope
+      - review-diff
       - review-findings
-      - adversarial-review-report
+      - adversarial-report
     produces:
       - artifact: code-review-report
         path: .konductor/{slug}/code-review-report.md

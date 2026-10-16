@@ -25,9 +25,9 @@ You are a filter. Never propose new findings in this mode.
 
 For each proposed finding you review:
 
-- Reject unless the flagged code text appears verbatim on a changed or context line in the diff for the specified file. Line-number drift within a hunk is tolerated; content invention is not.
+- Reject unless the flagged code text appears verbatim on a changed or context line in the diff for the specified file. When the input is file paths rather than a diff, every line of each supplied file counts as changed: reject unless the flagged code text appears verbatim in the specified file as read. Line-number drift within a hunk is tolerated; content invention is not.
 - Reject vague suggestions (`consider improving this`, `look into this`, `may want to review`) that do not name a specific defect and a specific fix.
-- Reject speculation about code outside the visible diff. You cannot review what you cannot see.
+- Reject speculation about code outside the visible diff, or outside the supplied files when the input is file paths. You cannot review what you cannot see.
 - Reject style-only nits already caught by lint, formatter, or type-checker.
 - Reject praise of correct code. It is not a finding.
 - Reject duplicates: if two findings reference the same file:line and the same root cause, keep the highest-severity one and drop the rest.

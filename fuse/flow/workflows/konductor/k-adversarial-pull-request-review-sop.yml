@@ -20,6 +20,8 @@
 #   "Historical filtering" line points to the review context instead of to Step 0.5.
 # - Steps 2 and 3 are separate steps, and so is the checker, so that each hands on a findings
 #   document and the checker starts from that document rather than from the passes' reasoning.
+# - With file paths as diff_input there is no diff, so the checker verifies quoted code against
+#   the files as read; the SOP's checker rule names only the diff.
 # - An empty diff stops the workstream as blocked; the owner decides what happens next.
 # - The SOP has no owner gate and no review of its own report; neither does this workflow.
 version: 1
@@ -136,11 +138,14 @@ steps:
       (adversarial.md) in Validator Mode. The
       checker must not have authored any candidate finding and must not have run a generator pass
       in this review. When the harness offers generic subagents, run it in a fresh subagent that
-      receives only the review diff, the review context and the candidate findings. Otherwise run
+      receives only the review diff, or the files listed in the review context when diff_input is
+      file paths, the review context and the candidate findings. Otherwise run
       it as a separate pass, started without the generator passes' conclusions or reasoning beyond
       the findings they returned, and take on the validator persona explicitly. The checker judges
       each finding on its own terms; the review context lets it check a reuse finding against the
-      utility or pattern it cites, under the same rules as every other finding.
+      utility or pattern it cites, under the same rules as every other finding. When diff_input is
+      file paths, the checker uses Validator Mode's file-path rule and checks quoted code against
+      those files.
 
       The checker tags each finding KEEP or REJECT, with a one-line reason for each REJECT, and
       proposes no new finding: it is a filter, not a reviewer. Drop every REJECT finding. Write the
