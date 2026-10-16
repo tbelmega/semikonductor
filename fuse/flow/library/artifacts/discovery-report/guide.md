@@ -31,10 +31,14 @@ Without a calling workflow, settle the same things yourself before you open the 
 
 ### Phase 1: Authentication
 
-When the credentials file is empty or absent, skip this phase: the application needs no sign-in.
+Skip this phase only when no credentials were given: the calling workflow passed an empty
+credentials file path, or, used on its own, the owner gave neither a credentials file nor the
+values. The application then needs no sign-in.
 
-Otherwise read the credentials file before navigating, then sign in with the selectors of the login
-page. Choose the flow that matches the application's sign-in behavior.
+Otherwise take the credentials before navigating, from the credentials file or from the values the
+owner gave, then sign in with the selectors of the login page. Values given directly stay out of
+every file you write, as the file's contents do. Choose the flow that matches the application's
+sign-in behavior.
 
 **Flow A: redirect-based sign-in** (for example Cognito Hosted UI, OAuth or single sign-on, a SAML
 identity provider). After signing in, call `waitForURL('**', { waitUntil: 'networkidle' })` so the

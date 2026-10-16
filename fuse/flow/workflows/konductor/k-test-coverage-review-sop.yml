@@ -9,8 +9,8 @@
 # library's test-coverage guide; the security test plan follows security-tests.md next to it.
 # Deliberate deviations from the SOP:
 # - Parameters: fuse-flow has no workflow parameters. The inventory step asks the owner for what
-#   is missing and records source_dir, test_dir, stories_file and design_file in the inventory,
-#   which later steps read.
+#   is missing and records source_dir, test_dir, stories_file, design_file, scope_confirmed and
+#   scope_declined in the inventory, which later steps read.
 # - output_dir: the reports are artifacts under .konductor/{slug}/; a project's policy moves them.
 # - dry_run: the SOP's parameter says no reports are generated and its example stops after Step 1,
 #   while its Step 3 stops after the gap analysis. The workflow follows the parameter and the
@@ -38,10 +38,15 @@ steps:
       stories or acceptance criteria) and design_file (the system design, used for the security
       plan). Ask for every missing required parameter in a single message, by these exact names;
       ask nothing when both are given. Do not go on if source_dir or test_dir does not exist.
+      Also note whether the owner already answered the end-to-end planning question when
+      starting: scope_confirmed is true when they authorized the planning in advance, and
+      scope_declined is true when they already declined it; both default to false. When both
+      would be true, ask the owner which they meant and do not go on until only one is.
       Scan source_dir for implementation files (.ts, .tsx, .js, .jsx, .py) and test_dir for test
-      files (.test.ts, .spec.ts, .test.tsx, .test.py). Record the parameters, the number of source
-      files, the number of test files, the test-to-source ratio, and the source files with no
-      corresponding test file. This workflow never changes code.
+      files (.test.ts, .spec.ts, .test.tsx, .test.py). Record the parameters, including
+      scope_confirmed and scope_declined, the number of source files, the number of test files,
+      the test-to-source ratio, and the source files with no corresponding test file. This
+      workflow never changes code.
       If the owner asked for a dry run, show what would be analyzed (the counts and the ratio),
       say that no reports are generated, and stop here with the workstream paused instead of
       continuing.
@@ -70,11 +75,11 @@ steps:
     phase: Planning
     condition:
       owner-action: >-
-        decide whether to plan end-to-end tests for these gaps, unless they already said so when
-        starting
+        decide whether to plan end-to-end tests for these gaps, unless the inventory records
+        scope_confirmed or scope_declined as true
     instruction: >
-      When the owner already authorized end-to-end planning (scope_confirmed), do the step without
-      asking; when they already declined it (scope_declined), skip it without asking.
+      When the inventory records scope_confirmed as true, do the step without asking; when it
+      records scope_declined as true, skip it without asking.
       Plan the end-to-end tests with the e2e-test-strategy guide, from the gap analysis. Give the
       guide the gap analysis's path, the stories_file and design_file when they were given, and
       the path below as its output file, so it does not ask for them; it treats a missing feature

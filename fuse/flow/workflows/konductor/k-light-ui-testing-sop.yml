@@ -28,7 +28,8 @@
 #   moves it.
 # - Step 6's results are written to ui-test-results, so the report can be resumed.
 # - Prompts that submit a form whose validation trigger is unknown are flagged and named in the
-#   run question, as dom-inspection's safety note asks; the SOP did not say so.
+#   run question, and scope_confirmed covers them only when the owner's advance authorization
+#   included them, as dom-inspection's safety note asks; the SOP did not say so.
 # - The SOP's Quality Gate lists are self-checks in the steps they concern; no independent review
 #   was added.
 version: 1
@@ -62,7 +63,8 @@ steps:
       of a line: url, credentials_file (the path, or empty), agent_created_credentials_file (true or
       false; never change it later, the final gate reads it), form_submission_confirmed (true only
       when the owner said yes) and scope_confirmed (true when the owner already authorized
-      generating and running prompts for whatever discovery finds). Below them, the features as
+      generating and running prompts for whatever discovery finds, including prompts that submit a
+      form whose validation trigger is unknown). Below them, the features as
       the owner gave them. Never the username or the password.
       Whenever this or any later step stops early, delete the credentials file first if you created
       it, then report the step blocked with the reason.
@@ -137,13 +139,15 @@ steps:
     phase: Execution
     condition:
       owner-action: >-
-        review the written prompt files and choose to run all of them, a selection, or none
+        review the written prompt files and choose to run all of them, a selection, or none,
+        unless the run parameters record scope_confirmed=true, which already chose all of them
     instruction: >
       With the condition's question, list the prompt files written, and name the ones that submit
       a form whose validation trigger is unknown: their submission may change data in the live
       app, so the owner's choice must cover each of them explicitly. When the owner already
-      authorized running in advance (scope_confirmed), list the files and run all of them. When the
-      owner chooses none, skip the step and leave the prompts for manual review.
+      authorized running in advance (scope_confirmed), do not ask: list the files, name the
+      flagged ones, and run all of them. When the owner chooses none, skip the step and leave the
+      prompts for manual review.
       Run the chosen prompts in a separate subagent when the runtime offers one, otherwise as a
       separate browser pass that reuses no conclusions from the prompt-writing pass; give it the
       prompt files and the credentials file's path, never the password. When the credentials file

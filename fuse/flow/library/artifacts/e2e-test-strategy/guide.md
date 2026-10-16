@@ -309,7 +309,7 @@ before release, extra manual testing or monitoring for what stays open, P2 and P
 
 ## Test specifications
 
-For each P0 and P1 test: objective, prerequisites, steps with the expected result of each,
+For each P0, P1 and P2 test: objective, prerequisites, steps with the expected result of each,
 assertions, test data, cleanup, complexity, effort, and dependencies on other tests. Mark every
 test that submits a form whose validation trigger is unknown.
 

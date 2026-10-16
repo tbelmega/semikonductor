@@ -160,7 +160,8 @@ An alternative to opting out per-spec: define a separate Playwright project in `
 
 - `npx playwright test --list` runs clean and lists every spec. A compile or config error here means the setup is broken, not the individual specs.
 - `npx tsc --noEmit` passes.
-- For any spec touching authentication: delete `fixtures/auth/state.json`, run the suite once to confirm global setup regenerates it, then run again to confirm the second run reuses the saved session instead of re-authenticating.
+- Run the suite against the live app only with the owner's authorization, covering that app and every spec that submits a form whose validation trigger the discovery report gives as unknown: a submission can create records, send email or start workflows. A calling workflow says whether it has that authorization; used on its own, ask the owner. Without it, stop at the two checks above and report live verification as not run.
+- For any spec touching authentication, in an authorized run: delete `fixtures/auth/state.json`, run the suite once, and confirm that global setup signs in once and regenerates the file, and that the authenticated specs in that run start signed in from the saved state instead of signing in themselves. Global setup signs in again on every run; that is expected.
 - For any login-flow spec: confirm it actually renders the login page (not a post-login page) by asserting on a login-page element before interacting with it.
 - Grep the generated spec files and `fixtures/` for the literal test password before committing anything. It should never appear outside the environment.
 

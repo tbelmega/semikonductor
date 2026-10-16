@@ -233,6 +233,8 @@ steps:
       project analysis, and create fixtures/auth and add fixtures/auth/ to .gitignore if either is
       missing. Playwright itself is the owner's to install: if it is missing, tell them how, as
       the skill says. Apply the skill's quality gate to the specs you wrote and fix its findings.
+      Run the skill's compile and list checks, but not the specs against the live app: this
+      workflow has no authorization to run them, so the skill's live verification is not run.
       If this step fails, delete the credentials file if you created it, and report the step
       blocked.
     consumes:
@@ -301,8 +303,9 @@ steps:
     instruction: >
       If the credentials file was created by this run and still exists, as after declining at the
       scope gate, delete it now. Print the summary for the owner: a table of page URL, test file and
-      status (pass or fail) for every page, the pages for which no test was generated, the notes
-      from the commit record, and how to run the tests locally. Also list the generated tests or
+      status (pass or fail of the validation step) for every page, the pages for which no test was
+      generated, the notes from the commit record, and how to run the tests locally. Say that the
+      generated tests were not run against the live app. Also list the generated tests or
       prompts that submit a form whose validation trigger the discovery report gives as unknown:
       DOM inspection could not confirm that submitting it is safe, so they need the owner's
       confirmation before anyone runs them against the live app. After a declined scope, print the
