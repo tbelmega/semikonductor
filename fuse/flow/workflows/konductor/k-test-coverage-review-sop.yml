@@ -75,12 +75,12 @@ steps:
     instruction: >
       When the owner already authorized end-to-end planning (scope_confirmed), do the step without
       asking; when they already declined it (scope_declined), skip it without asking.
-      Plan the end-to-end tests with the e2e-test-strategy skill, from the gap analysis. Give the
-      skill the gap analysis's path, the stories_file and design_file when they were given, and
+      Plan the end-to-end tests with the e2e-test-strategy guide, from the gap analysis. Give the
+      guide the gap analysis's path, the stories_file and design_file when they were given, and
       the path below as its output file, so it does not ask for them; it treats a missing feature
       plan as absent and applies its defaults for change type and release type. Classify the tests
       P0 (critical path), P1 (core features), P2 (edge cases) and P3 (nice to have), and recommend
-      sequential, parallel or hybrid execution. When the skill's quality gate finds issues, list
+      sequential, parallel or hybrid execution. When the guide's quality gate finds issues, list
       them in the strategy and leave the fixing to the owner when they authorized the planning in
       advance; otherwise ask them whether to fix them. Change no code.
     consumes:

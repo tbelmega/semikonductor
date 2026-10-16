@@ -194,6 +194,29 @@ script installs plain skills and an always-on instruction block that every suppo
   `ui-text.md` and `security-tests.md`, for the report sections the `_k-` workflows' test steps
   ask for; the security guide is cut from about 740 lines to the plan and its gaps. The third's
   measurable forms of quality requirements are now part of the requirements guide.
+- Eleven skills that produce one kind of artifact. Each is now a guide in the artifact library,
+  where a workflow step that produces the artifact reads it, and an agent asked for one such
+  document offers it:
+  - `threat-modeling` is the `threat-model` guide, and `decision-writing` the `decision-record`
+    guide, with its modes as sections.
+  - `system-design-patterns` is `interview.md` next to the `design` guide, and
+    `adversarial-design-review` is `adversarial-review.md` there, with its argumentation reference.
+    The adversarial review no longer asks before it uses the deliberation panel; it follows what
+    its caller says, and decides itself when the caller says nothing.
+  - `smithy-modeling` is the `api-model` guide, with its review guide and a Smithy reference.
+  - `agents-md-authoring` is the `agents-md` guide.
+  - The three `kiro-*-generation` skills are the `kiro-requirements`, `kiro-design` and
+    `kiro-tasks` guides. The step's artifact path decides where each file goes.
+  - `e2e-test-strategy` is the `e2e-test-strategy` guide, cut from about 1,600 lines to 350.
+  - `app-discovery` is the `discovery-report` guide, with `dom-inspection.md` next to it. Used on
+    its own, it now asks for credentials and confirmation itself and cleans up after itself.
+
+  Steps that use one of these as a check inside another artifact, such as a threat model's checks
+  in a design, name the guide's path in their instruction.
+- The `backend-review`, `frontend-review` and `adversarial-code-review` skills, now the backend,
+  frontend and adversarial lenses of `code-review`, in `backend.md`, `frontend.md` and
+  `adversarial.md`.
+- The `aws-service-validator` skill, now `aws.md`, the AWS check of `doc-accuracy-analyzer`.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in
   `fuse/flow/workflows/konductor/` replace them. The SOP files are in this repository's history and in upstream Konductor.

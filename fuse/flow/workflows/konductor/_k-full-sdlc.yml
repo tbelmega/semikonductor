@@ -21,8 +21,8 @@ steps:
     title: 0. Intake elicitation
     instruction: >
       Resolve the request into a requirements summary: goals, prohibited behavior, deferred
-      behavior, what is out of scope, constraints, and open decisions with your recommendation. Skip the questioning when the request already answers them and say
-      so in the summary.
+      behavior, what is out of scope, constraints, and open decisions with your recommendation. Skip
+      the questioning when the request already answers them and say so in the summary.
     produces:
       - artifact: requirements-summary
         path: .konductor/{slug}/requirements-summary.md
@@ -56,9 +56,9 @@ steps:
     title: 3. Design
     instruction: >
       Write the design document. For system architecture, data models and infrastructure also use
-      the system-design-patterns skill. Cite code for every claim about current behaviour; mark what
-      could not be verified. When the codebase analysis found no code, name the language, framework
-      and runtime; implementation scaffolds from them.
+      the design interview in interview.md next to the design guide. Cite code for every claim about
+      current behaviour; mark what could not be verified. When the codebase analysis found no code,
+      name the language, framework and runtime; implementation scaffolds from them.
     produces:
       - artifact: design
         path: .konductor/{slug}/design.md
@@ -83,7 +83,7 @@ steps:
     gates:
       - agent: >
           review the design as a principal engineer: first against its review guide (writing
-          quality, then production readiness), then with the adversarial-design-review skill. A
+          quality, then production readiness), then with adversarial-review.md next to it. A
           P0, P1 or CRITICAL finding is a required fix
         max_rounds: 2
       - owner-action: approve the reviewed design
@@ -104,9 +104,9 @@ steps:
   - id: specs
     title: 6. Specs (per feature)
     instruction: >
-      For each feature in the split write .kiro/specs/<feature>/requirements.md (the
-      kiro-requirements-generation skill), design.md (kiro-design-generation) and tasks.md
-      (kiro-task-generation), then list the spec directories in the index. The owner approves the
+      For each feature in the split write .kiro/specs/<feature>/requirements.md, design.md and
+      tasks.md, as the spec index guide says, then list the spec directories in the index. The
+      owner approves the
       specs for all features at once.
     produces:
       - artifact: spec-index
@@ -170,10 +170,11 @@ steps:
       Find the coverage gaps for what was implemented, write the missing tests on the feature branch
       and update its pull request, or push the branch when the feature has no pull request. Include
       a security test plan per feature, as the security tests section the test coverage guide names,
-      and count its critical findings as gaps; a plan that is only a task list counts as not evaluated. When the owner has
-      given a deployed URL and the feature has a user interface, run one end-to-end pass against it.
-      Mark a feature NEEDS_REVALIDATION in the code review when this step changes a feature that
-      was already reviewed. Record the remaining gaps with a reason each.
+      and count its critical findings as gaps; a plan that is only a task list counts as not
+      evaluated. When the owner has given a deployed URL and the feature has a user interface, run
+      one end-to-end pass against it. Mark a feature NEEDS_REVALIDATION in the code review when this
+      step changes a feature that was already reviewed. Record the remaining gaps with a reason
+      each.
     produces:
       - artifact: test-coverage
         path: .konductor/{slug}/test-coverage.md
@@ -194,7 +195,8 @@ steps:
     title: 10. Documentation
     instruction: >
       Write or update the README and developer guide for what shipped, write AGENTS.md if it is
-      missing or update it where commands or structure changed (the agents-md-authoring skill), and
+      missing or update it where commands or structure changed (the agents-md guide,
+      fuse/flow/library/artifacts/agents-md/guide.md in the fuse-konductor clone), and
       apply the humanize-writing skill. Record the accuracy check's result.
     produces:
       - artifact: doc-accuracy

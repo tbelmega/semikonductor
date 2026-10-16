@@ -86,11 +86,11 @@ steps:
       Review the cleaned code and write the cleanup report. This step changes no file other than
       the report.
 
-      Run the backend-review skill in review mode on the cleaned .ts and .js service and handler
-      files, and the frontend-review skill in review mode on the cleaned .tsx and .jsx files and
-      the .ts files in component, page or hook paths. Skip file types that no skill matches, and
-      say which were skipped. Tell each skill that the scope is confirmed: it reports every finding
-      and leaves fixing to the owner, and it does not ask whether to fix them.
+      Run the code-review skill's backend lens (backend.md in that skill's folder) on the cleaned
+      .ts and .js service and handler files, and its frontend lens (frontend.md) on the cleaned
+      .tsx and .jsx files and the .ts files in component, page or hook paths. Skip file types that
+      no lens matches, and say which were skipped. Tell each lens that the scope is confirmed: it
+      reports every finding and leaves fixing to the owner, and it does not ask whether to fix them.
 
       Write the cleanup report with the sections Removed Items, Preserved Items and Review
       Findings. Removed Items states the count of items removed per category and lists each with

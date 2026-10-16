@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The repository's instructions for AI agents: project overview, structure, commands, conventions and a context-loading block, with a CLAUDE.md that imports it."

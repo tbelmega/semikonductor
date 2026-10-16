@@ -10,12 +10,12 @@
 # Deliberate deviations from the SOP:
 # - spec_dir: the workstream slug is feature_name, and the artifact paths are the resolved
 #   default, .kiro/specs/{slug}/. A caller that wants another location moves all three spec
-#   artifacts with `artifacts:` entries in the project's policy, which always win; each step passes
-#   the folder of its printed path to its skill as spec_dir.
+#   artifacts with `artifacts:` entries in the project's policy, which always win; each step writes
+#   into the folder of its printed path, as its library guide says.
 # - The approval and the revise-and-present-again cycles are the owner gate on each step; the
 #   agent counts the cycles.
-# - The kiro skills' own "Fix these issues? [y/n]" question is replaced: the agent fixes every
-#   CRITICAL finding of the skill's quality gate before presenting, and presents the rest with the
+# - The kiro guides' quality gates ask no "Fix these issues? [y/n]" question: the agent fixes every
+#   CRITICAL finding of the guide's quality gate before presenting, and presents the rest with the
 #   draft for the owner's approval.
 # - The traceability summary is written to a file under .konductor/{slug}/, so it stays readable
 #   after the session ends.
@@ -29,23 +29,22 @@ steps:
   - id: requirements
     title: 1. Generate requirements (EARS format)
     instruction: >
-      The workflow needs four inputs; ask the owner for any the request does not give:
-      feature_name, in kebab-case, which is this workstream's slug; feature_scope_path, the
-      feature-split file with this feature's scoped user stories, key components and
-      dependencies; user_stories_path, the full user stories, written with the user-stories guide
+      The workflow needs four inputs; ask the owner for any the request does not give: feature_name,
+      in kebab-case, which is this workstream's slug; feature_scope_path, the feature-split file
+      with this feature's scoped user stories, key components and dependencies; user_stories_path,
+      the full user stories, written with the user-stories guide
       (fuse/flow/library/artifacts/user-stories/guide.md in the fuse-konductor clone);
       design_artifacts_path, the design artifacts directory from the architect phase. The folder of
       the path below is spec_dir, already resolved; create it. Read the feature scope to find which
       user stories and components are in scope, and read the user stories, keeping only those the
-      scope maps to this feature. Run the kiro-requirements-generation skill and pass spec_dir to it
-      explicitly as its own spec_dir parameter; never leave it out, and never rely on the skill's
-      default. Write requirements.md with EARS acceptance criteria (WHEN, IF, WHILE ... SHALL). Run
-      the skill's validation and quality gate, fix every CRITICAL finding, and present the rest
-      with the draft. Present requirements.md to the owner for approval. When the owner asks for
-      changes, revise and present it again, for at most 2 cycles. If the owner still asks for
-      changes after the second, stop and ask how to go on: accept the current draft with the open
-      concerns noted, keep revising past the cap, or escalate or abandon. Do not keep looping
-      silently, and do not go on with feedback unresolved.
+      scope maps to this feature. Follow the kiro-requirements guide, writing into spec_dir; never
+      fall back to the guide's default location. Write requirements.md with EARS acceptance criteria
+      (WHEN, IF, WHILE ... SHALL). Run the guide's validation and quality gate, fix every CRITICAL
+      finding, and present the rest with the draft. Present requirements.md to the owner for
+      approval. When the owner asks for changes, revise and present it again, for at most 2 cycles.
+      If the owner still asks for changes after the second, stop and ask how to go on: accept the
+      current draft with the open concerns noted, keep revising past the cap, or escalate or
+      abandon. Do not keep looping silently, and do not go on with feedback unresolved.
     produces:
       - artifact: kiro-requirements
         path: .kiro/specs/{slug}/requirements.md
@@ -55,24 +54,23 @@ steps:
   - id: design
     title: 2. Generate design (per feature)
     instruction: >
-      Read requirements.md and the design artifacts in design_artifacts_path. Run the
-      kiro-design-generation skill and pass spec_dir, the folder of the path below, to it
-      explicitly as its own spec_dir parameter; never leave it out, and never rely on the skill's
-      default. Write design.md with all six required sections: Overview, Architecture, Components
-      and Interfaces, Data Models, Error Handling, Testing Strategy. The design addresses every
-      requirement in requirements.md. Fix every CRITICAL finding of the skill's validation and
+      Read requirements.md and the design artifacts in design_artifacts_path. Follow the kiro-design
+      guide, writing into spec_dir, the folder of the path below; never fall back to the guide's
+      default location. Write design.md with all six required sections: Overview, Architecture,
+      Components and Interfaces, Data Models, Error Handling, Testing Strategy. The design addresses
+      every requirement in requirements.md. Fix every CRITICAL finding of the guide's validation and
       quality gate. Before presenting, run a lightweight self-check over design.md: is every major
       section consistent with itself and the others, and does the design plausibly satisfy every
       requirement's acceptance criteria, not only have a heading for it? Fix any clear defect it
       finds before presenting; do not present a draft you know is broken. For a feature with a user
       interface, if the cloudscape-mock-ui skill is available, run it with the URL of the high-level
       design or the product requirements document to generate a Cloudscape mock user interface, and
-      present the mock with design.md, so the owner can validate both before implementation.
-      Present design.md to the owner for approval. When the owner asks for changes, revise and
-      present it again, for at most 2 cycles. If the owner still asks for changes after the second,
-      stop and ask how to go on: accept the current draft with the open concerns noted, keep
-      revising past the cap, or escalate or abandon. Do not keep looping silently, and do not go on
-      with feedback unresolved.
+      present the mock with design.md, so the owner can validate both before implementation. Present
+      design.md to the owner for approval. When the owner asks for changes, revise and present it
+      again, for at most 2 cycles. If the owner still asks for changes after the second, stop and
+      ask how to go on: accept the current draft with the open concerns noted, keep revising past
+      the cap, or escalate or abandon. Do not keep looping silently, and do not go on with feedback
+      unresolved.
     consumes:
       - kiro-requirements
     produces:
@@ -84,17 +82,16 @@ steps:
   - id: tasks
     title: 3. Generate tasks (Kiro format)
     instruction: >
-      Read requirements.md and design.md. Run the kiro-task-generation skill and pass spec_dir, the
-      folder of the path below, to it explicitly as its own spec_dir parameter; never leave it out,
-      and never rely on the skill's default. Write tasks.md in Kiro IDE format: numbered checkboxes,
-      at most two levels, and requirement references. Every requirement has at least one task. Fix
-      every CRITICAL finding of the skill's quality gate. Before presenting, check that every task
-      maps to a real, actionable implementation step, not a placeholder or a restated requirement,
-      and revise every task that does not. Present tasks.md to the owner for approval. When the
-      owner asks for changes, revise and present it again, for at most 2 cycles. If the owner still
-      asks for changes after the second, stop and ask how to go on: accept the current draft with
-      the open concerns noted, keep revising past the cap, or escalate or abandon. Do not keep
-      looping silently, and do not go on with feedback unresolved.
+      Read requirements.md and design.md. Follow the kiro-tasks guide, writing into spec_dir, the
+      folder of the path below; never fall back to the guide's default location. Write tasks.md in
+      Kiro IDE format: numbered checkboxes, at most two levels, and requirement references. Every
+      requirement has at least one task. Fix every CRITICAL finding of the guide's quality gate.
+      Before presenting, check that every task maps to a real, actionable implementation step, not a
+      placeholder or a restated requirement, and revise every task that does not. Present tasks.md
+      to the owner for approval. When the owner asks for changes, revise and present it again, for
+      at most 2 cycles. If the owner still asks for changes after the second, stop and ask how to go
+      on: accept the current draft with the open concerns noted, keep revising past the cap, or
+      escalate or abandon. Do not keep looping silently, and do not go on with feedback unresolved.
     consumes:
       - kiro-requirements
       - kiro-design

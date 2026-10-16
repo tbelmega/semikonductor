@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The end-to-end test strategy: which user journeys to cover, in what priority, and with what test data, environments and execution approach."

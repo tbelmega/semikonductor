@@ -1,6 +1,6 @@
 ---
 name: playwright-test-implementation
-description: Use when writing or reviewing Playwright specs against a discovered web app, wiring up global-setup.ts and storageState for authenticated sessions, or fixing flaky selectors on a Cloudscape UI. Covers selector strategy and Cloudscape-specific locator patterns. To plan which end-to-end tests to write, use e2e-test-strategy.
+description: Use when writing or reviewing Playwright specs against a discovered web app, wiring up global-setup.ts and storageState for authenticated sessions, or fixing flaky selectors on a Cloudscape UI. Covers selector strategy and Cloudscape-specific locator patterns. To plan which end-to-end tests to write, follow the e2e-test-strategy guide in the fuse library.
 version: 1.0.0
 tags: [skill, playwright, e2e-testing, implementation, quality-assurance]
 ---
@@ -21,7 +21,7 @@ Use this skill when:
 - Writing specs against a Cloudscape UI, where standard ARIA-based locators often don't apply
 - Reviewing an existing Playwright spec for selector fragility or missing session handling
 
-Do NOT use for: scaffolding a new Playwright project from scratch, planning which tests to write (see `e2e-test-strategy`), or Cypress specs.
+Do NOT use for: scaffolding a new Playwright project from scratch, planning which tests to write (see the e2e-test-strategy guide in the fuse library, `fuse/flow/library/artifacts/e2e-test-strategy/guide.md`), or Cypress specs.
 
 ## Prerequisites
 

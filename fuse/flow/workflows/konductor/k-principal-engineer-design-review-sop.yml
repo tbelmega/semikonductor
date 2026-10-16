@@ -94,8 +94,9 @@ steps:
       Have every design decision, trade-off and architectural choice challenged as the gate below
       says, with extra focus on the sections the previous step flagged. Before the first round,
       settle the deliberation panel's consent_confirmed once: either get the owner's explicit
-      opt-in as the adversarial-design-review skill's Deliberation Panel Confirmation Gate
-      describes, or go ahead single-voice without the panel. Pass that same value to every round's
+      opt-in as the design adversarial review guide describes
+      (fuse/flow/library/artifacts/design/adversarial-review.md in the fuse-konductor clone),
+      or go ahead single-voice without the panel. Pass that same value to every round's
       reviewer; do not ask again or settle it again per round. Check the escalation rule in the
       guide before applying a round's corrections. After each round, apply the corrections to the
       document, then apply Part 1 of the design review guide again to confirm the quality score is
@@ -116,7 +117,7 @@ steps:
     gates:
       - agent: >
           challenge every design decision, trade-off and architectural choice with the
-          adversarial-design-review skill, run fallacy checking on every decision justification,
+          design adversarial review guide, run fallacy checking on every decision justification,
           and classify each finding CRITICAL (architectural), CRITICAL (factual), IMPORTANT or
           MINOR
         guide: guides/k-principal-engineer-design-review-sop-adversarial-review.md

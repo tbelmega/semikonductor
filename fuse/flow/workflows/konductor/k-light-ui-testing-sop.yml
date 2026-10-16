@@ -13,9 +13,9 @@
 # - scope_confirmed: there is no unattended caller. An owner who authorized generating and running
 #   in advance has given the answers to the scope gate and the run condition; the agent records
 #   the gate's answer with --owner-approved --note quoting it.
-# - The owner gate on the parameters step is new. app-discovery leaves credentials, the user's
-#   confirmation and cleanup to its caller, and dom-inspection submits a form only when the caller
-#   confirmed that submission is safe; the SOP never asked, so this gate asks.
+# - The owner gate on the parameters step is new. The discovery-report guide leaves credentials,
+#   the user's confirmation and cleanup to its caller, and dom-inspection submits a form only when
+#   the caller confirmed that submission is safe; the SOP never asked, so this gate asks.
 # - Step 5's run question is the owner-action condition of the execute step: run all, a
 #   selection, or none, which skips it.
 # - "Stop" on a failure: the agent deletes an agent-created credentials file and reports the step
@@ -73,8 +73,8 @@ steps:
       - owner-action: >-
           confirm the page and account to test, and whether discovery may submit forms on it
         description: >-
-          app-discovery leaves credentials and the user's confirmation to its caller, and its DOM
-          inspection submits a form only when the caller confirmed it is safe.
+          The discovery-report guide leaves credentials and the user's confirmation to its caller,
+          and its DOM inspection submits a form only when the caller confirmed it is safe.
 
   - id: discovery
     title: Step 2. Discover the page, and Step 3. Confirm discovery scope
@@ -82,24 +82,23 @@ steps:
     instruction: >
       Run discovery in a separate subagent when the runtime offers one, otherwise as a separate
       browser pass that reuses no conclusions from other passes. Give it the url, the features, the
-      credentials file's path and form_submission_confirmed, never the password. It applies the
-      app-discovery skill, including its dom-inspection.md, with these overrides: discover only the
-      url and pages reachable from it within two links, and stop after 10 pages or 15 minutes,
-      whichever comes first. It authenticates when the credentials file is not empty, detects the
-      UI framework, captures every interactive element and inspects every form. It tries
-      submit-triggered validation only when form_submission_confirmed is true; otherwise the
-      trigger stays unknown. It stays inside the app's domain and never logs the password. When
-      the report is written it signs out of the app if it signed in, then closes only the browser
-      session it opened.
-      If discovery fails, delete the credentials file if you created it, and report the step
-      blocked.
-      Check the report against app-discovery's quality gate: ui_framework set, every form
-      inspected (without it the prompts' assertions are inaccurate), no password anywhere. Then
-      present the owner a summary: the pages found and the UI framework, the interactive elements
-      and forms, the validation rules (required fields, patterns, error messages) and the failed
-      paths. Unless the owner already authorized generation (scope_confirmed), ask "Proceed with
-      test prompt generation for these features?" and do not go on without their yes. If they
-      decline, suggest --forward-to report, which deletes the credentials file.
+      credentials file's path and form_submission_confirmed, never the password. It follows the
+      discovery-report guide, including dom-inspection.md next to it, with these overrides: discover
+      only the url and pages reachable from it within two links, and stop after 10 pages or 15
+      minutes, whichever comes first. It authenticates when the credentials file is not empty,
+      detects the UI framework, captures every interactive element and inspects every form. It tries
+      submit-triggered validation only when form_submission_confirmed is true; otherwise the trigger
+      stays unknown. It stays inside the app's domain and never logs the password. When the report
+      is written it signs out of the app if it signed in, then closes only the browser session it
+      opened. If discovery fails, delete the credentials file if you created it, and report the step
+      blocked. Check the report against the discovery-report guide's quality gate: ui_framework set,
+      every form inspected (without it the prompts' assertions are inaccurate), no password
+      anywhere. Then present the owner a summary: the pages found and the UI framework, the
+      interactive elements and forms, the validation rules (required fields, patterns, error
+      messages) and the failed paths. Unless the owner already authorized generation
+      (scope_confirmed), ask "Proceed with test prompt generation for these features?" and do not go
+      on without their yes. If they decline, suggest --forward-to report, which deletes the
+      credentials file.
     consumes:
       - test-run-parameters
     produces:

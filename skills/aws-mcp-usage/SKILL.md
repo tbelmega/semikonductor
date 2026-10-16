@@ -55,7 +55,7 @@ ask the user before each call, whatever the session's instructions say.
 If no `aws___` tool is available in the session, do not pretend a lookup happened. Tell the user
 the AWS MCP server is not configured and point them to the setup above. Then continue with what
 you can verify without it, and mark every AWS claim or step that needed the server as unverified
-in your output. A skill that makes AWS validation mandatory (for example `aws-service-validator`)
+in your output. A check that makes AWS validation mandatory (for example the AWS check of `doc-accuracy-analyzer`)
 reports those claims as unverified rather than as confirmed.
 
 ## Confirmation rules

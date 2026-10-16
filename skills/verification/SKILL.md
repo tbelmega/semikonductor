@@ -75,11 +75,11 @@ Use the checker that matches what you produced. Load its skill and apply its cri
 
 | You produced                              | Checker                                                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Backend code change                       | `backend-review`                                                                                        |
-| Frontend code change                      | `frontend-review`                                                                                       |
+| Backend code change                       | `code-review`, its backend lens (`backend.md`)                                                          |
+| Frontend code change                      | `code-review`, its frontend lens (`frontend.md`)                                                        |
 | Infrastructure as code change             | `infra-validation`                                                                                      |
 | System design or architecture document    | The design review guide in fuse-flow's artifact library (`fuse/flow/library/artifacts/design/review.md`) |
-| Threat model                              | `threat-modeling` quality criteria                                                                      |
+| Threat model                              | The quality gate of the threat-model guide (`fuse/flow/library/artifacts/threat-model/guide.md`)        |
 | Technical research or decision evidence   | `doc-accuracy-analyzer`, to verify claims and surface missing prior art                                 |
 | User stories                              | The self-check in the user-stories guide (INVEST, complete acceptance criteria), then `doc-accuracy-analyzer` on claims |
 | Any other document produced by a skill    | That skill's own quality criteria                                                                       |
@@ -95,7 +95,7 @@ severity-ranked findings rather than a score: for those, the artifact passes whe
 finding remains, and the evidence is the finding counts per severity. A checker that defines its
 own pass condition or score uses that instead. Then ask the user "Fix these issues? [y/n]", unless
 the checker's own instructions say the user already confirmed scope or the run is unattended (for
-example `backend-review` with `scope_confirmed`); in that case report the findings without asking
+example the backend lens of `code-review` with `scope_confirmed`); in that case report the findings without asking
 and leave fixing to the caller, as the checker says.
 
 ## Anti-Patterns

@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The service's API contract as a Smithy model: operations, shapes, validation, errors and pagination, ready for code generation."

@@ -6,31 +6,32 @@ is challenged before the owner sees the document.
 
 ## The reviewer
 
-Use a fresh agent that has none of this session's context, preferably from another model family
-than the author's. Give it the design document, the requirements summary (or the owner's
-request), the AWS validation and trade-off reports, the adversarial-design-review skill with its
-argumentation reference, read access to the repository, the path of its findings file, and the
-value of `consent_confirmed` that the owner gave before the first round. With
-`consent_confirmed=true` it runs the skill's panel path through the deliberation-panel skill;
-otherwise it runs the skill's single-voice path. It writes its findings as JSON, following the
-review findings schema the step names, and changes no other file. Do not tell it what you expect
-it to find. If the harness cannot start another agent and no launch command is set, run the
-review yourself in a separate pass and say so in the hand-over.
+Use a fresh agent that has none of this session's context, preferably from another model family than
+the author's. Give it the design document, the requirements summary (or the owner's request), the
+AWS validation and trade-off reports, the design adversarial review guide
+(`fuse/flow/library/artifacts/design/adversarial-review.md` in the fuse-konductor clone) with the
+argumentation reference beside it, read access to the repository, the path of its findings file, and
+the value of `consent_confirmed` that the owner gave before the first round. With
+`consent_confirmed=true` it may use the panel path through the deliberation-panel skill; otherwise
+it runs the guide's single-voice path. It writes its findings as JSON, following the review findings
+schema the step names, and changes no other file. Do not tell it what you expect it to find. If the
+harness cannot start another agent and no launch command is set, run the review yourself in a
+separate pass and say so in the hand-over.
 
 ## What it looks at
 
 Of the files the step block names for review, the reviewer challenges the design document only.
 The adversarial review summary is the author's record of the rounds, and is not reviewed.
 
-The reviewer applies the adversarial-design-review skill to every major architectural decision,
+The reviewer applies the design adversarial review guide to every major architectural decision,
 trade-off and AWS service choice: its review checklist, its fallacy checking against the
-argumentation reference, and its architecture stress test. An ADR that still carries
-decision-writing's `<TBD — flagged for review>` alternatives row is an IMPORTANT finding until the
-row is replaced by a genuine alternative, or the review confirms that none exists.
+argumentation reference, and its architecture stress test. An ADR that still carries the
+decision-record guide's `<TBD — flagged for review>` alternatives row is an IMPORTANT finding until
+the row is replaced by a genuine alternative, or the review confirms that none exists.
 
 ## Severity
 
-Use the skill's classification, and write the class at the start of each finding's title:
+Use the guide's classification, and write the class at the start of each finding's title:
 
 | Class                    | Findings schema priority |
 | ------------------------ | ------------------------ |

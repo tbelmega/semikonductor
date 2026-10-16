@@ -7,14 +7,14 @@ design guide's checklist, and it does not move on while a CRITICAL finding is op
 
 ## The reviewer
 
-Use a fresh agent that has none of this session's context, preferably from another model family
-than the author's. Give it the draft, the requirements summary (or the owner's request when
-elicitation was skipped), the design guide (`fuse/flow/library/artifacts/design/guide.md` in the
-fuse-konductor clone), the decision-writing skill, read access to the repository and the path of
-its findings file. It writes its findings there as JSON, following the review findings schema the
-step names, and changes no other file. Do not tell it what you expect it to find. If the harness
-cannot start another agent and no launch command is set, check the draft yourself in a separate
-pass and say so in the hand-over.
+Use a fresh agent that has none of this session's context, preferably from another model family than
+the author's. Give it the draft, the requirements summary (or the owner's request when elicitation
+was skipped), the design guide (`fuse/flow/library/artifacts/design/guide.md` in the fuse-konductor
+clone), the decision-record guide (`fuse/flow/library/artifacts/decision-record/guide.md`), read
+access to the repository and the path of its findings file. It writes its findings there as JSON,
+following the review findings schema the step names, and changes no other file. Do not tell it what
+you expect it to find. If the harness cannot start another agent and no launch command is set, check
+the draft yourself in a separate pass and say so in the hand-over.
 
 ## What it checks
 
@@ -28,24 +28,25 @@ pass and say so in the hand-over.
    Every other section that describes a multi-component interaction, a data flow or a sequence of
    steps has a Mermaid diagram before its prose, or says why it has none. A diagram follows the
    guide's Diagrams and Diagram Accuracy sections.
-4. **Decision records.** Every significant decision, as decision-writing's ADR mode defines it,
-   has an ADR: inline under `## Architecture Decision Records`, or in the project's own
-   decision-record location and linked from the draft. Each ADR has Context, Decision,
-   Alternatives Considered as a table, and Consequences, and passes decision-writing's quality
-   gate. Missing trade-off scores are not a finding here; a later step adds them.
+4. **Decision records.** Every significant decision, as the decision-record guide's section on
+   architecture decision records defines it, has an ADR: inline under `## Architecture Decision
+   Records`, or in the project's own decision-record location and linked from the draft. Each ADR
+   has Context, Decision, Alternatives Considered as a table, and Consequences, and passes the
+   decision-record guide's quality gate. Missing trade-off scores are not a finding here; a later
+   step adds them.
 
 ## Severity
 
 Write each finding with the SOP's class at the start of its title, and with the priority the
 findings schema asks for:
 
-- **CRITICAL (P0):** a failed checklist item; a missing or out-of-order outside-in section; a How
-  It Works subsection without a diagram; a section that needs a diagram and has neither one nor a
-  stated reason; a significant decision with no ADR; an ADR finding that decision-writing's quality
-  gate rates CRITICAL. An ADR with decision-writing's `<TBD — flagged for review>` alternatives row
-  is not CRITICAL here; the adversarial review must settle it.
-- **IMPORTANT (P1):** an ADR finding that decision-writing rates IMPORTANT, and any other problem
-  that would make a reviewer misread the design.
+- **CRITICAL (P0):** a failed checklist item; a missing or out-of-order outside-in section; a How It
+  Works subsection without a diagram; a section that needs a diagram and has neither one nor a
+  stated reason; a significant decision with no ADR; an ADR finding that the decision-record guide's
+  quality gate rates CRITICAL. An ADR with the decision-record guide's `<TBD — flagged for review>`
+  alternatives row is not CRITICAL here; the adversarial review must settle it.
+- **IMPORTANT (P1):** an ADR finding that the decision-record guide rates IMPORTANT, and any other
+  problem that would make a reviewer misread the design.
 - **MINOR (P3):** style and clarity issues that do not fail a checklist item.
 
 The reviewer says for each finding whether it is a single instance or a broken pattern.

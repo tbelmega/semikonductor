@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "One feature's Kiro IDE tasks.md: the numbered coding tasks that implement its design, each tied to the requirements it serves."

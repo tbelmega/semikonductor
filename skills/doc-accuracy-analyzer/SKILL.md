@@ -1,7 +1,7 @@
 ---
 name: doc-accuracy-analyzer
-description: Use before submitting a design doc for review, after major revisions to a design doc, when a reviewer flags factual concerns, or to check the claims in any other document, such as a README, research notes, decision evidence or user stories. Extracts verifiable claims, investigates each against primary sources, classifies findings, and produces a structured accuracy report. For AWS service claims only, use aws-service-validator.
-version: 1.0.0
+description: Use before submitting a design doc for review, after major revisions to a design doc, when a reviewer flags factual concerns, or to check the claims in any other document, such as a README, research notes, decision evidence or user stories. Also covers claims about AWS services (features, limits, pricing, regional availability, GA status), checked against AWS documentation. Extracts verifiable claims, investigates each against primary sources, classifies findings, and produces a structured accuracy report.
+version: 1.1.0
 ---
 
 # Doc Accuracy Analyzer
@@ -14,6 +14,7 @@ Systematically verify technical documents by extracting and investigating every 
 - After major revisions to a design doc
 - When a reviewer flags factual concerns
 - As the checker for research notes, decision evidence and user stories, after their own rubric passes; there the claims are often about customers, assumptions and the landscape rather than code
+- To fact-check claims about AWS services, such as whether a feature exists or is available in a region
 
 ## 6-Step Workflow
 
@@ -41,6 +42,10 @@ For each claim, identify the primary source that would confirm or deny it:
 - Customer data, research and public sources for assumption and landscape claims
 
 Search the source. Do not accept the document's assertion as evidence.
+
+For claims about AWS services (features, limits and quotas, pricing, regional availability, GA or
+preview status), read `aws.md` in this skill's folder, `skills/doc-accuracy-analyzer/aws.md` in the
+fuse-konductor clone, and check them as it says, with the aws-mcp tools.
 
 ### Step 3: Classify Findings
 

@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "A map of a live web application's pages, interactive elements and form validation rules, discovered in the browser as the input for writing its UI tests."

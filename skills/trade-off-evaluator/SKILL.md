@@ -21,8 +21,9 @@ options, when an ADR needs scored alternatives, or when the decision is costly t
 
 ## Quick opinion
 
-Do not use it when the user wants a full system design (use `system-design-patterns`), API specs
-(`smithy-modeling`), a data model (`dynamodb-design`) or a threat model (`threat-modeling`).
+Do not use it when the user wants a full system design, API specs or a threat model: the fuse
+library's `design`, `api-model` and `threat-model` guides cover those
+(`fuse/flow/library/artifacts/` in the fuse-konductor clone). For a data model use `dynamodb-design`.
 
 ### Decision framework
 
@@ -151,7 +152,7 @@ For each option × dimension pair:
 2. Assign a score 1–5
 3. Write a one-line justification
 
-Do not assign scores from memory alone for AWS service characteristics. Cross-reference with `aws-service-validator` findings. When `aws-service-validator` is not used, you MUST note the assumption explicitly.
+Do not assign scores from memory alone for AWS service characteristics. Cross-reference with the AWS findings of `doc-accuracy-analyzer` (its `aws.md` check). When that check is not used, you MUST note the assumption explicitly.
 
 ### Step 3: Produce Comparison Table
 
@@ -189,7 +190,7 @@ Write the full trade-off report to `docs/design/<name>-tradeoffs.md`. If a calli
 
 ## Pitfalls
 
-- **Do not score from memory for AWS service characteristics.** Use `aws-service-validator` or note the assumption explicitly.
+- **Do not score from memory for AWS service characteristics.** Use the AWS check of `doc-accuracy-analyzer` or note the assumption explicitly.
 - **Do not omit a dimension without stating why**: "not applicable" must be justified.
 - **Do not recommend the option with the highest total if context overrides it.** A hard constraint (e.g., "must be synchronous") can disqualify an option regardless of score.
 - **Avoid straw-manning.** Every option must be scored fairly; a score of 1 requires a specific justification.

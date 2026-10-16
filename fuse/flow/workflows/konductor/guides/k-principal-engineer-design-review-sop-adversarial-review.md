@@ -10,12 +10,12 @@ before a principal engineer sees the document.
 Use a fresh agent that has none of this session's context, preferably from another model family
 than the author's. Give it the design document, the claim and decision lists from the `load`
 step, the sections the `principles-gate` step flagged for adversarial focus, the
-adversarial-design-review skill with its argumentation reference
-(`skills/adversarial-design-review/argumentation-reference.md` in the fuse-konductor clone), read
+adversarial review guide (`fuse/flow/library/artifacts/design/adversarial-review.md` in the
+fuse-konductor clone) with the argumentation reference beside it, read
 access to the repository, the path of its findings file, and the value of `consent_confirmed`
 settled before the first round. Pass the same value in every round. With
-`consent_confirmed=true` it runs the skill's panel path through the deliberation-panel skill;
-otherwise it runs the skill's single-voice path, and it does not ask the owner. It writes its
+`consent_confirmed=true` it may use the panel path through the deliberation-panel skill;
+otherwise it runs the guide's single-voice path, and it does not ask the owner. It writes its
 findings as JSON, following the review findings schema the step names, and changes no other file.
 Do not tell it what you expect it to find. If the harness cannot start another agent and no launch
 command is set, run the review yourself in a separate pass and say so in the hand-over.
@@ -26,7 +26,7 @@ Of the files the step block names for review, the reviewer challenges the design
 at the path the `load` step recorded. The adversarial review file is the author's record of the
 rounds, and is not reviewed.
 
-The reviewer applies the adversarial-design-review skill to every design decision, trade-off and
+The reviewer applies the design adversarial review guide to every design decision, trade-off and
 architectural choice, and runs fallacy checking with the argumentation reference on every decision
 justification. It looks hardest at the flagged sections.
 

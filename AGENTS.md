@@ -100,7 +100,8 @@ describes the result.
 
 ## Authoring Agents & Skills
 
-See the `agents-md-authoring` skill for creating and maintaining AGENTS.md files.
+See the `agents-md` guide in the fuse library (`fuse/flow/library/artifacts/agents-md/guide.md`)
+for creating and maintaining AGENTS.md files.
 
 Instructions that tell agents how to work with fuse go in exactly one of these places: the
 `fuse-workstream` skill (picking, starting and running a workstream), the `fuse-flow-builder` skill

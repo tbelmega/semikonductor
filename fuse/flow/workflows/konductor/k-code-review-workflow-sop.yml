@@ -87,8 +87,9 @@ steps:
       Review each category with its skill, then merge the findings into one list. This step
       changes no file other than this workflow's own artifacts.
 
-      Run the backend-review skill in review mode on the backend files, the frontend-review skill
-      in review mode on the frontend files, and the infra-validation skill on the infra files,
+      Run the code-review skill's backend lens (backend.md in that skill's folder) on the backend
+      files, its frontend lens (frontend.md) on the frontend files, and the infra-validation skill
+      on the infra files,
       giving it the infrastructure type, the location and the environment from the review scope.
       Skip a category that has no files or that review_type excludes, and say so. Tell each skill
       that the scope is confirmed: it reports every finding and leaves fixing to the caller, and

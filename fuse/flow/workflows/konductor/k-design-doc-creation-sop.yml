@@ -64,22 +64,22 @@ steps:
     phase: Design
     instruction: >
       Write the design document with the design guide, from the requirements summary, or from the
-      owner's request when elicitation was skipped. If neither names a topic, ask the owner once
-      and wait. Apply the design guide before drafting. Follow the outside-in structure: Problem,
+      owner's request when elicitation was skipped. If neither names a topic, ask the owner once and
+      wait. Apply the design guide before drafting. Follow the outside-in structure: Problem,
       Requirements, Solution Overview, Decision Requested (the guide's checklist asks for it), How
       It Works, Implementation Details, Implementation Plan. Draw a Mermaid diagram before writing
       the prose of each section that describes a multi-component interaction, a data flow or a
       sequence of steps, such as the Solution Overview and How It Works. Every How It Works
       subsection opens with a diagram, without exception. Elsewhere you may leave out a diagram
-      where there is no such structure to show, such as a section listing configuration values or
-      a single API contract; say in that section that it has no diagram, and why. Write an ADR for
-      every significant design decision with the decision-writing skill in its ADR mode: inline
-      under "## Architecture Decision Records" by default, or in the project's own decision-record
-      location when it has one. Use its format: Context, Decision, Alternatives Considered (a
-      table), Consequences. Do not wait for trade-off scores; the next step adds them. Run
-      decision-writing's quality gate on each ADR and fix what it finds, because that skill leaves
-      fixing to the workflow. Then have the draft checked as the gate below says, and do not move
-      on while a CRITICAL finding is open.
+      where there is no such structure to show, such as a section listing configuration values or a
+      single API contract; say in that section that it has no diagram, and why. Write an ADR for
+      every significant design decision following the decision-record guide's section on
+      architecture decision records (fuse/flow/library/artifacts/decision-record/guide.md in the
+      fuse-konductor clone): inline under "## Architecture Decision Records" by default, or in the
+      project's own decision-record location when it has one. Use its format: Context, Decision,
+      Alternatives Considered (a table), Consequences. Do not wait for trade-off scores; the next
+      step adds them. Run that guide's quality gate on each ADR and fix what it finds. Then have the
+      draft checked as the gate below says, and do not move on while a CRITICAL finding is open.
     consumes:
       - requirements-summary
     produces:
@@ -95,28 +95,29 @@ steps:
     title: 3. Quality gates
     phase: Design
     instruction: >
-      Run the automated quality gates on the draft. Do not ask the owner for input during this
-      step. (1) Run the doc-accuracy-analyzer skill to check every technical claim against the
-      codebase, and flag each claim it finds inaccurate (INCORRECT) or unverifiable (UNVERIFIED)
-      in the draft with an inline "> ⚠️" callout. Do not hold the document back for UNVERIFIED
-      claims; mark them and go on. (2) Run the aws-service-validator skill on every AWS service and
-      feature claim: confirm or deny each with the aws-mcp tools aws___search_documentation and
-      aws___read_documentation, and call aws___get_regional_availability for every regional
-      availability claim. Classify each claim CONFIRMED, UNVERIFIED or INCORRECT, flag INCORRECT
-      claims with "> ⚠️ INCORRECT: <correction>" and UNVERIFIED claims with "> ⚠️ UNVERIFIED: <what
-      was searched>", and write the full validation report to the AWS validation path below; when
-      the draft makes no AWS claim, the report says so. When the aws-mcp tools are missing, do as
-      the skill says: tell the owner, and classify every claim UNVERIFIED with that reason. Do not
-      hold the document back for UNVERIFIED AWS claims. (3) Run the trade-off-evaluator skill for
-      every significant decision with more than one option: score each option 1 to 5 on cost,
-      latency, complexity, scalability and operability, embed the scored table in that ADR's
-      Alternatives section, and write the full report to the trade-off path below. When no
-      decision has more than one option, report the trade-off report as not produced with that
-      reason. (4) With decision-writing's ADR mode, check that every ADR from the draft step sits
-      under "## Architecture Decision Records", or is linked from the design document when the
-      project keeps its records elsewhere. Do not write those ADRs again; only enrich them, and
-      leave the scores to (3). Then tell the owner: N AWS claims checked (N confirmed, N
-      unverified, N incorrect), N trade-off matrices produced, N ADRs generated.
+      Run the automated quality gates on the draft. Do not ask the owner for input during this step.
+      (1) Run the doc-accuracy-analyzer skill to check every technical claim against the codebase,
+      and flag each claim it finds inaccurate (INCORRECT) or unverifiable (UNVERIFIED) in the draft
+      with an inline "> ⚠️" callout. Do not hold the document back for UNVERIFIED claims; mark them
+      and go on. (2) Check every AWS service and feature claim with the doc-accuracy-analyzer
+      skill's AWS reference (aws.md in that skill's folder): confirm or deny each with the aws-mcp
+      tools aws___search_documentation and aws___read_documentation, and call
+      aws___get_regional_availability for every regional availability claim. Classify each claim
+      CONFIRMED, UNVERIFIED or INCORRECT, flag INCORRECT claims with "> ⚠️ INCORRECT: <correction>"
+      and UNVERIFIED claims with "> ⚠️ UNVERIFIED: <what was searched>", and write the full
+      validation report to the AWS validation path below; when the draft makes no AWS claim, the
+      report says so. When the aws-mcp tools are missing, do as that reference says: tell the owner,
+      and classify every claim UNVERIFIED with that reason. Do not hold the document back for
+      UNVERIFIED AWS claims. (3) Run the trade-off-evaluator skill for every significant decision
+      with more than one option: score each option 1 to 5 on cost, latency, complexity, scalability
+      and operability, embed the scored table in that ADR's Alternatives section, and write the full
+      report to the trade-off path below. When no decision has more than one option, report the
+      trade-off report as not produced with that reason. (4) With the decision-record guide, check
+      that every ADR from the draft step sits under "## Architecture Decision Records", or is linked
+      from the design document when the project keeps its records elsewhere. Do not write those ADRs
+      again; only enrich them, and leave the scores to (3). Then tell the owner: N AWS claims
+      checked (N confirmed, N unverified, N incorrect), N trade-off matrices produced, N ADRs
+      generated.
     consumes:
       - design
     updates:
@@ -133,8 +134,9 @@ steps:
     instruction: >
       Have every major architectural decision, trade-off and AWS service choice challenged as the
       gate below says. Before the first round, ask the owner once whether to convene the
-      deliberation panel, as the adversarial-design-review skill's Deliberation Panel Confirmation
-      Gate describes (roughly 2 to 3 minutes, scaling with the number of derived axes), and pass
+      deliberation panel, as the design adversarial review guide describes
+      (fuse/flow/library/artifacts/design/adversarial-review.md in the fuse-konductor clone;
+      roughly 2 to 3 minutes, scaling with the number of derived axes), and pass
       the answer to every round's reviewer as consent_confirmed; without an explicit opt-in the
       reviewer works single-voice. After each round, apply the corrections, then check the
       document against the draft step's maker-checker rules again and fix every CRITICAL finding
@@ -157,7 +159,7 @@ steps:
     gates:
       - agent: >
           challenge every major architectural decision, trade-off and AWS service choice in the
-          design with the adversarial-design-review skill, classifying each finding CRITICAL
+          design with the design adversarial review guide, classifying each finding CRITICAL
           (architectural), CRITICAL (factual), IMPORTANT or MINOR
         guide: guides/k-design-doc-creation-sop-adversarial-review.md
         max_rounds: 5

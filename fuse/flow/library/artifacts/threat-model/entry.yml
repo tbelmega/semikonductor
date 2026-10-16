@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The security threats to a system within a defined scope, analyzed by STRIDE category from its documented architecture, each mapped to the mitigations that address it."

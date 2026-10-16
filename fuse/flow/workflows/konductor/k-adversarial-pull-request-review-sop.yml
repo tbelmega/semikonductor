@@ -74,7 +74,8 @@ steps:
     title: 2. Parallel review passes
     phase: Generate
     instruction: |
-      Run three generator passes, each a single-lens pass of the adversarial-code-review skill in
+      Run three generator passes, each a single-lens pass of the code-review skill's adversarial
+      second pass (adversarial.md in that skill's folder) in
       Generator Mode that names exactly one lens: the security lens, the data integrity lens, and
       the schema and contract lens. When the harness offers generic subagents, run each pass in its
       own fresh subagent and launch the three in parallel; this is isolated mode. Otherwise run them
@@ -115,9 +116,10 @@ steps:
       finding that flags inline reimplementation or bypass of an existing shared utility,
       transaction or batch helper, validation middleware, error-mapping layer or pagination token
       utility is IMPORTANT. Any other reuse finding takes its severity from the Quality Gate entries
-      of the adversarial-code-review lens closest to the concern it raises. Reuse findings are
-      ordinary candidates, with no exemption from the checker. When the pass finds nothing, record
-      that in the candidate findings. Change no other file and run no build or test.
+      of the adversarial lens (in the code-review skill's adversarial.md) closest to the concern it
+      raises. Reuse findings are ordinary candidates, with no exemption from the checker. When the
+      pass finds nothing, record that in the candidate findings. Change no other file and run no
+      build or test.
     consumes:
       - review-diff
       - review-context
@@ -130,7 +132,8 @@ steps:
     title: 4. Checker phase
     phase: Check
     instruction: |
-      Filter the candidate findings with the adversarial-code-review skill in Validator Mode. The
+      Filter the candidate findings with the code-review skill's adversarial second pass
+      (adversarial.md) in Validator Mode. The
       checker must not have authored any candidate finding and must not have run a generator pass
       in this review. When the harness offers generic subagents, run it in a fresh subagent that
       receives only the review diff, the review context and the candidate findings. Otherwise run
@@ -165,14 +168,14 @@ steps:
       least one IMPORTANT finding; APPROVE otherwise. A surviving CRITICAL finding always blocks
       approval.
 
-      Write the report with the title `# Adversarial Pull Request Review Report`, then these
-      lines in this order: `Date: <date>`, `Verdict: <APPROVE, APPROVE WITH COMMENTS or REQUEST
-      CHANGES>`, `Findings: <N> CRITICAL, <N> IMPORTANT, <N> SUGGESTION`, `Filtered by checker:
-      <N>`, `Isolation: <isolated, or single-context (generator and checker independence
-      reduced)>` and `Historical filtering: unavailable (see the review context)`. Then four
-      sections in this order: `## Critical Findings`, `## Important Findings`, `## Suggestions`
-      and `## Filter Log`. Put every surviving finding in exactly one severity section, and the
-      checker's rejections in the filter log. No finding is tagged as regressed or carried over, because no prior review
+      Write the report with the title `# Adversarial Pull Request Review Report`, then these lines
+      in this order: `Date: <date>`, `Verdict: <APPROVE, APPROVE WITH COMMENTS or REQUEST CHANGES>`,
+      `Findings: <N> CRITICAL, <N> IMPORTANT, <N> SUGGESTION`, `Filtered by checker: <N>`,
+      `Isolation: <isolated, or single-context (generator and checker independence reduced)>` and
+      `Historical filtering: unavailable (see the review context)`. Then four sections in this
+      order: `## Critical Findings`, `## Important Findings`, `## Suggestions` and `## Filter Log`.
+      Put every surviving finding in exactly one severity section, and the checker's rejections in
+      the filter log. No finding is tagged as regressed or carried over, because no prior review
       state was loaded.
 
       Do not print the report in your message; give its path. Show the verdict, the isolation mode,

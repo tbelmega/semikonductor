@@ -31,7 +31,8 @@ steps:
     title: 2. Architect
     instruction: >
       Write the system design: architecture, non-functional requirements, a threat model (the
-      threat-modeling skill), API and data models, access policies. Cite code for every claim
+      threat-model guide, fuse/flow/library/artifacts/threat-model/guide.md in the fuse-konductor
+      clone), API and data models, access policies. Cite code for every claim
       about current behaviour.
     produces:
       - artifact: design
@@ -57,9 +58,8 @@ steps:
   - id: specs
     title: 4. Developer (specs, per feature)
     instruction: >
-      For each feature in the split write .kiro/specs/<feature>/requirements.md (the
-      kiro-requirements-generation skill), design.md (kiro-design-generation) and tasks.md
-      (kiro-task-generation), then list the spec directories in the index.
+      For each feature in the split write .kiro/specs/<feature>/requirements.md, design.md and
+      tasks.md, as the spec index guide says, then list the spec directories in the index.
     produces:
       - artifact: spec-index
         path: .konductor/{slug}/spec-index.md
@@ -106,7 +106,8 @@ steps:
     title: 6. QA
     instruction: >
       Find the test coverage gaps for what was implemented, plan the end-to-end tests (the
-      e2e-test-strategy skill) and the security tests, and check user-facing text when there is
+      e2e-test-strategy guide, fuse/flow/library/artifacts/e2e-test-strategy/guide.md in the
+      fuse-konductor clone) and the security tests, and check user-facing text when there is
       any; each is a section of the report, and the test coverage guide names the guides for the
       security tests and the user-facing text.
       This is the last step; findings are reported, not routed back to implementation. Put any gap

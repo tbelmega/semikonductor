@@ -31,29 +31,29 @@ steps:
       Analyse the target before anyone implements against it. The target (a feature area, a part of
       the codebase, a system component or a bug) is required; ask for it if the request does not
       give it. Take the analysis questions and the scope (directories, services or components) from
-      the request when it gives them.
-      (1) Gather context with codebase and external documentation searches. Run them in parallel
-      generic subagents if the session has them, and otherwise one after the other yourself; give a
-      subagent only the target, the scope and the search questions, and have it return capped
-      findings, not raw file contents. Search the codebase directly with grep or rg for text and
-      ast-grep for structure, within the scope when one is given, and never skip test files.
-      (2) Answer at least these questions, plus every question the request gave: how does the
-      existing system work, what patterns are currently used, what dependencies are involved, what
-      are the integration points, and what tests exist. Add more as needed. Do not synthesize while
-      a question is unanswered; gather more context instead.
-      (3) Check every complexity indicator, never skipping the check: an architecture decision is
-      required, or the change coordinates three or more components (run system-design-patterns);
-      this is debugging after two or more failed fix attempts (gather context again, focused on the
-      root cause); the change has security implications (run the applicable security review or the
-      threat-modeling skill); or it is a simple implementation with clear patterns (proceed). End
-      with a clear recommendation: "Proceed", or "Run <skill or analysis> because <reason>" for
-      each indicator that holds.
-      (4) Write the summary: "## Analysis Summary" with the sections Current State (how the system
-      works now), Patterns Identified (coding patterns, naming conventions, file organization),
-      Dependencies (libraries, integration points), Constraints (technical limitations,
-      requirements to follow) and Recommended Approach; then the numbered analysis questions with
-      their answers, and the complexity assessment with each indicator and the recommendation.
-      Synthesize into actionable insights; no raw tool output.
+      the request when it gives them. (1) Gather context with codebase and external documentation
+      searches. Run them in parallel generic subagents if the session has them, and otherwise one
+      after the other yourself; give a subagent only the target, the scope and the search questions,
+      and have it return capped findings, not raw file contents. Search the codebase directly with
+      grep or rg for text and ast-grep for structure, within the scope when one is given, and never
+      skip test files. (2) Answer at least these questions, plus every question the request gave:
+      how does the existing system work, what patterns are currently used, what dependencies are
+      involved, what are the integration points, and what tests exist. Add more as needed. Do not
+      synthesize while a question is unanswered; gather more context instead. (3) Check every
+      complexity indicator, never skipping the check: an architecture decision is required, or the
+      change coordinates three or more components (run the design interview,
+      fuse/flow/library/artifacts/design/interview.md in the fuse-konductor clone); this is
+      debugging after two or more failed fix attempts (gather context again, focused on the root
+      cause); the change has security implications (run the applicable security review or write a
+      threat model with fuse/flow/library/artifacts/threat-model/guide.md); or it is a simple
+      implementation with clear patterns (proceed). End with a clear recommendation: "Proceed", or
+      "Run <guide, skill or analysis> because <reason>" for each indicator that holds. (4) Write the
+      summary: "## Analysis Summary" with the sections Current State (how the system works now),
+      Patterns Identified (coding patterns, naming conventions, file organization), Dependencies
+      (libraries, integration points), Constraints (technical limitations, requirements to follow)
+      and Recommended Approach; then the numbered analysis questions with their answers, and the
+      complexity assessment with each indicator and the recommendation. Synthesize into actionable
+      insights; no raw tool output.
     produces:
       - artifact: analysis-summary
         path: .konductor/{slug}/analysis-summary.md
@@ -61,13 +61,15 @@ steps:
     title: Additional analysis
     instruction: >
       Run the further analysis the complexity assessment requires, for every indicator that holds,
-      before any implementation: the system-design-patterns skill for an architecture decision or
-      coordination across three or more components; a fresh pass of context gathering focused on
-      the root cause, as in the analysis step, for debugging after two or more failed fix attempts;
-      the applicable security review or the threat-modeling skill for security implications. Give
-      each the specific questions the assessment raised. Write the additional analysis document:
-      for each indicator, what was run, the paths of the documents it wrote, and its findings; every
-      CRITICAL or IMPORTANT finding with what was done about it, and every finding left unfixed as a
+      before any implementation: the design interview
+      (fuse/flow/library/artifacts/design/interview.md in the fuse-konductor clone) for an
+      architecture decision or coordination across three or more components; a fresh pass of context
+      gathering focused on the root cause, as in the analysis step, for debugging after two or more
+      failed fix attempts; the applicable security review or a threat model following
+      fuse/flow/library/artifacts/threat-model/guide.md for security implications. Give each the
+      specific questions the assessment raised. Write the additional analysis document: for each
+      indicator, what was run, the paths of the documents it wrote, and its findings; every CRITICAL
+      or IMPORTANT finding with what was done about it, and every finding left unfixed as a
       constraint on the implementation; and, last, the recommended approach as revised by these
       findings.
     condition:

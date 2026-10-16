@@ -12,9 +12,9 @@
 #   the SOP's literals carried between passes. The file never holds the username or the password.
 # - scope_confirmed: there is no unattended caller. An owner who authorized generation in advance
 #   has given the gate's answer, and the agent records it with --owner-approved --note quoting it.
-# - The owner gate on the parameters step is new. app-discovery leaves credentials, the user's
-#   confirmation and cleanup to its caller, and dom-inspection submits a form only when the caller
-#   confirmed that submission is safe; the SOP never asked, so this gate asks.
+# - The owner gate on the parameters step is new. The discovery-report guide leaves credentials,
+#   the user's confirmation and cleanup to its caller, and dom-inspection submits a form only when
+#   the caller confirmed that submission is safe; the SOP never asked, so this gate asks.
 # - "Stop" on a failure: the agent deletes an agent-created credentials file and reports the step
 #   blocked; the owner decides. Declining at the scope gate is --forward-to summary, which cleans
 #   up and reports, as the SOP's decline branch does.
@@ -25,7 +25,7 @@
 #   recorded parameters.
 # - prompts_dir: the unit-test-prompts artifact path, tests/page/ by default; a project's policy
 #   moves it.
-# - The e2e-test-strategy skill requires an output file, so steps 4A and 4B-iv give it one, the
+# - The e2e-test-strategy guide needs an output file, so steps 4A and 4B-iv give it one, the
 #   optional e2e-test-strategy artifact; the SOP named none.
 # - Step 6's push "as part of k-full-sdlc" is dropped: fuse-flow's _k-full-sdlc does not call this
 #   workflow, so the standalone rule (push only after the owner agrees) always applies.
@@ -81,8 +81,8 @@ steps:
       - owner-action: >-
           confirm the application and account to test, and whether discovery may submit forms on it
         description: >-
-          app-discovery leaves credentials and the user's confirmation to its caller, and its DOM
-          inspection submits a form only when the caller confirmed it is safe.
+          The discovery-report guide leaves credentials and the user's confirmation to its caller,
+          and its DOM inspection submits a form only when the caller confirmed it is safe.
 
   - id: discovery
     title: Step 2. Discover the application, and Step 3. Confirm discovery scope
@@ -90,23 +90,22 @@ steps:
     instruction: >
       Run discovery in a separate subagent when the runtime offers one, otherwise as a separate
       browser pass that reuses no conclusions from other passes. Give it the url, the credentials
-      file's path and form_submission_confirmed, never the password. It applies the app-discovery
-      skill fully, including its dom-inspection.md: authenticate when the credentials file is not
-      empty, detect the UI framework and include ui_framework in the report, crawl up to 50 pages
-      or 30 minutes, capture every interactive element, and inspect every form. It tries
-      submit-triggered validation only when form_submission_confirmed is true; otherwise the
-      trigger stays unknown. It stays inside the app's domain, except the identity provider's
-      redirects while signing in, and never logs the password. When the report is written it
-      signs out of the app if it signed in, then closes only the browser session it opened.
-      If navigation fails or authentication is rejected (wrong credentials, a multi-factor or
-      CAPTCHA wall, an unreachable app), discovery stops; delete the credentials file in a shell
-      pass if you created it, and report the step blocked.
-      Check the report against app-discovery's quality gate: ui_framework set, every form
-      inspected, no password anywhere. Then present the owner a summary: the number of pages and
-      flows found, each page's name and URL, and the failed paths. Unless the owner already
-      authorized generation (scope_confirmed), ask "Proceed with test generation for these N
-      pages?" and do not go on without their yes. If they decline, suggest --forward-to summary,
-      which deletes the credentials file and reports the discovery summary.
+      file's path and form_submission_confirmed, never the password. It follows the discovery-report
+      guide fully, including dom-inspection.md next to it: authenticate when the credentials file is
+      not empty, detect the UI framework and include ui_framework in the report, crawl up to 50
+      pages or 30 minutes, capture every interactive element, and inspect every form. It tries
+      submit-triggered validation only when form_submission_confirmed is true; otherwise the trigger
+      stays unknown. It stays inside the app's domain, except the identity provider's redirects
+      while signing in, and never logs the password. When the report is written it signs out of the
+      app if it signed in, then closes only the browser session it opened. If navigation fails or
+      authentication is rejected (wrong credentials, a multi-factor or CAPTCHA wall, an unreachable
+      app), discovery stops; delete the credentials file in a shell pass if you created it, and
+      report the step blocked. Check the report against the discovery-report guide's quality gate:
+      ui_framework set, every form inspected, no password anywhere. Then present the owner a
+      summary: the number of pages and flows found, each page's name and URL, and the failed paths.
+      Unless the owner already authorized generation (scope_confirmed), ask "Proceed with test
+      generation for these N pages?" and do not go on without their yes. If they decline, suggest
+      --forward-to summary, which deletes the credentials file and reports the discovery summary.
     consumes:
       - test-run-parameters
     produces:
@@ -125,7 +124,7 @@ steps:
     instruction: >
       Write one markdown prompt file per discovered page into the prompts folder, each with the
       sections Objective, Pre-requisite, Steps and Expected Outcome, using the selectors and exact
-      texts from the discovery report. Use the e2e-test-strategy skill to decide which scenarios
+      texts from the discovery report. Use the e2e-test-strategy guide to decide which scenarios
       each page needs, and give it everything so it asks nothing: the discovery report in place of
       the gap analysis, no user stories, design or feature plan unless the owner named them, change
       type enhancement and release type minor unless the owner said otherwise, and the
@@ -169,13 +168,13 @@ steps:
       Scaffold a new Cypress or Playwright project, as output_mode says, in a new folder the owner
       named or one you choose. For Playwright, add @types/node as a devDependency and give
       tsconfig.json "lib" ["ES2020", "DOM"], "strict" true, "module" "ESNext", "moduleResolution"
-      "bundler" and "esModuleInterop" true; create fixtures/auth before global-setup.ts runs; and add
-      fixtures/auth/ to .gitignore, because it holds session tokens. For Cypress, create
+      "bundler" and "esModuleInterop" true; create fixtures/auth before global-setup.ts runs; and
+      add fixtures/auth/ to .gitignore, because it holds session tokens. For Cypress, create
       cypress/tsconfig.json with {"compilerOptions": {"types": ["cypress"]}}. Then run npx tsc
       --noEmit in the project and do not go on until it compiles clean; npm install passing is not
       the check. Record the scaffold root as project_dir in the run parameters; a missing
-      project_dir is worth noting in the summary. If this step fails, delete the credentials file
-      if you created it, and report the step blocked.
+      project_dir is worth noting in the summary. If this step fails, delete the credentials file if
+      you created it, and report the step blocked.
     consumes:
       - test-run-parameters
     updates:
@@ -222,7 +221,7 @@ steps:
       Write Playwright specs in project_dir following the playwright-test-implementation skill:
       its selector fallback chain, its global-setup.ts and storageState pattern, its Cloudscape
       locators when ui_framework is cloudscape, and its storageState opt-out for specs that test
-      the login flow. Use the e2e-test-strategy skill to decide which journeys to cover, giving it
+      the login flow. Use the e2e-test-strategy guide to decide which journeys to cover, giving it
       the discovery report in place of the gap analysis, no user stories, design or feature plan
       unless the owner named them, change type enhancement and release type minor unless the owner
       said otherwise, and the e2e-test-strategy path below as its output file, so it asks nothing;
@@ -277,18 +276,19 @@ steps:
       committed because there is no repository, and do not create one. List the files this run
       created or changed: the specs, the support files (such as cypress/support/commands.ts or
       global-setup.ts), the scaffold's configuration and package files after a bootstrap, and
-      .gitignore when it was edited. With nothing listed there is nothing to commit. Otherwise
-      stage only those files by path and commit only those paths on the current branch, never git
-      add -A or git add ., because the tree may hold the owner's own changes and fixtures/auth/
-      session state. The message is "test: bootstrap <Cypress|Playwright> functional tests" after a
+      .gitignore when it was edited. With nothing listed there is nothing to commit. Otherwise stage
+      only those files by path and commit only those paths on the current branch, never git add -A
+      or git add ., because the tree may hold the owner's own changes and fixtures/auth/ session
+      state. The message is "test: bootstrap <Cypress|Playwright> functional tests" after a
       bootstrap and "test: add <Cypress|Playwright> functional tests" otherwise. Report the commit
       and ask the owner whether to push the branch; push only after they agree. Never push the
-      repository's default branch: right before any push, read it from the "ref: refs/heads/<branch>"
-      line of git ls-remote --symref origin HEAD, not from the cached origin/HEAD; if the current
-      branch is the default branch, or the default cannot be resolved, do not push and record as
-      IMPORTANT that the commit is local only and why. A failed push leaves the commit in place;
-      record it as IMPORTANT. Record the commit, its files, the branch, the push result and every
-      note in the commit record. If the commit itself fails, report the step blocked.
+      repository's default branch: right before any push, read it from the "ref:
+      refs/heads/<branch>" line of git ls-remote --symref origin HEAD, not from the cached
+      origin/HEAD; if the current branch is the default branch, or the default cannot be resolved,
+      do not push and record as IMPORTANT that the commit is local only and why. A failed push
+      leaves the commit in place; record it as IMPORTANT. Record the commit, its files, the branch,
+      the push result and every note in the commit record. If the commit itself fails, report the
+      step blocked.
     consumes:
       - test-run-parameters
     produces:

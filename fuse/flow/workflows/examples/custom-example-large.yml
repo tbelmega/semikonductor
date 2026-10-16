@@ -43,7 +43,9 @@ steps:
     produces:
       - artifact: design
         path: .konductor/{slug}/design.md
-    instruction: Write the system design with the system-design-patterns skill.
+    instruction: >
+      Write the system design, after the design interview in interview.md next to the design guide
+      (fuse/flow/library/artifacts/design/ in the fuse-konductor clone).
     consumes:
       - codebase-analysis
       - user-stories
@@ -71,7 +73,7 @@ steps:
     gates:
       - agent: >
           review the design: first against its review guide (writing quality, then production
-          readiness), then with the adversarial-design-review skill. A P0, P1 or CRITICAL finding
+          readiness), then with adversarial-review.md next to it. A P0, P1 or CRITICAL finding
           is a required fix
         max_rounds: 2
   - id: design-signoff
@@ -107,9 +109,8 @@ steps:
   - id: specs
     title: Specs per feature
     instruction: >
-      Per feature: requirements.md (the kiro-requirements-generation skill), design.md
-      (kiro-design-generation) and tasks.md (kiro-task-generation) under .kiro/specs/<feature>/,
-      listed in the index.
+      Per feature: requirements.md, design.md and tasks.md under .kiro/specs/<feature>/, as the
+      spec index guide says, listed in the index.
     produces:
       - artifact: spec-index
         path: .konductor/{slug}/spec-index.md

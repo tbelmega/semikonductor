@@ -1,8 +1,8 @@
 ---
 name: code-review
-description: Use when creating or submitting a pull request, reviewing a diff or PR from another developer, addressing PR feedback, or running a post-implementation review cycle on local changes. Uses standard git and GitHub CLI (`gh`) commands and classifies findings by severity (CRITICAL/IMPORTANT/SUGGESTION). For a deeper second pass on disclosure, integrity, and schema risks, use adversarial-code-review.
-version: 1.3.3
-tags: [skill, code-review, pr, git, workflow, humanize-writing]
+description: 'Use when creating or submitting a pull request, reviewing a diff or PR, addressing PR feedback, or running a post-implementation review of local changes. Also use for a deep or adversarial second pass (security, data integrity, schema and contract stability; the checker in a maker-checker cycle), and for backend or frontend standards when writing or reviewing code: TypeScript Lambda and DynamoDB, or React with Cloudscape. Uses git and `gh`; findings are CRITICAL, IMPORTANT or SUGGESTION.'
+version: 1.4.0
+tags: [skill, code-review, pr, git, workflow, humanize-writing, adversarial, backend, frontend]
 ---
 
 # Code Review
@@ -19,6 +19,26 @@ Use this skill when:
 - Reviewing a diff or PR from another developer
 - Addressing PR feedback and re-submitting
 - Running a post-implementation review cycle on local changes
+- Running a deeper second pass after the standard review, or writing code to a stack's standards
+  (see Lenses)
+
+## Lenses
+
+The lenses are files in this skill's folder, `skills/code-review/` in the fuse-konductor clone.
+Read the one that fits before you review or write the code; the stack lenses add to the Review
+Checklist below and use the same severity classes.
+
+- `backend.md`: the backend standards for TypeScript Lambda handlers, service layers,
+  repositories and DynamoDB operations. Load it when the change touches backend code, to review
+  it or to write it.
+- `frontend.md`: the frontend standards for React and TypeScript on the AWS Cloudscape Design
+  System, with React Hook Form and Zod. Load it when the change touches frontend code, to review
+  it or to write it.
+- `adversarial.md`: the adversarial second pass, with its security, data integrity, and schema
+  and contract lenses and its Validator Mode. Load it for a second-pass review after the standard
+  review, as the checker in a maker-checker cycle, before submitting a change that touches auth,
+  data writes or external API boundaries, or when a workflow asks for a single-lens pass or
+  Validator Mode.
 
 ## Explicit Publish Authorization
 
