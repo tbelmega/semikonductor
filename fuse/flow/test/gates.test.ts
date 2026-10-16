@@ -4,7 +4,7 @@
 // blocked, and the owner's decisions on them.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { symlinkSync } from "node:fs";
+import { readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { FLOW_DIR, Repo } from "./helpers";
 
@@ -99,7 +99,7 @@ test("a script gate closes the step only when its command exits 0", () => {
   approveDesign();
   const failed = repo.refused("continue", "feat");
   expect(failed).toStartWith("REFUSED: script `test -f tests.pass` failed (exit 1)\n\nSTEP build (2 of 3)");
-  expect(failed).toContain("  1. Run `test -f tests.pass`. Fix the work, or the check if the check is wrong, until it passes.");
+  expect(failed).toContain("  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'test -f tests.pass'`. Fix the work, or the check if the check is wrong, until it passes.");
   expect(repo.status("feat", "build")).toBe("IN_PROGRESS");
   expect(repo.state("feat").steps.build.history.at(-1)).toContain("continue refused: script `test -f tests.pass` failed (exit 1)");
 
@@ -179,7 +179,7 @@ test("a check gate runs the command the policy binds, and says where the binding
     r.write(".konductor/policy-overrides.yml", 'checks:\n  default: test -f built\n  lint: "none"\n');
     const bound = r.ok("start", "feat");
     expect(bound).toContain(
-      "  1. Run `test -f built`, the project's default check (bound in .konductor/policy-overrides.yml). Fix the work",
+      "  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'test -f built'`, the project's default check (bound in .konductor/policy-overrides.yml). Fix the work",
     );
     expect(bound).toContain("  2. The lint check is not configured in this project (bound to none in .konductor/policy-overrides.yml); there is nothing to run.");
     expect(r.refused("continue", "feat")).toContain("REFUSED: check default (`test -f built`) failed (exit 1)");
@@ -206,11 +206,11 @@ test("the policy files override each other from the general to the specific", ()
     r.write("home/.konductor/policy-overrides.yml", "checks:\n  default: echo user\n  lint: echo user-lint\n");
     r.write(".konductor/policy-overrides.yml", "checks:\n  default: echo team\n");
     const team = r.start("feat", CHECKED);
-    expect(team).toContain("Run `echo team`, the project's default check (bound in .konductor/policy-overrides.yml)");
-    expect(team).toContain(`Run \`echo user-lint\`, the project's lint check (bound in home/.konductor/policy-overrides.yml)`);
+    expect(team).toContain("Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo team'`, the project's default check (bound in .konductor/policy-overrides.yml)");
+    expect(team).toContain(`Run \`FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo user-lint'\`, the project's lint check (bound in home/.konductor/policy-overrides.yml)`);
 
     r.write(".konductor/policy-overrides.local.yml", "checks:\n  default: echo mine\n");
-    expect(r.ok("start", "feat")).toContain("Run `echo mine`, the project's default check (bound in .konductor/policy-overrides.local.yml)");
+    expect(r.ok("start", "feat")).toContain("Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo mine'`, the project's default check (bound in .konductor/policy-overrides.local.yml)");
 
     r.write(".konductor/policy-overrides.yml", "checks:\n  default: [not, a, command]\n");
     expect(r.refused("start", "feat")).toContain(".konductor/policy-overrides.yml is not a valid policy file");
@@ -282,11 +282,12 @@ steps:
         "Classify each finding as fix " +
         "required or false positive, with the reason; a finding the owner already accepted or deferred is not a " +
         "required fix. Fix what is required and review again, until a round ends with no required fix. Every round " +
-        "that ends with a required fix counts, whatever the cause. After 3 such rounds, do not start another; run " +
-        '`fuse-flow continue feat --blocked "<what is still open, and why the review does not converge>"`.',
+        "that ends with a required fix counts, whatever the cause. After 3 such rounds, make the last round's fixes anyway, start no further " +
+        "review, and report the step blocked, naming the fixes no reviewer has seen: run " +
+        '`fuse-flow continue feat --blocked "<what is still open, and the fixes no reviewer has seen>" --gate 1`.',
     );
     expect(out).toContain("  2. Have an independent agent check the docs. It reviews src/.");
-    expect(out).toContain("After 2 such rounds, do not start another");
+    expect(out).toContain("After 2 such rounds, make the last round's fixes anyway");
 
     // The user's policy fills in only what the workflow leaves open; the team's wins over the workflow.
     other.write("home/.konductor/policy-overrides.yml", "review:\n  max_rounds: 5\n  reviewer: a different model\n");
@@ -550,7 +551,7 @@ test("the owner can grant more review rounds, on a blocked step or ahead of time
   try {
     other.start("feat", REVIEWED);
     other.write("spec.md");
-    expect(other.ok("continue", "feat")).toContain("After 2 such rounds, do not start another");
+    expect(other.ok("continue", "feat")).toContain("After 2 such rounds, make the last round's fixes anyway");
 
     // Ahead of time, on a step in progress.
     const early = other.ok("continue", "feat", "--more-rounds", "1", "--note", "this one is hard");
@@ -638,11 +639,14 @@ test("--more-rounds takes a whole number, and each owner decision goes alone", (
   expect(repo.usage("continue", "feat", "--owner-approved", "--updated", "a")).toContain("--updated reports the agent's work; it does not go with --owner-approved");
 });
 
-test("--blocked needs a reason and goes with no other option", () => {
+test("--blocked needs a reason, and goes with no other decision or report", () => {
   expect(repo.usage("continue", "feat", "--blocked")).toContain("--blocked");
   expect(repo.usage("continue", "feat", "--blocked=")).toContain("--blocked needs a value");
   expect(repo.usage("continue", "feat", "--blocked", "x", "--owner-approved")).toContain("are different decisions");
-  expect(repo.usage("continue", "feat", "--blocked", "x", "--updated", "a")).toContain("--updated reports the agent's work; it does not go with --blocked");
+  // --blocked may record the files written so far with --updated, but no other report.
+  expect(repo.usage("continue", "feat", "--blocked", "x", "--not-produced", "sketch", "y")).toContain(
+    "--not-produced reports the agent's work; it does not go with --blocked",
+  );
   expect(repo.status("feat", "design")).toBe("IN_PROGRESS");
 });
 
@@ -654,6 +658,423 @@ test("continue still succeeds and prints the next step when its check changes th
     expect(other.status("feat", "a")).toBe("COMPLETED");
   } finally {
     other.cleanup();
+  }
+});
+
+test("a blocked step records the files it wrote, so its hand-over and its record after acceptance list them", () => {
+  const r = new Repo();
+  try {
+    r.start(
+      "feat",
+      `version: 1
+name: w
+steps:
+  - id: design
+    instruction: Write the design.
+    produces:
+      - artifact: sketch
+        path: design.md
+      - artifact: notes
+        path: notes/
+    gates:
+      - agent: review the design
+  - id: release
+    instruction: Release it.
+`,
+    );
+    r.write("design.md");
+    r.write("notes/a.md");
+    r.write("extra.md");
+    const blocked = r.ok("continue", "feat", "--blocked", "the review does not converge", "--updated", "notes/a.md", "--updated", "extra.md");
+    expect(blocked).toContain("PRODUCED: design.md (new); notes/a.md (new); extra.md (updated, outside the declared paths)\n");
+    expect(r.state("feat").steps.design.artifacts).toEqual([
+      { artifact: "sketch", path: "design.md", status: "draft" },
+      { artifact: "notes", path: "notes/a.md", status: "draft" },
+    ]);
+
+    r.ok("continue", "feat", "--owner-approved", "--note", "good enough");
+    const rows = r.ok("status", "feat").split("\n");
+    expect(rows.find((l) => l.includes(" design "))).toContain("design.md (approved), notes/a.md (approved)");
+  } finally {
+    r.cleanup();
+  }
+});
+
+const TWO_REVIEWS = `version: 1
+name: w
+steps:
+  - id: design
+    instruction: Write the design.
+    produces:
+      - artifact: sketch
+        path: design.md
+    gates:
+      - script: test -f design.md
+      - agent: review the design
+      - agent: review the design as a principal engineer
+      - owner-action: run the checks only you can run, then approve the design
+`;
+
+test("the owner accepts the review that blocked, and the step goes back to the agent for the reviews still ahead", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    // The cap instruction names the review it belongs to, by its number in the list.
+    expect(r.ok("start", "feat")).toContain(
+      '`fuse-flow continue feat --blocked "<what is still open, and the fixes no reviewer has seen>" --gate 2`.',
+    );
+    expect(r.refused("continue", "feat", "--blocked", "x", "--gate", "1")).toContain(
+      "--gate names one of the step's reviews by its number in the step's list: 2 (review the design), 3 (review the design as a principal engineer)",
+    );
+
+    const blocked = r.ok("continue", "feat", "--blocked", "the design review does not converge", "--gate", "2");
+    const ahead = "review (review the design as a principal engineer)";
+    const owner = "run the checks only you can run, then approve the design";
+    // Accepting the review alone still reaches the owner's action; accepting the whole step skips it too.
+    expect(blocked).toContain(`  - Accept this review as it is, and go on with the gates still ahead: ${ahead}; the step then awaits the owner action: ${owner}.\n`);
+    expect(blocked).toContain(`  - Accept the whole step as it is, without the gates still ahead: ${ahead}, ${owner}.\n`);
+    expect(blocked).toContain(
+      '  - The owner accepts this review as it is: run `fuse-flow continue feat --owner-approved --gate 2 --note "<the owner\'s decision>"`.',
+    );
+    expect(blocked).toContain(
+      '  - The owner accepts the whole step as it is: run `fuse-flow continue feat --owner-approved --note "<the owner\'s decision>"`.',
+    );
+    expect(r.refused("continue", "feat", "--owner-approved", "--gate", "3")).toContain(
+      "the step was blocked at review 2 (review the design); --gate 3 accepts only that review",
+    );
+
+    const accepted = r.ok("continue", "feat", "--owner-approved", "--gate", "2", "--note", "the open points can wait");
+    expect(accepted).toStartWith("design: owner accepted review 2 (review the design) as it is; the step is IN_PROGRESS\n\nSTEP design");
+    expect(accepted).toContain("  2. The owner accepted this review (review the design) as it was; do not run it again.\n");
+    expect(accepted).toContain("  3. Have an independent agent review the design as a principal engineer.");
+    expect(r.status("feat", "design")).toBe("IN_PROGRESS");
+
+    const done = r.ok("continue", "feat");
+    expect(done).toContain("STATUS: awaiting owner action.");
+    expect(done).toContain("review (review the design): accepted by the owner as it was;");
+    r.ok("continue", "feat", "--owner-approved");
+    expect(r.status("feat", "design")).toBe("COMPLETED");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a step blocked at its last review still offers accepting that review alone, so its checks and owner action still run", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    const blocked = r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    // Accepting the whole step completes it, so the option names the owner's action it skips.
+    const owner = "run the checks only you can run, then approve the design";
+    expect(blocked).toContain(
+      `NEXT STEP:\n  - Accept this review as it is, and finish the step; it then awaits the owner action: ${owner}.\n` +
+        `  - Accept the whole step as it is, without the gates still ahead: ${owner}.\n`,
+    );
+    expect(blocked).toContain(
+      '  - The owner accepts this review as it is: run `fuse-flow continue feat --owner-approved --gate 3 --note "<the owner\'s decision>"`.\n' +
+        '  - The owner accepts the whole step as it is: run `fuse-flow continue feat --owner-approved --note "<the owner\'s decision>"`.\n',
+    );
+
+    r.ok("continue", "feat", "--owner-approved", "--gate", "3");
+    expect(r.status("feat", "design")).toBe("IN_PROGRESS");
+    // The plain continue reruns the checks and stops at the owner's action.
+    expect(r.ok("continue", "feat")).toContain(
+      "STATUS: awaiting owner action. The owner is asked to run the checks only you can run, then approve the design.\n",
+    );
+    expect(r.state("feat").steps.design.verification).toEqual(["script `test -f design.md`: passed"]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("accepting a step blocked at no named review names the owner's action it skips with the gates not passed", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    const blocked = r.ok("continue", "feat", "--blocked", "the design needs a decision");
+    expect(blocked).toContain(
+      "  - Accept the whole step as it is, without the gates not recorded as passed: script `test -f design.md`, " +
+        "review (review the design), review (review the design as a principal engineer), run the checks only you can run, then approve the design.\n",
+    );
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("after the owner accepts a later review, the step block does not ask again for the reviews that passed before it", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    // Reviews run in list order, so the agent reached review 3 only after review 2 passed.
+    r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    const accepted = r.ok("continue", "feat", "--owner-approved", "--gate", "3");
+    expect(accepted).toContain("  2. This review (review the design) passed earlier in this pass; do not run it again.\n");
+    expect(accepted).toContain("  3. The owner accepted this review (review the design as a principal engineer) as it was; do not run it again.\n");
+    expect(accepted).not.toContain("Have an independent agent");
+    // The hand-over still asks for the rounds that review used.
+    expect(r.ok("continue", "feat")).toContain(
+      "review (review the design): <rounds used> of 2 rounds, <any required fix still open, and any fix made after the last review, which no reviewer has seen>; " +
+        "review (review the design as a principal engineer): accepted by the owner as it was",
+    );
+  } finally {
+    r.cleanup();
+  }
+});
+
+const NOTES = `version: 1
+name: w
+steps:
+  - id: design
+    instruction: Write the design.
+    produces:
+      - artifact: sketch
+        path: design.md
+      - artifact: notes
+        path: notes/
+    gates:
+      - agent: review the design
+      - owner-action: approve the design
+  - id: release
+    instruction: Release it.
+`;
+
+test("a blocked step records a folder it created whole when no file in it is named, as a finished step does", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", NOTES);
+    r.write("design.md");
+    r.write("notes/a.md");
+    const blocked = r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+    expect(blocked).toContain("PRODUCED: design.md (new); notes/ (new)\n");
+    expect(r.state("feat").steps.design.artifacts).toEqual([
+      { artifact: "sketch", path: "design.md", status: "draft" },
+      { artifact: "notes", path: "notes/", status: "draft" },
+    ]);
+  } finally {
+    r.cleanup();
+  }
+
+  // A folder that existed before the step does not say which files are the step's.
+  const shared = new Repo();
+  try {
+    shared.write("notes/old.md");
+    shared.start("feat", NOTES);
+    shared.write("design.md");
+    shared.write("notes/a.md");
+    expect(shared.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1")).toContain("PRODUCED: design.md (new)\n");
+    expect(shared.state("feat").steps.design.artifacts).toEqual([{ artifact: "sketch", path: "design.md", status: "draft" }]);
+  } finally {
+    shared.cleanup();
+  }
+});
+
+test("files a blocked step recorded stay recorded when the agent later finishes the step without naming them again", () => {
+  const r = new Repo();
+  try {
+    r.write("notes/old.md");
+    r.start("feat", NOTES);
+    r.write("design.md");
+    r.write("notes/a.md");
+    r.write("extra.md");
+    r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "notes/a.md", "--updated", "extra.md");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "1");
+    const done = r.ok("continue", "feat");
+    expect(done).toContain("PRODUCED: design.md (new); notes/a.md (new); extra.md (updated, outside the declared paths)\n");
+    expect(r.state("feat").steps.design.artifacts).toEqual([
+      { artifact: "sketch", path: "design.md", status: "draft" },
+      { artifact: "notes", path: "notes/a.md", status: "draft" },
+    ]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a folder a blocked step recorded whole stays recorded whole when the agent later names a new file in it", () => {
+  const r = new Repo();
+  try {
+    r.start(
+      "feat",
+      `version: 1
+name: w
+steps:
+  - id: design
+    instruction: Write the design.
+    produces:
+      - artifact: sketch
+        path: design.md
+      - artifact: notes
+        path: notes/
+    gates:
+      - agent: review the design
+  - id: release
+    instruction: Release it.
+    consumes: [notes]
+`,
+    );
+    r.write("design.md");
+    r.write("notes/a.md");
+    r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "1");
+    r.write("notes/b.md");
+    const done = r.ok("continue", "feat", "--updated", "notes/b.md");
+    expect(r.state("feat").steps.design.artifacts).toEqual([
+      { artifact: "sketch", path: "design.md", status: "approved" },
+      { artifact: "notes", path: "notes/", status: "approved" },
+    ]);
+    // The next step reads the whole folder, the file from before the block and the new one.
+    expect(done).toContain("READ notes/ (from step design).");
+  } finally {
+    r.cleanup();
+  }
+});
+
+// NOTES, with a next step that reads the notes.
+const NOTES_READ = `version: 1
+name: w
+steps:
+  - id: design
+    instruction: Write the design.
+    produces:
+      - artifact: sketch
+        path: design.md
+      - artifact: notes
+        path: notes/
+    gates:
+      - agent: review the design
+  - id: release
+    instruction: Release it.
+    consumes: [notes]
+`;
+
+test("a folder a blocked step recorded whole stays recorded whole when a later block names a file in it", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", NOTES_READ);
+    r.write("design.md");
+    r.write("notes/a.md");
+    r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+    r.ok("continue", "feat", "--more-rounds", "1");
+    r.write("notes/b.md");
+    const blocked = r.ok("continue", "feat", "--blocked", "the review still does not converge", "--gate", "1", "--updated", "notes/b.md");
+    expect(blocked).toContain("PRODUCED: design.md (new); notes/ (new)\n");
+    expect(r.state("feat").steps.design.artifacts).toEqual([
+      { artifact: "sketch", path: "design.md", status: "draft" },
+      { artifact: "notes", path: "notes/", status: "draft" },
+    ]);
+    // The next step reads the whole folder, not only the file the second block named.
+    const next = r.ok("continue", "feat", "--owner-approved");
+    expect(next).toContain("READ notes/ (from step design).");
+    expect(next).not.toContain("READ notes/b.md");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("files a blocked step named in a folder stay its record when a later block names none, as when the step finishes", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", NOTES_READ);
+    r.write("design.md");
+    r.write("notes/a.md");
+    r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "notes/a.md");
+    r.ok("continue", "feat", "--more-rounds", "1");
+    const blocked = r.ok("continue", "feat", "--blocked", "the review still does not converge", "--gate", "1");
+    expect(blocked).toContain("PRODUCED: design.md (new); notes/a.md (new)\n");
+    expect(r.state("feat").steps.design.artifacts).toEqual([
+      { artifact: "sketch", path: "design.md", status: "draft" },
+      { artifact: "notes", path: "notes/a.md", status: "draft" },
+    ]);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a blocked step records a produced file that existed before the step, as a finished step does", () => {
+  const r = new Repo();
+  try {
+    r.write("design.md", "someone else's\n");
+    r.start("feat", NOTES_READ);
+    r.write("design.md", "the step's own design\n");
+    const blocked = r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+    expect(blocked).toContain("PRODUCED: design.md (updated)\n");
+    expect(r.state("feat").steps.design.artifacts).toEqual([{ artifact: "sketch", path: "design.md", status: "draft" }]);
+
+    r.ok("continue", "feat", "--owner-approved");
+    expect(r.ok("status", "feat").split("\n").find((l) => l.includes(" design "))).toContain("design.md (approved)");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("at the round cap the agent makes the last fixes, starts no further review, and names the fixes no reviewer has seen", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", REVIEWED);
+    r.write("spec.md");
+    const rule = "make the last round's fixes anyway, start no further review, and report the step blocked, naming the fixes no reviewer has seen";
+    expect(r.ok("continue", "feat")).toContain(
+      `After 2 such rounds, ${rule}: run \`fuse-flow continue feat --blocked "<what is still open, and the fixes no reviewer has seen>" --gate 1\`.`,
+    );
+    const blocked = r.ok("continue", "feat", "--blocked", "two P1 findings stay open", "--gate", "1");
+    expect(blocked).toContain(
+      "VERIFICATION: review (review the diff against the spec): <rounds used> of 2 rounds, <any required fix still open, and any fix made after the last review, which no reviewer has seen>\n",
+    );
+    // The review guide says it in the same words.
+    expect(readFileSync(join(FLOW_DIR, "workflows", "fuse", "review.md"), "utf8").replace(/\s+/g, " ")).toContain(rule);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("the step block prints a check's command with the variables fuse-flow sets, so it runs by hand as on continue", () => {
+  const r = new Repo();
+  try {
+    const out = r.start(
+      "env",
+      `version: 1
+name: env
+steps:
+  - id: probe
+    instruction: x
+    gates:
+      - script: test "$FUSE_FLOW_SLUG/$FUSE_FLOW_STEP" = env/probe
+`,
+    );
+    const command = /  1\. Run `(.*?)`\. Fix the work/.exec(out)?.[1];
+    expect(command).toBe(`FUSE_FLOW_SLUG=env FUSE_FLOW_STEP=probe sh -c 'test "$FUSE_FLOW_SLUG/$FUSE_FLOW_STEP" = env/probe'`);
+    const env = { ...r.env };
+    delete env.FUSE_FLOW_SLUG;
+    delete env.FUSE_FLOW_STEP;
+    expect(Bun.spawnSync(["sh", "-c", command!], { cwd: r.root, env }).exitCode).toBe(0);
+    expect(r.ok("continue", "env")).toContain("STATUS: workflow complete");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("status shows each review gate's cap with the rounds granted, and the closing block says where to count the rounds", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", REVIEWED);
+    r.write("spec.md");
+    r.ok("continue", "feat");
+    const row = () => r.ok("status", "feat").split("\n").find((l) => l.includes(" implement "));
+    expect(row()).toContain("gates agent(review the diff against the spec) [cap 2]");
+    r.ok("continue", "feat", "--more-rounds", "1");
+    expect(row()).toContain("gates agent(review the diff against the spec) [cap 3, 2 plus 1 granted]");
+
+    r.ok("continue", "feat");
+    const closing = r.ok("continue", "feat");
+    expect(closing).toContain(
+      "VERIFICATION: implement: review (review the diff against the spec): <rounds used> of 3 (2 plus 1 granted by the owner) rounds, " +
+        "counted from the findings files of the step's last pass, .konductor/reviews/feat/implement-round-<n>.json\n",
+    );
+  } finally {
+    r.cleanup();
   }
 });
 

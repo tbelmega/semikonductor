@@ -144,10 +144,26 @@ test("an updates artifact without an updated file or unchanged reason fails", ()
   const { root, workflow, env } = project();
   runToEnd(root, workflow, env);
   const state = readFileSync(stateFile(root), "utf8");
-  writeFileSync(stateFile(root), state.replace(/\n    updated:\n      - src\/a\.ts/, ""));
+  const named = /\n      - artifact: code\n        path: src\/a\.ts\n        kind: file\n[^\n]*\n[^\n]*/;
+  expect(state).toMatch(named);
+  writeFileSync(stateFile(root), state.replace(named, ""));
   const result = check(root, workflow, env);
   expect(result.out).toContain("update: update not accounted for src/ (code)");
   expect(result.code).toBe(1);
+});
+
+test("a state file of an earlier fuse-flow, with the named file in updated, still accounts for the updates artifact", () => {
+  const { root, workflow, env } = project();
+  runToEnd(root, workflow, env);
+  const state = readFileSync(stateFile(root), "utf8");
+  // An earlier fuse-flow kept no `files` entries, only the bare `updated` list.
+  const legacy = state
+    .replace(/\n    files:\n(      [ -][^\n]*\n)+/g, "\n")
+    .replace("\n  update:\n    status: COMPLETED\n", "\n  update:\n    status: COMPLETED\n    updated:\n      - src/a.ts\n");
+  expect(legacy).not.toContain("files:");
+  expect(legacy).toContain("    updated:\n      - src/a.ts\n");
+  writeFileSync(stateFile(root), legacy);
+  expect(check(root, workflow, env)).toMatchObject({ code: 0 });
 });
 
 test("a check gate is rerun through policy and fails when its binding fails", () => {

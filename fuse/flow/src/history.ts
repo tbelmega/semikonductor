@@ -22,6 +22,9 @@ export const EVENT = {
   // one whose owner-action condition the owner answered no.
   skippedOnRequest: (reason: string) => `skipped on the owner's request: ${reason}`,
   roundsGranted: (n: number, note?: string) => `owner granted ${n} more review round${n === 1 ? "" : "s"}${withNote(note)}`,
+  // The owner accepted the review the step was blocked at, and the step went
+  // back to the agent for the gates still ahead.
+  reviewAccepted: (gate: string, note?: string) => `owner accepted ${gate} as it is${withNote(note)}`,
   sentBack: (from: string, to: string, note?: string) => `owner sent the work back from ${from} to ${to}${withNote(note)}`,
   approved: (note?: string) => `owner approved${withNote(note)}`,
   childCreated: (slug: string) => `created child workstream ${slug}`,
@@ -46,6 +49,7 @@ export type EventKind =
   | "blocked"
   | "skipped"
   | "rounds-granted"
+  | "review-accepted"
   | "sent-back"
   | "approved"
   | "child-created"
@@ -74,6 +78,8 @@ interface Reading {
   detail: string;
   backFrom?: string;
   backTo?: string;
+  // The note the owner gave with the decision, if any.
+  note?: string;
 }
 
 const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
@@ -89,14 +95,18 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
   ],
   [/^skipped: ([\s\S]*)$/, (m) => ({ kind: "skipped", to: "SKIPPED", actor: "agent", detail: m[1] })],
   [
-    /^owner granted \d+ more review rounds?(?:: [\s\S]*)?$/,
-    (m) => ({ kind: "rounds-granted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, "") }),
+    /^owner granted \d+ more review rounds?(?:: ([\s\S]*))?$/,
+    (m) => ({ kind: "rounds-granted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
+  ],
+  [
+    /^owner accepted (review \d+ \([\s\S]*?\)) as it is(?:: ([\s\S]*))?$/,
+    (m) => ({ kind: "review-accepted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[2] }),
   ],
   [
     /^owner sent the work back from (\S+) to (\S+?)(?:: ([\s\S]*))?$/,
-    (m) => ({ kind: "sent-back", to: "PENDING", actor: "owner", detail: m[3] ?? "", backFrom: m[1], backTo: m[2] }),
+    (m) => ({ kind: "sent-back", to: "PENDING", actor: "owner", detail: m[3] ?? "", backFrom: m[1], backTo: m[2], note: m[3] }),
   ],
-  [/^owner approved(?:: ([\s\S]*))?$/, (m) => ({ kind: "approved", to: "COMPLETED", actor: "owner", detail: m[1] ?? "" })],
+  [/^owner approved(?:: ([\s\S]*))?$/, (m) => ({ kind: "approved", to: "COMPLETED", actor: "owner", detail: m[1] ?? "", note: m[1] })],
   [/^created child workstream (\S+)$/, (m) => ({ kind: "child-created", detail: m[1] })],
 ];
 
@@ -109,6 +119,20 @@ function read(text: string): Reading {
 }
 
 const TIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) ([\s\S]*)$/;
+
+// A history line without its timestamp.
+const body = (line: string) => line.match(TIME)?.[2] ?? line;
+
+// The notes the owner gave with the decisions in one step's history since the
+// step's current pass began, oldest first. The send-back that reopened the
+// step begins the pass, and its note belongs to it.
+export function ownerNotes(history: string[]): string[] {
+  const from = Math.max(0, history.findLastIndex((h) => read(body(h)).kind === "sent-back"));
+  return history.slice(from).flatMap((h) => {
+    const note = read(body(h)).note;
+    return note ? [note] : [];
+  });
+}
 
 // Every event of the workstream, oldest first. Each step's events are
 // replayed from PENDING, so each event knows the state it left.

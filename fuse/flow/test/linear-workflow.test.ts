@@ -73,7 +73,9 @@ test("work, continue, repeated until the workflow is complete, which prints the 
   repo.write("src/app.ts");
   repo.write("src/app.test.ts");
   const second = repo.ok("continue", "feat", "--updated", "src/app.test.ts");
-  expect(repo.state("feat").steps.build.updated).toEqual(["src/app.test.ts"]);
+  expect(repo.state("feat").steps.build.files.filter((f: { kind: string }) => f.kind === "file")).toEqual([
+    { path: "src/app.test.ts", kind: "file", pass: "this", status: "approved" },
+  ]);
   expect(second).toContain("STEP summary (3 of 3): Summarize what shipped.\nWHEN THE WORK IS DONE:\n  1. Run `fuse-flow continue feat`.\n");
 
   const done = repo.ok("continue", "feat");
@@ -167,7 +169,13 @@ steps:
   );
   expect(repo.ok("start", "feat")).toContain("STEP build (2 of 3)");
   const state = repo.state("feat");
-  expect(state.steps.design).toEqual({ status: "COMPLETED", artifacts: [{ path: "docs/design.md", status: "approved" }], history: [] });
+  expect(state.steps.design).toEqual({
+    status: "COMPLETED",
+    artifacts: [{ path: "docs/design.md", status: "approved" }],
+    // The record names no artifact; the conversion to entries places it by its path.
+    files: [{ artifact: "sketch", path: "docs/design.md", kind: "whole", pass: "this", status: "approved" }],
+    history: [],
+  });
   expect(state.steps.build.status).toBe("IN_PROGRESS");
 });
 

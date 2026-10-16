@@ -16,20 +16,29 @@ const USAGE = `usage:
                                                 later step, as the owner's decision. --after binds the
                                                 workflow's inputs to the earlier workstream's documents of
                                                 the same id; --input binds one to a file, and wins
-  fuse-flow continue <slug> [--updated <file>]... [--unchanged <artifact> <reason>]...
+  fuse-flow continue <slug> [--updated [<artifact>=]<file>]... [--unchanged <artifact> <reason>]...
                             [--not-produced <artifact> <reason>]...
                                                 the current step's work is done: refused until every artifact
                                                 it produces exists or is reported --not-produced, every
                                                 artifact it updates is accounted for, and its checks pass.
-                                                An <artifact> is its id or its path
-  fuse-flow continue <slug> --blocked <why>     the agent cannot finish the step, for example at the review
-                                                round cap; the owner decides
+                                                An <artifact> is its id or its path. --updated names a file
+                                                the step wrote; a file in the paths of two of its artifacts
+                                                takes the id of the one it counts for, <artifact>=<file>
+  fuse-flow continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...
+                                                the agent cannot finish the step, for example at the review
+                                                round cap; the owner decides. --gate names the review it is
+                                                blocked at, by its number in the step's list. What the step
+                                                wrote so far is recorded as draft; --updated names files
+                                                beyond its produces paths, or inside a produces folder
   fuse-flow continue <slug> --skip <why>        skip the step: its condition does not hold, or the owner asked
-  fuse-flow continue <slug> --owner-approved [--note <text>]
-                                                the owner approved a step that awaits the owner or is blocked
+  fuse-flow continue <slug> --owner-approved [--gate <n>] [--note <text>]
+                                                the owner approved a step that awaits the owner or is blocked.
+                                                With --gate, the owner accepts only the review the step is
+                                                blocked at, and the step goes back to the agent for the gates
+                                                still ahead
   fuse-flow continue <slug> --more-rounds <n> [--note <text>]
                                                 the owner grants the step's agent gates n more review rounds
-  fuse-flow continue <slug> --back-to <step> [--updated <file>]... [--note <text>]
+  fuse-flow continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]
                                                 the owner sends the work back from the current step, whatever
                                                 its status, to <step>, it or an earlier one. --updated records
                                                 the files the current step wrote so far, for its next pass
@@ -64,6 +73,7 @@ const OPTIONS = {
     updated: { type: "string", multiple: true },
     "owner-approved": { type: "boolean" },
     blocked: { type: "string" },
+    gate: { type: "string" },
     skip: { type: "string" },
     "more-rounds": { type: "string" },
     "back-to": { type: "string" },
@@ -156,24 +166,35 @@ function run(argv: string[]): string[] {
       ].filter(Boolean) as string[];
       const actions = [...decisions, ...reports];
       if (actions.length > 1) throw new UsageError(`${actions.join(" and ")} are different decisions; give one`);
-      // A send-back may record what the current step wrote so far.
-      const recordsWork = backTo !== undefined && work.every((w) => w === "--updated");
+      // A send-back, and a block, may record what the current step wrote so far.
+      const recordsWork = (backTo !== undefined || values.blocked !== undefined) && work.every((w) => w === "--updated");
       if (actions.length && work.length && !recordsWork) {
-        throw new UsageError(`${work.find((w) => backTo === undefined || w !== "--updated")} reports the agent's work; it does not go with ${actions[0]}`);
+        const recording = backTo !== undefined || values.blocked !== undefined;
+        throw new UsageError(`${work.find((w) => !recording || w !== "--updated")} reports the agent's work; it does not go with ${actions[0]}`);
       }
       if (values.note !== undefined && decisions.length === 0) {
         throw new UsageError("--note goes with --owner-approved, --more-rounds, --back-to or --forward-to");
       }
+      const gate = values.gate as string | undefined;
+      if (gate !== undefined && values.blocked === undefined && !ownerApproved) {
+        throw new UsageError("--gate goes with --blocked or --owner-approved");
+      }
+      if (gate !== undefined && !/^[1-9][0-9]*$/.test(gate)) throw new UsageError("--gate takes the number of a gate in the step's list, 1 or more");
       if (moreRounds !== undefined && !/^[1-9][0-9]*$/.test(moreRounds)) throw new UsageError("--more-rounds takes a whole number of rounds, 1 or more");
       return commands.continueWorkstream(root, slug, {
         ownerApproved,
         note: values.note as string | undefined,
         blocked: values.blocked as string | undefined,
+        gate: gate === undefined ? undefined : Number(gate),
         skip: values.skip as string | undefined,
         moreRounds: moreRounds === undefined ? undefined : Number(moreRounds),
         backTo,
         forwardTo,
-        updated: ((values.updated as string[] | undefined) ?? []).map((f) => resolve(f)),
+        updated: ((values.updated as string[] | undefined) ?? []).map((value) => {
+          // --updated <artifact>=<file> names the artifact the file counts for.
+          const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(value);
+          return m ? { artifact: m[1], file: resolve(m[2]) } : { file: resolve(value) };
+        }),
         unchanged,
         notProduced,
       });

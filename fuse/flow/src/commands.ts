@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { currentBase, resolveBase } from "./base.ts";
 import { FlowError } from "./errors.ts";
-import { EVENT, SKIP_REASON, stamp } from "./history.ts";
+import { EVENT, ownerNotes, SKIP_REASON, stamp } from "./history.ts";
 import { has, own } from "./own.ts";
 import {
   artifactPath,
@@ -35,7 +35,7 @@ import {
   rulings,
 } from "./policy.ts";
 import { findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
-import { type Artifact, type Condition, describeGates, type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
+import { type Artifact, type Condition, describeGate, type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
 import {
   childGate,
   childSlug,
@@ -59,6 +59,7 @@ import {
   updateWorkstream,
   type Workstream,
   workstreamExists,
+  type Written,
 } from "./workstream.ts";
 
 // How the follow-up commands fuse-flow prints start. The fuse-flow script
@@ -88,7 +89,9 @@ interface Ctx {
 }
 
 function context(root: string, slug: string, ws: Workstream): Ctx {
-  return { root, slug, wf: loadWorkflow(findWorkflow(root, ws.workflow)), p: loadProject(root), date: startedOn(ws) };
+  const c = { root, slug, wf: loadWorkflow(findWorkflow(root, ws.workflow)), p: loadProject(root), date: startedOn(ws) };
+  convertOldState(c, ws);
+  return c;
 }
 
 const currentStep = (wf: Workflow, ws: Workstream) => firstUnfinished(wf, ws);
@@ -107,6 +110,32 @@ function gatesInOrder(step: Step): Gate[] {
 
 const ownerGates = (step: Step) => step.gates.filter((g) => g.kind === "owner-action");
 const routesBack = (step: Step) => [...new Set(step.gates.flatMap((g) => g.route_back_to))];
+
+// A gate's number in the step block's list of gates, WHEN THE WORK IS DONE.
+// The owner's gates come last in gatesInOrder and are not listed, so the
+// number of every listed gate is its place in that order.
+const gateNumber = (step: Step, g: Gate) => gatesInOrder(step).indexOf(g) + 1;
+
+// A gate as the hand-over block names it.
+function gateLabel(c: Ctx, step: Step, state: StepState, g: Gate): string {
+  if (g.kind === "agent") return `review (${g.text})`;
+  if (g.kind === "workflow") return `workstream ${childOf(c, state, step)}`;
+  if (g.kind === "check" || g.kind === "script") return mechanical(c, g).label;
+  return g.text;
+}
+
+// The review numbered `n` in the step block, or a refusal that lists the
+// step's reviews by number.
+function reviewNumbered(step: Step, n: number): Gate {
+  const g = gatesInOrder(step)[n - 1];
+  if (g?.kind === "agent") return g;
+  const reviews = gatesInOrder(step).filter((x) => x.kind === "agent");
+  if (!reviews.length) throw new FlowError(`step "${step.id}" has no review, so there is no gate for --gate to name`);
+  throw new FlowError(
+    `--gate names one of the step's reviews by its number in the step's list: ` +
+      reviews.map((x) => `${gateNumber(step, x)} (${x.text})`).join(", "),
+  );
+}
 
 interface Placed {
   artifact: Artifact;
@@ -137,10 +166,14 @@ const isFolder = (c: Ctx, path: string) => path.endsWith("/") || isDirectory(res
 
 const unique = (items: string[]) => [...new Set(items)];
 
-// The id of the step's artifact whose path holds `file`, if any.
-function artifactHolding(c: Ctx, step: Step, file: string): string | undefined {
-  return place(c, [...step.produces, ...step.optional_produces, ...step.updates]).find((a) => contains(a.path, file))?.artifact.artifact;
-}
+// The step's declared artifacts with their paths, in the order it declares them.
+const declaredOf = (c: Ctx, step: Step) => place(c, [...step.produces, ...step.optional_produces, ...step.updates]);
+
+// The ids of the step's artifacts whose paths hold `file`.
+const holders = (c: Ctx, step: Step, file: string) =>
+  unique(declaredOf(c, step).filter((a) => contains(a.path, file)).map((a) => a.artifact.artifact));
+
+const isUpdates = (step: Step, id: string | undefined) => step.updates.some((a) => a.artifact === id);
 
 // Whether a library entry gives the artifact a guide of its own.
 const hasGuide = (c: Ctx, id: string | undefined) => (id === undefined ? false : Boolean(libraryEntry(c.p, id)?.guide));
@@ -182,11 +215,18 @@ function bindInstruction(c: Ctx, check: string): string {
     : base;
 }
 
+// The command as the agent runs it by hand: with the variables fuse-flow sets
+// when it runs the command, and through sh -c as fuse-flow does, so that a
+// command that reads them in its own text sees them too.
+function byHand(c: Ctx, step: Step, command: string): string {
+  return `FUSE_FLOW_SLUG=${shellQuote(c.slug)} FUSE_FLOW_STEP=${shellQuote(step.id)} sh -c ${shellQuote(command)}`;
+}
+
 // Runs from the repository root with the caller's environment, like a
-// Makefile target. Keeps only the end of the output: enough to see why it
-// failed without flooding the agent's context. The output goes to a file
-// rather than into memory, so a check that prints any amount still finishes
-// and reports its own exit code.
+// Makefile target, plus FUSE_FLOW_SLUG and FUSE_FLOW_STEP. Keeps only the end
+// of the output: enough to see why it failed without flooding the agent's
+// context. The output goes to a file rather than into memory, so a check that
+// prints any amount still finishes and reports its own exit code.
 const OUTPUT_TAIL_LINES = 20;
 const OUTPUT_TAIL_BYTES = 64 * 1024;
 
@@ -510,6 +550,10 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   if (owned.length) {
     lines.push("RULINGS: where this workflow and the house rules overlap, the owner ruled:", ...owned.map((r) => `  - ${r}`));
   }
+  // The owner's words with the decisions that led into this pass, so the
+  // agent need not carry them over from the conversation.
+  const notes = ownerNotes(state.history);
+  for (const note of notes) lines.push(`OWNER SAID: "${note}"`);
   const ff = `${FUSE_FLOW} continue ${c.slug}`;
 
   const cond = step.condition;
@@ -597,7 +641,8 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   }
 
   const existed = new Set(state.existed ?? []);
-  const earlier = state.earlier_pass ?? [];
+  const earlierFiles = (state.files ?? []).filter((f) => f.pass === "earlier");
+  const earlier = unique(earlierFiles.map((f) => f.path));
   const artifactLine = (label: string, a: Placed, missingNote?: string) => {
     let line = `${label} ${a.path} (${a.artifact.artifact}).`;
     const entry = libraryEntry(c.p, a.artifact.artifact);
@@ -617,7 +662,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   };
   for (const a of place(c, step.produces)) {
     let note: string | undefined;
-    if (existed.has(a.path) && earlier.some((f) => contains(a.path, f))) {
+    if (existed.has(a.path) && earlierFiles.some((f) => f.artifact === a.artifact.artifact)) {
       note = `${a.path} existed before this workstream; the files this workstream wrote in it are listed under EARLIER PASS.`;
     } else if (existed.has(a.path)) {
       note =
@@ -637,10 +682,23 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
       artifactLine("UPDATE", a, onDisk(c, a.path) ? undefined : `${a.path} does not exist yet; create it and report it with --updated.`),
     );
   }
+  // A file in the paths of two artifacts does not say which it counts for.
+  const declared = declaredOf(c, step);
+  const nested = declared.flatMap((inner, i) =>
+    declared
+      .filter((outer, j) => outer.artifact.artifact !== inner.artifact.artifact && contains(outer.path, inner.path) && (j < i || tidy(outer.path) !== tidy(inner.path)))
+      .map((outer) => `${inner.path} (${inner.artifact.artifact}) lies inside ${outer.path} (${outer.artifact.artifact})`),
+  );
+  if (nested.length) {
+    lines.push(`FILES IN TWO ARTIFACTS: ${nested.join("; ")}. Name a file there with --updated <artifact>=<file>, once for each artifact it counts for.`);
+  }
   if (earlier.length) {
     lines.push(
       `EARLIER PASS: this step ran before the owner sent the work back, and wrote ${earlier.join(", ")}. Check each ` +
-        "against what changed since: keep it, update it, or redo it, and propose to the owner which.",
+        (notes.length
+          ? "against what changed since. Follow the owner's notes where they decide what happens to a file; for the " +
+            "files they do not mention, keep it, update it, or redo it, and propose to the owner which."
+          : "against what changed since: keep it, update it, or redo it, and propose to the owner which."),
     );
   }
 
@@ -652,6 +710,10 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   if (guides.any()) lines.push(`GUIDES: ${guidePrecedence(c, guides, "author")}`);
   lines.push("WHEN THE WORK IS DONE:");
   let n = 0;
+  // Reviews run in list order, so the agent reached the latest review the
+  // owner accepted only after the reviews before it had passed in this pass.
+  const accepted = state.accepted_gates ?? [];
+  const lastAccepted = Math.max(0, ...accepted);
   for (const g of gatesInOrder(step)) {
     if (g.kind === "workflow") {
       lines.push(`  ${++n}. Make sure workstream ${child} is complete. fuse-flow checks it on continue and refuses the step until it is.`);
@@ -660,14 +722,21 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
       const again = "fuse-flow runs it again on continue and refuses the step while it fails.";
       if (m.kind === "run") {
         const what = g.kind === "check" ? `, the project's ${g.text} check (bound in ${display(c.p, checkBinding(c.p, g.text)!.file)})` : "";
-        lines.push(`  ${++n}. Run \`${m.command}\`${what}. Fix the work, or the check if the check is wrong, until it passes. ${again}`);
+        lines.push(`  ${++n}. Run \`${byHand(c, step, m.command)}\`${what}. Fix the work, or the check if the check is wrong, until it passes. ${again}`);
       } else if (m.kind === "none") {
         lines.push(`  ${++n}. The ${g.text} check is not configured in this project (bound to none in ${m.file}); there is nothing to run.`);
       } else {
         lines.push(`  ${++n}. ${bindInstruction(c, m.check)} Then run it and fix the work until it passes. ${again}`);
       }
     } else if (g.kind === "agent") {
-      lines.push(`  ${++n}. ${reviewText(c, ws, g, step, state, reviewed)}`);
+      ++n;
+      lines.push(
+        accepted.includes(n)
+          ? `  ${n}. The owner accepted this review (${g.text}) as it was; do not run it again.`
+          : n < lastAccepted
+            ? `  ${n}. This review (${g.text}) passed earlier in this pass; do not run it again.`
+            : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)}`,
+      );
     }
   }
 
@@ -778,7 +847,23 @@ function guidePrecedence(c: Ctx, guides: Guides, who: "author" | "reviewer"): st
   );
 }
 
-function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepState, reviewed: Placed[]): string {
+// The same cap, as the status view shows it.
+function statusCap(c: Ctx, g: Gate, state: StepState): string {
+  const cap = maxRounds(c.p, g);
+  const granted = state.rounds_granted ?? 0;
+  return granted ? `${cap + granted}, ${cap} plus ${granted} granted` : `${cap}`;
+}
+
+// Where a review gate's reviewer writes its findings, with <n> for the round.
+function findingsFile(c: Ctx, g: Gate, step: Step, state: StepState): string {
+  const agentGates = step.gates.filter((x) => x.kind === "agent");
+  const gateName = agentGates.length > 1 ? `-gate${agentGates.indexOf(g) + 1}` : "";
+  return `${display(c.p, reviewsDir(c.root, c.slug))}/${step.id}${gateName}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
+}
+
+// `n` is the gate's number in the step block's list; `notes` whether the
+// owner gave notes in this pass.
+function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepState, reviewed: Placed[], n: number, notes: boolean): string {
   let text = `Have an independent agent ${g.text.replace(/\.$/, "")}.`;
   const guided: string[] = [];
   const parts: string[] = [];
@@ -840,10 +925,8 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
       " In a launch command, replace {model} and {effort} with the reviewer's, {prompt_file} with a file you " +
       "write the review request to, and {findings_file} with the findings file.";
   }
-  const agentGates = step.gates.filter((x) => x.kind === "agent");
-  const gateName = agentGates.length > 1 ? `-gate${agentGates.indexOf(g) + 1}` : "";
   const dir = display(c.p, reviewsDir(c.root, c.slug));
-  const findings = `${dir}/${step.id}${gateName}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
+  const findings = findingsFile(c, g, step, state);
   text +=
     ` The reviewer writes its findings to ${findings}, where <n> is the round, following ` +
     `${display(c.p, FINDINGS_SCHEMA)}; read them from there.`;
@@ -855,16 +938,19 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
   if (guided.length || authoring.length) {
     text += ` Give the reviewer the step instruction as well: ${guidePrecedence(c, precedence, "reviewer")}`;
   }
+  if (notes) text += " Give the reviewer the owner's notes as well.";
   if (state.pass) {
     text +=
       ` This is pass ${state.pass} of this step, because the owner sent the work back: count only this pass's rounds ` +
       "against the cap. The review covers the whole artifact. Give the reviewer the findings files of the earlier " +
       `passes of this step, in ${dir}/, with how each finding was handled.`;
   }
+  // The same rule, in the same words, as the fuse review guide's.
   text +=
     " Every round that ends with a required fix counts, whatever the cause. After " +
-    `${capOf(c, g, state)} such rounds, do not start another; run \`${FUSE_FLOW} continue ${c.slug} --blocked ` +
-    `"<what is still open, and why the review does not converge>"\`.`;
+    `${capOf(c, g, state)} such rounds, make the last round's fixes anyway, start no further review, and report the ` +
+    `step blocked, naming the fixes no reviewer has seen: run \`${FUSE_FLOW} continue ${c.slug} --blocked ` +
+    `"<what is still open, and the fixes no reviewer has seen>" --gate ${n}\`.`;
   return text;
 }
 
@@ -873,14 +959,22 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
 function producedLine(c: Ctx, step: Step, state: StepState): string {
   const existed = new Set(state.existed ?? []);
   const files: string[] = [];
-  const updatesPaths = place(c, step.updates).map((a) => a.path);
-  const updatesIds = new Set(step.updates.map((a) => a.artifact));
+  const listed: string[] = [];
   for (const a of state.artifacts) {
-    if (a.artifact && updatesIds.has(a.artifact)) continue; // listed by file below
+    if (isUpdates(step, a.artifact)) continue; // listed by file below
     files.push(`${a.path} (${existed.has(a.path) ? "updated" : "new"})`);
+    listed.push(a.path);
   }
-  for (const f of state.updated ?? []) {
-    files.push(updatesPaths.some((p) => contains(p, f)) ? `${f} (updated)` : `${f} (updated, outside the declared paths)`);
+  // The files the agent named that are not documents of their own: revisions
+  // of an updates artifact, and files outside every declared path. One that
+  // is also a produced document, or lies in a produced folder listed whole,
+  // is listed once, as that.
+  const reported = (state.files ?? []).filter((f) => f.pass === "this" && f.kind === "file" && (f.artifact === undefined || isUpdates(step, f.artifact)));
+  const shown = new Set<string>();
+  for (const f of reported) {
+    if (shown.has(f.path) || listed.some((p) => contains(p, f.path))) continue;
+    shown.add(f.path);
+    files.push(f.artifact === undefined ? `${f.path} (updated, outside the declared paths)` : `${f.path} (updated)`);
   }
   const parts: string[] = [];
   if (files.length >= 5) {
@@ -901,9 +995,15 @@ function verificationLine(c: Ctx, step: Step, state: StepState): string {
   const notRun = (g: Gate) => (g.kind === "workflow" ? `workstream ${childOf(c, state, step)}: not checked` : `${mechanical(c, g).label}: not run`);
   const parts = state.verification ? [...state.verification] : mechanicalGates.map(notRun);
   for (const g of gatesInOrder(step)) {
-    if (g.kind === "agent") parts.push(`review (${g.text}): <rounds used> of ${capOf(c, g, state)} rounds, <any required fix still open>`);
+    if (g.kind === "agent") parts.push(reviewResult(c, g, step, state, "<any required fix still open, and any fix made after the last review, which no reviewer has seen>"));
   }
   return `VERIFICATION: ${parts.join("; ") || "none"}`;
+}
+
+// A review gate's part of a VERIFICATION line, with `rest` after the rounds.
+function reviewResult(c: Ctx, g: Gate, step: Step, state: StepState, rest: string): string {
+  if ((state.accepted_gates ?? []).includes(gateNumber(step, g))) return `review (${g.text}): accepted by the owner as it was`;
+  return `review (${g.text}): <rounds used> of ${capOf(c, g, state)} rounds, ${rest}`;
 }
 
 function stepsWithArtifacts(c: Ctx, step: Step): string {
@@ -929,7 +1029,13 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
     const done = c.wf.steps.filter((s) => stateOf(ws, s.id).status === "COMPLETED");
     const produced = done.map((s) => `${s.id}: ${producedLine(c, s, stateOf(ws, s.id)).replace(/^PRODUCED: /, "")}`).filter((l) => !l.endsWith(": none"));
     const verified = done.flatMap((s) => (stateOf(ws, s.id).verification ?? []).map((v) => `${s.id}: ${v}`));
-    const reviews = done.filter((s) => s.gates.some((g) => g.kind === "agent")).map((s) => `${s.id}: <review rounds used>`);
+    // The engine prints each review's cap; the agent counts the rounds it used.
+    const reviews = done.flatMap((s) => {
+      const state = stateOf(ws, s.id);
+      return s.gates
+        .filter((g) => g.kind === "agent")
+        .map((g) => `${s.id}: ${reviewResult(c, g, s, state, `counted from the findings files of the step's last pass, ${findingsFile(c, g, s, state)}`)}`);
+    });
     const handOffs = c.wf.hands_off_to;
     const next = handOffs.length
       ? `NEXT STEP: <what the owner may want next, with the workflow that comes after this one where it applies: ${handOffs
@@ -999,18 +1105,49 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
   } else {
     const why = state.history.findLast((h) => h.includes("blocked"))?.replace(/^\S+ /, "") ?? "blocked";
     const pending = waitingFor(c, step);
-    lines.push(
-      `STATUS: blocked. ${why}`,
-      producedLine(c, step, state),
-      verificationLine(c, step, state),
-      "NEXT STEP:",
-      pending ? `  - Skip this step, without what workstream ${pending.slug} would return.` : "  - Accept the step as it is.",
-    );
-    commands.push(
-      pending
-        ? `  - The owner skips the step: run \`${ff} --skip "<the owner's reason>"\`.`
-        : `  - The owner accepts the step as it is: run \`${ff} --owner-approved --note "<the owner's decision>"\`.`,
-    );
+    lines.push(`STATUS: blocked. ${why}`, producedLine(c, step, state), verificationLine(c, step, state), "NEXT STEP:");
+    if (pending) {
+      lines.push(`  - Skip this step, without what workstream ${pending.slug} would return.`);
+      commands.push(`  - The owner skips the step: run \`${ff} --skip "<the owner's reason>"\`.`);
+    } else {
+      // Accepting the step completes it, so the gates not yet passed never
+      // run; the options name them. When the agent said which review it was
+      // blocked at, the owner can accept that review alone instead.
+      const gates = gatesInOrder(step);
+      const open = (i: number) => gates[i].kind !== "owner-action" && !(state.accepted_gates ?? []).includes(i + 1);
+      const at = state.blocked_gate;
+      const passed = (g: Gate) =>
+        g.kind === "workflow" ||
+        ((g.kind === "check" || g.kind === "script") &&
+          (state.verification ?? []).some((v) => v === `${mechanical(c, g).label}: passed` || v === `${mechanical(c, g).label}: not configured in this project`));
+      const skipped = gates.filter((g, i) => open(i) && (at === undefined ? !passed(g) : i >= at)).map((g) => gateLabel(c, step, state, g));
+      // Accepting the whole step also completes it without the owner's actions.
+      const owners = ownerGates(step).map((g) => gateLabel(c, step, state, g));
+      const bypassed = [...skipped, ...owners];
+      const reaches = owners.length ? `awaits the owner action${owners.length > 1 ? "s" : ""}: ${owners.join(", and ")}` : "";
+      const accept = `run \`${ff} --owner-approved --note "<the owner's decision>"\``;
+      if (at !== undefined) {
+        // Accepting the review alone hands the step back to the agent even
+        // when no gate is ahead: its plain continue still reruns the checks,
+        // records the work and reaches any owner action.
+        lines.push(
+          skipped.length
+            ? `  - Accept this review as it is, and go on with the gates still ahead: ${skipped.join(", ")}${reaches && `; the step then ${reaches}`}.`
+            : `  - Accept this review as it is, and finish the step${reaches && `; it then ${reaches}`}.`,
+          bypassed.length ? `  - Accept the whole step as it is, without the gates still ahead: ${bypassed.join(", ")}.` : "  - Accept the whole step as it is.",
+        );
+        commands.push(
+          `  - The owner accepts this review as it is: run \`${ff} --owner-approved --gate ${at} --note "<the owner's decision>"\`.`,
+          `  - The owner accepts the whole step as it is: ${accept}.`,
+        );
+      } else if (!bypassed.length) {
+        lines.push("  - Accept the step as it is.");
+        commands.push(`  - The owner accepts the step as it is: ${accept}.`);
+      } else {
+        lines.push(`  - Accept the whole step as it is, without the gates not recorded as passed: ${bypassed.join(", ")}.`);
+        commands.push(`  - The owner accepts the step as it is: ${accept}.`);
+      }
+    }
     if (step.gates.some((g) => g.kind === "agent")) {
       lines.push("  - Allow more review rounds, and how many.");
       commands.push(`  - The owner grants more review rounds: run \`${ff} --more-rounds <n> --note "<the owner's decision>"\`.`);
@@ -1089,6 +1226,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   );
   const ws = readWorkstream(root, slug);
   const c: Ctx = { root, slug, wf, p, date: startedOn(ws) };
+  convertOldState(c, ws);
   const header = [`${resumed ? "resumed" : "minted"} workstream ${slug}`, `workflow: ${path}`, `state:    ${workstreamFile(root, slug)}`];
   const base = baseText(root, ws, true);
   if (base) header.push(`base:     ${base}`);
@@ -1147,13 +1285,21 @@ export interface Continue {
   ownerApproved: boolean;
   note?: string;
   blocked?: string;
+  gate?: number; // with blocked: the review the step is blocked at; with ownerApproved: the review the owner accepts
   skip?: string;
   moreRounds?: number;
   backTo?: string;
   forwardTo?: string;
-  updated: string[]; // absolute paths
+  updated: Named[];
   unchanged: Record<string, string>;
   notProduced: Record<string, string>;
+}
+
+// A file the agent named with --updated: an absolute path, with the artifact
+// it counts for when the agent wrote --updated <artifact>=<file>.
+export interface Named {
+  artifact?: string;
+  file: string;
 }
 
 export function continueWorkstream(root: string, slug: string, input: Continue): string[] {
@@ -1169,6 +1315,7 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
   if (input.skip !== undefined) return skipStep(c, step, input.skip);
   if (input.moreRounds !== undefined) return grantRounds(c, step, input.moreRounds, input.note);
   if (input.backTo !== undefined) return sendBack(c, step, input.backTo, input.note, input.updated);
+  if (input.ownerApproved && input.gate !== undefined) return acceptReview(c, step, input.gate, input.note);
   if (input.ownerApproved) return approveStep(c, step, input.note);
 
   if (status === "AWAITING_OWNER" || status === "BLOCKED") {
@@ -1178,7 +1325,7 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
     );
   }
   if (status === "PENDING") throw new FlowError(present(c).join("\n"));
-  if (input.blocked !== undefined) return blockStep(c, step, input.blocked);
+  if (input.blocked !== undefined) return blockStep(c, step, input.blocked, input.gate, input.updated);
   return finishStep(c, step, input);
 }
 
@@ -1237,7 +1384,12 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     unchanged: byArtifactId(c, "unchanged", "updates", step.updates, given.unchanged),
     notProduced: byArtifactId(c, "not-produced", "produces", step.produces, given.notProduced),
   };
-  const updated = [...new Set(input.updated.map((f) => display(c.p, f)))];
+  const before = stateOf(readWorkstream(c.root, c.slug), step.id);
+  const named = namedFiles(c, step, input.updated);
+  // What the step wrote, by artifact: the files named now and what earlier
+  // commands recorded, in this pass or an earlier one.
+  const entries = [...named, ...(before.files ?? [])].filter((f) => stands(c, step, f));
+  const wrote = (id: string, thisPass: boolean) => entries.some((f) => f.artifact === id && (!thisPass || f.pass === "this"));
 
   // The child workstream comes first: the step's own work builds on it.
   const verification: string[] = [];
@@ -1267,9 +1419,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
         `the step rightly does not produce with --not-produced <artifact> "<reason>".`,
     );
   }
-  const unaccounted = place(c, step.updates).filter(
-    (a) => !has(input.unchanged, a.artifact.artifact) && !updated.some((f) => contains(a.path, f)),
-  );
+  const unaccounted = place(c, step.updates).filter((a) => !has(input.unchanged, a.artifact.artifact) && !wrote(a.artifact.artifact, true));
   if (unaccounted.length) {
     throw refuse(
       c,
@@ -1280,11 +1430,9 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   }
   // A folder that existed before the step, such as a research folder shared
   // with other work, does not say which files in it are this workstream's.
-  const before = stateOf(readWorkstream(c.root, c.slug), step.id);
-  const kept = (before.earlier_pass ?? []).filter((f) => onDisk(c, f));
-  const shared = (a: Placed) => (before.existed ?? []).includes(a.path) && isFolder(c, a.path);
+  // Files an earlier pass wrote in it count while they are there.
   const unnamed = produced.filter(
-    (a) => !has(input.notProduced, a.artifact.artifact) && shared(a) && ![...updated, ...kept].some((f) => contains(a.path, f)),
+    (a) => !has(input.notProduced, a.artifact.artifact) && shared(c, before, a) && !wrote(a.artifact.artifact, false),
   );
   if (unnamed.length) {
     throw refuse(
@@ -1326,38 +1474,10 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   const awaitsOwner = ownerGates(step).length > 0;
   updateWorkstream(c.root, c.slug, (ws) => {
     const state = expectState(c, ws, step, ["IN_PROGRESS"]);
-    const status = awaitsOwner ? "draft" : "approved";
-    // A folder artifact is recorded file by file when the agent named the
-    // files it wrote in it, so the record says which files are this step's.
-    const inFolders: string[] = [];
-    const records: StepState["artifacts"] = [];
-    for (const a of [...produced, ...place(c, step.optional_produces)]) {
-      if (has(input.notProduced, a.artifact.artifact) || !onDisk(c, a.path)) continue;
-      const files = isFolder(c, a.path) ? updated.filter((f) => contains(a.path, f) && onDisk(c, f)) : [];
-      inFolders.push(...files);
-      if (files.length) records.push(...files.map((path) => ({ artifact: a.artifact.artifact, path, status })));
-      // A shared folder is never recorded whole; the files kept from an
-      // earlier pass are added below.
-      else if (!shared(a)) records.push({ artifact: a.artifact.artifact, path: a.path, status });
-    }
-    for (const a of place(c, step.updates)) {
-      if (onDisk(c, a.path)) records.push({ artifact: a.artifact.artifact, path: a.path, status });
-    }
-    // Files from an earlier pass that are still there, and that the agent
-    // kept rather than redid, stay recorded, unless the agent reported their
-    // artifact not produced this time.
-    for (const path of kept) {
-      const artifact = artifactHolding(c, step, path);
-      if (artifact !== undefined && has(input.notProduced, artifact)) continue;
-      if (!records.some((r) => r.path === path)) records.push({ artifact, path, status });
-    }
-    state.artifacts = records;
-    const rest = updated.filter((f) => !inFolders.includes(f));
-    setOrDelete(state, "updated", rest.length ? rest : undefined);
+    record(c, step, state, named, awaitsOwner ? "draft" : "approved", "finish", input.notProduced);
     setOrDelete(state, "unchanged", Object.keys(input.unchanged).length ? input.unchanged : undefined);
     setOrDelete(state, "not_produced", Object.keys(input.notProduced).length ? input.notProduced : undefined);
     setOrDelete(state, "verification", verification.length ? verification : undefined);
-    if (!awaitsOwner) delete state.earlier_pass;
     state.status = awaitsOwner ? "AWAITING_OWNER" : "COMPLETED";
     state.history.push(stamp(awaitsOwner ? EVENT.awaitingOwner() : EVENT.completed()));
   });
@@ -1369,9 +1489,154 @@ function setOrDelete<K extends keyof StepState>(state: StepState, key: K, value:
   else state[key] = value;
 }
 
-function blockStep(c: Ctx, step: Step, reason: string): string[] {
+// A produces folder that existed before the step, such as a research folder
+// shared with other work: only the files the step names in it are the step's.
+const shared = (c: Ctx, state: StepState, a: Placed) => (state.existed ?? []).includes(a.path) && isFolder(c, a.path);
+
+// The files the agent named with --updated, each under the artifact it counts
+// for: the one it names, or the one whose declared path holds the file. A
+// file in the paths of two artifacts must say which; a file outside every
+// declared path counts for none.
+function namedFiles(c: Ctx, step: Step, given: Named[]): Written[] {
+  const declared = declaredOf(c, step);
+  return given.map(({ artifact, file }) => {
+    const path = display(c.p, file);
+    const ids = holders(c, step, path);
+    if (artifact !== undefined && !ids.includes(artifact)) {
+      const own = declared.find((a) => a.artifact.artifact === artifact);
+      const known = declared.map((a) => `${a.artifact.artifact} (${a.path})`).join(", ") || "it has none";
+      throw new FlowError(`--updated ${artifact}=${path}: ${own ? `${path} is not inside ${own.path}, the path of ${artifact}` : `the step has no artifact ${artifact} (${known})`}`);
+    }
+    if (artifact === undefined && ids.length > 1) {
+      throw new FlowError(
+        `--updated ${path}: the file lies in the paths of ${ids.join(" and ")}, so name the artifact it counts for, as in ` +
+          `${ids.map((id) => `--updated ${id}=${path}`).join(" or ")}; repeat the flag for each artifact it counts for`,
+      );
+    }
+    const id = artifact ?? ids[0];
+    return { ...(id === undefined ? {} : { artifact: id }), path, kind: "file", pass: "this", status: "draft" };
+  });
+}
+
+// Whether an entry still stands: the agent's report of a file it revised for
+// an updates artifact, or of a file outside every declared path, stands for
+// the pass it was made in; any other entry stands while its path is on disk.
+const stands = (c: Ctx, step: Step, f: Written) =>
+  onDisk(c, f.path) || (f.pass === "this" && f.kind === "file" && (f.artifact === undefined || isUpdates(step, f.artifact)));
+
+// Record what the step wrote, for a finished, blocked or sent-back step
+// alike: the files the agent named now, before what earlier commands
+// recorded, and with `scan` the declared paths on disk. A blocked step
+// records an updates path only when a file was named for it; a finished step
+// records every one on disk. A produced folder the step created is recorded
+// whole unless files were named for it in this pass; once recorded whole, it
+// stands for the files of its own artifact in it, in any pass. A folder
+// shared with other work is never recorded whole. Entries of an artifact
+// reported not produced are removed, and only those. `artifacts`, which later
+// steps, hand-overs and other workstreams read, follows from the entries.
+function record(
+  c: Ctx,
+  step: Step,
+  state: StepState,
+  named: Written[],
+  status: "draft" | "approved",
+  scan: "finish" | "block" | "none",
+  notProduced: Record<string, string> = {},
+): void {
+  let files = [...named, ...(state.files ?? [])].filter((f) => !has(notProduced, f.artifact ?? "") && stands(c, step, f));
+  const ours = (id: string) => files.some((f) => f.pass === "this" && f.artifact === id);
+  const whole = (a: Placed): Written => ({ artifact: a.artifact.artifact, path: a.path, kind: "whole", pass: "this", status });
+  if (scan !== "none") {
+    for (const a of place(c, [...step.produces, ...step.optional_produces])) {
+      if (has(notProduced, a.artifact.artifact) || !onDisk(c, a.path)) continue;
+      if (!isFolder(c, a.path) || (!shared(c, state, a) && !ours(a.artifact.artifact))) files.push(whole(a));
+    }
+    for (const a of place(c, step.updates)) {
+      if (onDisk(c, a.path) && (scan === "finish" || ours(a.artifact.artifact))) files.push(whole(a));
+    }
+  }
+  const absorbed = (f: Written) =>
+    f.kind === "file" &&
+    !isUpdates(step, f.artifact) &&
+    files.some((o) => o.kind === "whole" && o.artifact === f.artifact && tidy(o.path) !== tidy(f.path) && contains(o.path, f.path));
+  // This pass's entry wins over an earlier pass's.
+  files = once(files.filter((f) => !absorbed(f)).sort((a, b) => Number(a.pass === "earlier") - Number(b.pass === "earlier"))).map((f) => ({ ...f, status }));
+  setOrDelete(state, "files", files.length ? files : undefined);
+  state.artifacts = recordsOf(c, step, files);
+}
+
+// Each entry once, the first of each.
+const once = (files: Written[]) => files.filter((f, i) => files.findIndex((o) => o.artifact === f.artifact && o.path === f.path && o.kind === f.kind) === i);
+
+// What later steps read: each declared path recorded whole and each file of
+// a produced artifact, in the order the step declares its artifacts. An
+// updates artifact is recorded by its path, not by the files named for it.
+function recordsOf(c: Ctx, step: Step, files: Written[]): StepState["artifacts"] {
+  const order = declaredOf(c, step).map((a) => a.artifact.artifact);
+  const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
+  const records = files.filter((f): f is Written & { artifact: string } => f.artifact !== undefined && (f.kind === "whole" || !isUpdates(step, f.artifact)));
+  // A file named for an updates artifact stands for its declared path, even
+  // where nothing recorded the path whole, as after a send-back of a step
+  // that was blocked or awaiting the owner.
+  for (const a of place(c, step.updates)) {
+    const named = files.find((f) => f.artifact === a.artifact.artifact && f.kind === "file");
+    if (named && onDisk(c, a.path) && !records.some((r) => r.artifact === a.artifact.artifact)) {
+      records.push({ artifact: a.artifact.artifact, path: a.path, kind: "whole", pass: named.pass, status: named.status });
+    }
+  }
+  return records
+    .filter((r, i) => records.findIndex((o) => o.artifact === r.artifact && tidy(o.path) === tidy(r.path)) === i)
+    .sort((a, b) => rank(a.artifact) - rank(b.artifact))
+    .map(({ artifact, path, status }) => ({ artifact, path, status }));
+}
+
+// State files written before `files` kept bare paths, `updated` and
+// `earlier_pass`, beside the records. Converted once, each path placed as the
+// old rules placed it: under the artifacts its records name, else under
+// every declared path that holds it.
+function convertOldState(c: Ctx, ws: Workstream): void {
+  const old = (s: StepState) => s.updated !== undefined || s.earlier_pass !== undefined || (s.files === undefined && s.artifacts.length > 0);
+  if (!Object.values(ws.steps).some(old)) return;
+  updateWorkstream(c.root, c.slug, (fresh) => {
+    for (const [id, s] of Object.entries(fresh.steps)) {
+      if (!old(s)) continue;
+      const step = c.wf.steps.find((x) => x.id === id);
+      const declared = step ? declaredOf(c, step) : [];
+      const ids = (path: string) => {
+        const recorded = s.artifacts.flatMap((r) => (r.path === path && r.artifact !== undefined ? [r.artifact] : []));
+        const held = step ? holders(c, step, path) : [];
+        return recorded.length ? recorded : held.length ? held : [undefined];
+      };
+      const earlier = new Set(s.earlier_pass ?? []);
+      const entry = (artifact: string | undefined, path: string, pass: Written["pass"], status: Written["status"] = "draft"): Written => {
+        const whole = declared.some((a) => a.artifact.artifact === artifact && tidy(a.path) === tidy(path));
+        return { ...(artifact === undefined ? {} : { artifact }), path, kind: whole ? "whole" : "file", pass, status };
+      };
+      const files = once([
+        ...s.artifacts.map((r) => entry(r.artifact ?? ids(r.path)[0], r.path, earlier.has(r.path) ? "earlier" : "this", r.status)),
+        // A named file counted for every updates path that held it, whatever
+        // its records say: a report inside the code accounts for the code.
+        ...(s.updated ?? []).flatMap((path) => [...new Set([...ids(path), ...(step ? holders(c, step, path) : [])])].map((a) => ({ ...entry(a, path, "this"), kind: "file" as const }))),
+        ...[...earlier].filter((path) => !s.artifacts.some((r) => r.path === path)).flatMap((path) => ids(path).map((a) => entry(a, path, "earlier"))),
+      ]);
+      setOrDelete(s, "files", files.length ? files : undefined);
+      delete s.updated;
+      delete s.earlier_pass;
+    }
+  });
+}
+
+// The agent reports the step blocked. What it has written so far is recorded
+// as draft, as when the step finishes, so the hand-over lists it, the
+// owner's acceptance keeps it, and a later finish or block in this pass
+// builds on it.
+function blockStep(c: Ctx, step: Step, reason: string, gate: number | undefined, given: Named[]): string[] {
+  if (gate !== undefined) reviewNumbered(step, gate);
+  const named = namedFiles(c, step, given);
   updateWorkstream(c.root, c.slug, (ws) => {
     const state = expectState(c, ws, step, ["IN_PROGRESS"]);
+    record(c, step, state, named, "draft", "block");
+    setOrDelete(state, "blocked_gate", gate);
     state.status = "BLOCKED";
     state.history.push(stamp(EVENT.blocked(reason)));
   });
@@ -1403,6 +1668,7 @@ function grantRounds(c: Ctx, step: Step, n: number, note?: string): string[] {
     const state = expectState(c, ws, step, ["IN_PROGRESS", "BLOCKED"]);
     state.status = "IN_PROGRESS";
     state.rounds_granted = (state.rounds_granted ?? 0) + n;
+    delete state.blocked_gate;
     state.history.push(stamp(EVENT.roundsGranted(n, note)));
   });
   return [`${step.id}: owner granted ${n} more review round${n === 1 ? "" : "s"}; the step is IN_PROGRESS`, "", ...present(c)];
@@ -1416,12 +1682,11 @@ function reopen(state: StepState, line: string): void {
   // skipped still had a pass.
   const sentBack = state.history.findLastIndex((h) => / owner sent the work back /.test(h));
   const ran = state.history.slice(sentBack + 1).some((h) => /^\S+ handed out/.test(h));
-  const earlier = unique([...(state.earlier_pass ?? []), ...state.artifacts.map((a) => a.path), ...(state.updated ?? [])]);
-  if (earlier.length) state.earlier_pass = earlier;
   if (ran) state.pass = (state.pass ?? 1) + 1;
   state.status = "PENDING";
-  for (const a of state.artifacts) if (a.status === "approved") a.status = "draft";
-  for (const key of ["rounds_granted", "updated", "unchanged", "not_produced", "verification", "skip_reason"] as const) {
+  for (const a of [...state.artifacts, ...(state.files ?? [])]) if (a.status === "approved") a.status = "draft";
+  for (const f of state.files ?? []) f.pass = "earlier";
+  for (const key of ["rounds_granted", "blocked_gate", "accepted_gates", "unchanged", "not_produced", "verification", "skip_reason"] as const) {
     delete state[key];
   }
   state.history.push(line);
@@ -1444,26 +1709,19 @@ function statusReminder(c: Ctx, records: StepState["artifacts"], to: "draft" | "
 
 // The owner sends the work back from the current step, whatever its status,
 // to `target`, the step itself or an earlier one. What the current step has
-// written so far is recorded as draft first, so its next pass can build on it.
-function sendBack(c: Ctx, step: Step, target: string, note: string | undefined, given: string[]): string[] {
+// written so far is recorded as draft first, so its next pass can build on it:
+// a step in progress records it as a blocked step does; a finished or blocked
+// step recorded it then, and adds only the files named now.
+function sendBack(c: Ctx, step: Step, target: string, note: string | undefined, given: Named[]): string[] {
   const from = c.wf.steps.findIndex((s) => s.id === target);
   const at = c.wf.steps.indexOf(step);
   if (from < 0) throw new FlowError(`no step "${target}" in workflow ${c.wf.name}`);
   if (from > at) throw new FlowError(`step "${target}" comes after "${step.id}"; --back-to names "${step.id}" or a step before it`);
-  const updated = unique(given.map((f) => display(c.p, f)));
+  const named = namedFiles(c, step, given);
   const reopened: StepState["artifacts"] = [];
   updateWorkstream(c.root, c.slug, (ws) => {
     const current = expectState(c, ws, step, ["PENDING", "IN_PROGRESS", "AWAITING_OWNER", "BLOCKED"]);
-    const known = (path: string) => current.artifacts.some((a) => a.path === path);
-    const existed = current.existed ?? [];
-    for (const a of place(c, step.produces)) {
-      if (!known(a.path) && onDisk(c, a.path) && !isFolder(c, a.path) && !existed.includes(a.path)) {
-        current.artifacts.push({ artifact: a.artifact.artifact, path: a.path, status: "draft" });
-      }
-    }
-    for (const path of updated) {
-      if (!known(path)) current.artifacts.push({ artifact: artifactHolding(c, step, path), path, status: "draft" });
-    }
+    record(c, step, current, named, "draft", current.status === "IN_PROGRESS" ? "block" : "none");
     // One line for the whole send-back, written to every reopened step, so
     // the steps carry the same time and a reader counts it once.
     const line = stamp(EVENT.sentBack(step.id, target, note));
@@ -1519,12 +1777,40 @@ function approveStep(c: Ctx, step: Step, note?: string): string[] {
       throw new FlowError(`step "${step.id}" is ${state.status}, not awaiting the owner or blocked; finish it and run continue without --owner-approved`);
     }
     state.status = "COMPLETED";
-    for (const a of state.artifacts) a.status = "approved";
-    delete state.earlier_pass;
+    delete state.blocked_gate;
+    for (const a of [...state.artifacts, ...(state.files ?? [])]) a.status = "approved";
     records = state.artifacts;
     state.history.push(stamp(EVENT.approved(note)));
   });
   return [`${step.id}: owner approved; COMPLETED`, ...statusReminder(c, records, "approved"), "", ...present(c)];
+}
+
+// The owner accepts the review the agent reported the step blocked at, as it
+// is. The step goes back to the agent, which runs the gates still ahead; the
+// accepted review is not run again in this pass.
+function acceptReview(c: Ctx, step: Step, n: number, note?: string): string[] {
+  const g = reviewNumbered(step, n);
+  const label = `review ${n} (${g.text})`;
+  updateWorkstream(c.root, c.slug, (ws) => {
+    const state = stateOf(ws, step.id);
+    if (state.status !== "BLOCKED") {
+      throw new FlowError(`step "${step.id}" is ${state.status}, not blocked; --owner-approved --gate accepts the review a blocked step stopped at`);
+    }
+    const at = state.blocked_gate;
+    if (at === undefined) {
+      throw new FlowError(
+        `the agent did not say which review step "${step.id}" is blocked at; the owner accepts the whole step with --owner-approved alone`,
+      );
+    }
+    if (at !== n) {
+      throw new FlowError(`the step was blocked at review ${at} (${gatesInOrder(step)[at - 1].text}); --gate ${n} accepts only that review`);
+    }
+    state.status = "IN_PROGRESS";
+    delete state.blocked_gate;
+    state.accepted_gates = [...new Set([...(state.accepted_gates ?? []), n])];
+    state.history.push(stamp(EVENT.reviewAccepted(label, note)));
+  });
+  return [`${step.id}: owner accepted ${label} as it is; the step is IN_PROGRESS`, "", ...present(c)];
 }
 
 // -------------------------------------------------------------------- status
@@ -1553,7 +1839,11 @@ export function status(root: string, slug: string): string[] {
     if (child) details.push(`waits for workstream ${child}, which ${whereIs(root, child)}`);
     else if (state.children?.length) details.push(`child workstream${state.children.length > 1 ? "s" : ""} ${state.children.map((ch) => ch.slug).join(", ")}`);
     const marker = step === current ? "> " : "  ";
-    const columns = [step.id.padEnd(width), state.status.padEnd(14), `gates ${describeGates(step.gates).padEnd(6)}`];
+    // Each review shows its cap, so the rounds the agent counts can be read against it.
+    const gates = step.gates.length
+      ? step.gates.map((g) => (g.kind === "agent" ? `${describeGate(g)} [cap ${statusCap(c, g, state)}]` : describeGate(g))).join(", ")
+      : "none";
+    const columns = [step.id.padEnd(width), state.status.padEnd(14), `gates ${gates.padEnd(6)}`];
     return `${marker}${[...columns, details.join("; ")].join("  ")}`.trimEnd();
   });
   const footer = current ? `current step: ${current.id}; ${FUSE_FLOW} start ${slug} prints what to do` : "workflow complete";

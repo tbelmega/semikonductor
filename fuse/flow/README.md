@@ -125,6 +125,12 @@ The step fields have these effects:
 - `updates` has the same mapping shape for artifacts that usually exist before the step, such as
   code. The agent accounts for every updated artifact with one or more `--updated <file>` flags,
   or with `--unchanged <artifact> <reason>`. A missing update path is reported and may be created.
+- `--updated <file>` counts for the artifact whose declared path holds the file, and the engine
+  fixes that artifact when the file is named. A file outside every declared path counts for no
+  artifact. A file inside the paths of two artifacts, such as a report inside the code at `.`, is
+  refused until the agent names the artifact with `--updated <artifact>=<file>`; it repeats the
+  flag for each artifact the file counts for. The step block lists such paths under
+  `FILES IN TWO ARTIFACTS`.
 - `--unchanged` and `--not-produced` name an artifact by its identifier or by its path, relative
   to the current directory. An identifier wins when a name is both. A path that several of the
   step's artifacts share is refused, and the artifact must then be named by its identifier.
@@ -134,7 +140,11 @@ The step fields have these effects:
   Gates run in a fixed order: mechanical gates, agent reviews, then owner actions. List order does
   not change that sequence.
 - `check: <kind>` names a lower-case check kind that policy binds to a command. `script: <command>`
-  is a literal shell command. Both run from the repository root and must exit 0.
+  is a literal shell command. Both run from the repository root through `sh -c` and must exit 0.
+  fuse-flow sets two variables for the command, which it may rely on: `FUSE_FLOW_SLUG`, the
+  workstream's slug, and `FUSE_FLOW_STEP`, the step's id. The step block prints the command with
+  both set, as `FUSE_FLOW_SLUG=<slug> FUSE_FLOW_STEP=<step> sh -c '<command>'`, so a run by hand
+  is the run fuse-flow makes on `continue`.
 - `agent: <review>` tells the maker to obtain an independent review. `max_rounds`, at least 1,
   caps review rounds that end with a required fix. The default is 2. `guide` may name a review
   guide relative to the workflow file or by absolute path. fuse-flow prints these instructions;
@@ -232,23 +242,25 @@ steps:
 |---|---|
 | `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
 | `continue <slug>` | Finish the current step after its artifacts are accounted for and its mechanical gates pass, then print the next step or hand-over block. |
-| `continue <slug> [--updated <file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. |
+| `continue <slug> [--updated [<artifact>=]<file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. A file inside the paths of two artifacts takes the identifier of the one it counts for. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
 | `continue <slug> [--not-produced <artifact> <reason>]...` | Report each required `produces` artifact deliberately not written. Repeat the flag as needed. |
-| `continue <slug> --blocked <why>` | Record that the agent cannot finish the current step, such as at the review round cap. The owner decides what happens next. |
+| `continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...` | Record that the agent cannot finish the current step, such as at the review round cap. `--gate` names the review it is blocked at, by its number in the step block. The files of the step's `produces` paths on disk, and the files named with `--updated`, are recorded as draft, so the hand-over lists them and acceptance keeps them. The owner decides what happens next. |
 | `continue <slug> --skip <why>` | Skip a conditional step, or skip any step after the owner explicitly asks. Records the reason. |
-| `continue <slug> --owner-approved [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it. |
+| `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. |
 | `continue <slug> --more-rounds <n> [--note <text>]` | Add one or more review rounds to an agent gate on an `IN_PROGRESS` or `BLOCKED` step. |
-| `continue <slug> --back-to <step> [--updated <file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes, and its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
+| `continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes, and its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
-| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each file shows once, under the latest step that records it. `approved` means the step's gates passed, whoever ran them; it is the owner's approval only where the step has an owner gate. |
+| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`. Each file shows once, under the latest step that records it. `approved` means the step's gates passed, whoever ran them; it is the owner's approval only where the step has an owner gate. |
 | `list` | List the project's workstreams with their workflow and current step, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
 | `help`, `--help`, `-h` | Print command usage, lookup paths and state location. |
 
 `--note` is valid only with `--owner-approved`, `--more-rounds`, `--back-to` or `--forward-to`.
+`--gate` is valid only with `--blocked` or `--owner-approved`.
 The owner decision flags are mutually exclusive. `--blocked` and `--skip` are mutually exclusive
-reports, and artifact-reporting flags do not accompany either kind. Exit codes are 0 for success,
+reports, and artifact-reporting flags do not accompany either kind, except `--updated` with
+`--back-to` and `--blocked`. Exit codes are 0 for success,
 1 for a refusal, and 64 for a usage error.
 
 ## Output contract
@@ -427,7 +439,7 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
 - `continue` acts on the current step and has no step identifier. Run it once per step. The history
   makes replays visible.
 - Commands in `script` gates and policy-bound checks run like Makefile targets from the repository
-  root with the caller's environment. Use only trusted workflows and policy files.
+  root with the caller's environment, plus `FUSE_FLOW_SLUG` and `FUSE_FLOW_STEP`. Use only trusted workflows and policy files.
 - Owner-decision flags record the owner's word. They do not authenticate who typed it, so the agent
   runs them only after the owner decides.
 - The engine does not create templates, infer check commands, count review rounds, compare file

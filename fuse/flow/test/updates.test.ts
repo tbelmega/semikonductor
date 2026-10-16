@@ -48,7 +48,10 @@ test("continue is refused until every updates artifact is reported as updated or
     "PRODUCED: src/a.ts (updated); docs/extra.md (updated, outside the declared paths); changelog unchanged (nothing user-facing)\n",
   );
   const state = repo.state("feat").steps.change;
-  expect(state.updated).toEqual(["src/a.ts", "docs/extra.md"]);
+  expect(state.files.filter((f: { kind: string }) => f.kind === "file")).toEqual([
+    { artifact: "patch", path: "src/a.ts", kind: "file", pass: "this", status: "draft" },
+    { path: "docs/extra.md", kind: "file", pass: "this", status: "draft" },
+  ]);
   expect(state.unchanged).toEqual({ changelog: "nothing user-facing" });
 });
 
@@ -66,7 +69,8 @@ test("--updated paths are relative to the current directory, and five or more fi
   const r = repo.run(["continue", "feat", ...files.flatMap((f) => ["--updated", f.replace("src/", "")]), "--unchanged", "changelog", "x"], `${repo.root}/src`);
   expect(r.code).toBe(0);
   expect(r.out).toContain('PRODUCED: 5 files under src/checkout/; summarize them, for example "12 files under src/checkout/, with their tests"; changelog unchanged (x)');
-  expect(repo.state("feat").steps.change.updated).toEqual(files);
+  const named = repo.state("feat").steps.change.files.filter((f: { kind: string }) => f.kind === "file");
+  expect(named.map((f: { artifact: string; path: string }) => [f.artifact, f.path])).toEqual(files.map((f) => ["patch", f]));
 });
 
 test("--updated, --unchanged and --not-produced report the agent's work, so no owner decision goes with them", () => {
@@ -124,4 +128,280 @@ test("a path that two artifacts share is refused, and the artifact must be named
   repo.start("feat", CHANGE.replace("path: CHANGELOG.md", "path: src/"));
   expect(repo.refused("continue", "feat", "--unchanged", "src", "x")).toContain('--unchanged "src" is the path of patch and changelog; name the artifact by its id');
   expect(repo.ok("continue", "feat", "--unchanged", "patch", "x", "--unchanged", "changelog", "y")).toContain("STATUS: awaiting owner action.");
+});
+
+// A folder the step creates, which it both writes notes in and updates as the
+// index, behind a review the owner can accept or grant more rounds for.
+const REVIEWED_NOTES = `version: 1
+name: notes
+steps:
+  - id: notes
+    instruction: Write the notes and update the index in them.
+    produces:
+      - artifact: notes
+        path: notes/
+    updates:
+      - artifact: index
+        path: notes/
+    gates:
+      - agent: review the notes
+      - owner-action: approve the notes
+`;
+
+test("a produced folder that an updates artifact shares is recorded file by file after a block, as without one", () => {
+  repo.start("feat", REVIEWED_NOTES);
+  repo.write("notes/a.md");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "notes=notes/a.md", "--updated", "index=notes/a.md");
+  repo.ok("continue", "feat", "--owner-approved", "--gate", "1");
+  repo.write("notes/b.md");
+  repo.ok("continue", "feat", "--updated", "notes=notes/b.md", "--updated", "index=notes/b.md");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual([
+    { artifact: "notes", path: "notes/b.md", status: "draft" },
+    { artifact: "notes", path: "notes/a.md", status: "draft" },
+    { artifact: "index", path: "notes/", status: "draft" },
+  ]);
+});
+
+// The produced folder is recorded whole by the first block, so a file named
+// on a later block does not get a record of its own; it must still account
+// for the updates artifact that shares the folder.
+const blockWholeThenName = () => {
+  repo.start("feat", REVIEWED_NOTES);
+  repo.write("notes/a.md");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+  repo.ok("continue", "feat", "--more-rounds", "1");
+  repo.write("notes/b.md");
+  repo.ok("continue", "feat", "--blocked", "the review still does not converge", "--gate", "1", "--updated", "notes=notes/b.md", "--updated", "index=notes/b.md");
+};
+const wholeNotesRecords = [
+  { artifact: "notes", path: "notes/", status: "draft" },
+  { artifact: "index", path: "notes/", status: "draft" },
+];
+
+test("a file named on a block inside a folder recorded whole accounts for the updates artifact when the agent finishes after the owner accepts the review", () => {
+  blockWholeThenName();
+  expect(repo.state("feat").steps.notes.artifacts).toEqual(wholeNotesRecords);
+  repo.ok("continue", "feat", "--owner-approved", "--gate", "1");
+  const done = repo.ok("continue", "feat");
+  expect(done).toContain("STATUS: awaiting owner action.");
+  expect(done).toContain("PRODUCED: notes/ (new)\n");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual(wholeNotesRecords);
+});
+
+test("a file named on a block inside a folder recorded whole keeps the updates record when the step is blocked again", () => {
+  blockWholeThenName();
+  repo.ok("continue", "feat", "--more-rounds", "1");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge yet", "--gate", "1");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual(wholeNotesRecords);
+});
+
+// A document the step produces inside the code it updates, as in
+// custom-example-small: the document lies in both paths, so naming it for both
+// accounts for the code too.
+const REPORT = `version: 1
+name: build
+steps:
+  - id: build
+    instruction: Make the change and write the report.
+    produces:
+      - artifact: report
+        path: docs/report.md
+    updates:
+      - artifact: code
+        path: .
+    gates:
+      - agent: review the change
+      - owner-action: approve the change
+`;
+
+const reportRecords = (status: string) => [
+  { artifact: "report", path: "docs/report.md", status },
+  { artifact: "code", path: ".", status },
+];
+
+test("a document named on a block for the report and the code accounts for the code when the agent finishes after the owner accepts the review", () => {
+  repo.start("feat", REPORT);
+  repo.write("docs/report.md");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "report=docs/report.md", "--updated", "code=docs/report.md");
+  expect(repo.state("feat").steps.build.artifacts).toEqual(reportRecords("draft"));
+  repo.ok("continue", "feat", "--owner-approved", "--gate", "1");
+  const done = repo.ok("continue", "feat");
+  expect(done).toContain("STATUS: awaiting owner action.");
+  expect(done).toContain("PRODUCED: docs/report.md (new)\n");
+  expect(repo.state("feat").steps.build.artifacts).toEqual(reportRecords("draft"));
+});
+
+test("a document named on a block for the report and the code keeps the code record when the step is blocked again after more rounds", () => {
+  repo.start("feat", REPORT);
+  repo.write("docs/report.md");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "report=docs/report.md", "--updated", "code=docs/report.md");
+  repo.ok("continue", "feat", "--more-rounds", "1");
+  repo.ok("continue", "feat", "--blocked", "the review still does not converge", "--gate", "1");
+  expect(repo.state("feat").steps.build.artifacts).toEqual(reportRecords("draft"));
+});
+
+// A folder that existed before the step, which the step both writes notes in
+// and updates as the index, and a step that reads the notes.
+const SHARED_NOTES = `version: 1
+name: notes
+steps:
+  - id: notes
+    instruction: Write the notes and update the index in them.
+    produces:
+      - artifact: notes
+        path: notes/
+    updates:
+      - artifact: index
+        path: notes/
+    gates:
+      - owner-action: approve the notes
+  - id: read
+    instruction: Read the notes.
+    consumes: [notes]
+`;
+
+test("a folder that existed before the step and is both produced and updated keeps its file records across a send-back", () => {
+  repo.write("notes/old.md");
+  repo.start("feat", SHARED_NOTES);
+  repo.write("notes/a.md");
+  repo.ok("continue", "feat", "--updated", "notes=notes/a.md", "--updated", "index=notes/a.md");
+  const records = (status: string) => [
+    { artifact: "notes", path: "notes/a.md", status },
+    { artifact: "index", path: "notes/", status },
+  ];
+  expect(repo.state("feat").steps.notes.artifacts).toEqual(records("draft"));
+  repo.ok("continue", "feat", "--back-to", "notes", "--note", "tighten the notes");
+  repo.ok("start", "feat");
+  repo.ok("continue", "feat", "--updated", "notes=notes/a.md", "--updated", "index=notes/a.md");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual(records("draft"));
+  const next = repo.ok("continue", "feat", "--owner-approved");
+  expect(next).toContain("READ notes/a.md (from step notes).");
+});
+
+test("a produced document named with --updated is listed once in the hand-over", () => {
+  repo.start("feat", REPORT.replace("      - agent: review the change\n", ""));
+  repo.write("docs/report.md");
+  expect(repo.ok("continue", "feat", "--updated", "report=docs/report.md", "--updated", "code=docs/report.md")).toContain("PRODUCED: docs/report.md (new)\n");
+});
+
+test("after a send-back, the earlier record of the updated folder does not stand for files written in the produced folder", () => {
+  repo.write("notes/old.md");
+  repo.start("feat", SHARED_NOTES);
+  repo.ok("continue", "feat", "--not-produced", "notes", "nothing new to note", "--unchanged", "index", "nothing to index");
+  repo.ok("continue", "feat", "--back-to", "notes", "--note", "write the notes after all");
+  repo.ok("start", "feat");
+  expect(repo.refused("continue", "feat", "--unchanged", "index", "nothing to index")).toContain(
+    "REFUSED: notes/ (notes) existed before the step: name each file the step wrote in it with --updated <file>",
+  );
+});
+
+// A folder the step creates, with an index file in it that the step updates.
+const NOTES_WITH_INDEX = `version: 1
+name: notes
+steps:
+  - id: notes
+    instruction: Write the notes and update their index.
+    produces:
+      - artifact: notes
+        path: notes/
+    updates:
+      - artifact: index
+        path: notes/index.md
+    gates:
+      - agent: review the notes
+      - owner-action: approve the notes
+`;
+
+test("reporting the produced folder not produced after a block keeps the evidence for the updates artifact inside it", () => {
+  repo.start("feat", NOTES_WITH_INDEX);
+  repo.write("notes/index.md");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "index=notes/index.md");
+  repo.ok("continue", "feat", "--owner-approved", "--gate", "1");
+  const done = repo.ok("continue", "feat", "--not-produced", "notes", "only the index changed");
+  expect(done).toContain("STATUS: awaiting owner action.");
+  expect(done).toContain("PRODUCED: notes/index.md (updated); notes not produced (only the index changed)\n");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual([{ artifact: "index", path: "notes/index.md", status: "draft" }]);
+});
+
+test("a file in the paths of two artifacts is refused until the agent names the artifact it counts for", () => {
+  const block = repo.start("feat", NOTES_WITH_INDEX);
+  expect(block).toContain(
+    "FILES IN TWO ARTIFACTS: notes/index.md (index) lies inside notes/ (notes). Name a file there with --updated " +
+      "<artifact>=<file>, once for each artifact it counts for.\n",
+  );
+  repo.write("notes/index.md");
+  expect(repo.refused("continue", "feat", "--blocked", "x", "--gate", "1", "--updated", "notes/index.md")).toContain(
+    "REFUSED: --updated notes/index.md: the file lies in the paths of notes and index, so name the artifact it counts for, " +
+      "as in --updated notes=notes/index.md or --updated index=notes/index.md; repeat the flag for each artifact it counts for",
+  );
+  expect(repo.refused("continue", "feat", "--updated", "index=notes/a.md")).toContain(
+    "REFUSED: --updated index=notes/a.md: notes/a.md is not inside notes/index.md, the path of index",
+  );
+  expect(repo.refused("continue", "feat", "--updated", "readme=notes/a.md")).toContain(
+    "REFUSED: --updated readme=notes/a.md: the step has no artifact readme (notes (notes/), index (notes/index.md))",
+  );
+  expect(repo.status("feat", "notes")).toBe("IN_PROGRESS");
+  // A file only one path holds needs no id.
+  repo.write("notes/a.md");
+  repo.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1", "--updated", "notes/a.md");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual([{ artifact: "notes", path: "notes/a.md", status: "draft" }]);
+});
+
+test("a state file with the bare file lists of earlier fuse-flow versions is converted to entries once, and its files still count", () => {
+  repo.start("feat", NOTES_WITH_INDEX);
+  repo.write("notes/a.md");
+  repo.write("notes/index.md");
+  // As an earlier fuse-flow left it: a second pass, after a block whose
+  // review the owner accepted, with the named index file in `updated`.
+  const old = repo.state("feat");
+  old.steps.notes = {
+    status: "IN_PROGRESS",
+    pass: 2,
+    accepted_gates: [1],
+    artifacts: [{ artifact: "notes", path: "notes/a.md", status: "draft" }],
+    updated: ["notes/index.md"],
+    earlier_pass: ["notes/a.md"],
+    history: ["2026-10-16T10:00:00.000Z handed out"],
+  };
+  repo.write(".konductor/workstreams/feat.yml", JSON.stringify(old));
+
+  expect(repo.ok("start", "feat")).toContain("EARLIER PASS: this step ran before the owner sent the work back, and wrote notes/a.md.");
+  const converted = repo.state("feat").steps.notes;
+  expect(converted.updated).toBeUndefined();
+  expect(converted.earlier_pass).toBeUndefined();
+  // The named file lies in the paths of both artifacts, so it counts for both, as before.
+  expect(converted.files).toEqual([
+    { artifact: "notes", path: "notes/a.md", kind: "file", pass: "earlier", status: "draft" },
+    { artifact: "notes", path: "notes/index.md", kind: "file", pass: "this", status: "draft" },
+    { artifact: "index", path: "notes/index.md", kind: "file", pass: "this", status: "draft" },
+  ]);
+
+  const done = repo.ok("continue", "feat", "--not-produced", "notes", "only the index changed");
+  expect(done).toContain("PRODUCED: notes/index.md (updated); notes not produced (only the index changed)\n");
+  expect(repo.state("feat").steps.notes.artifacts).toEqual([{ artifact: "index", path: "notes/index.md", status: "draft" }]);
+});
+
+test("an old state file's named document inside the code it updates still counts for the code after conversion", () => {
+  repo.start("feat", REPORT);
+  repo.write("docs/report.md");
+  // As an earlier fuse-flow left a blocked step whose agent named the report:
+  // records for both artifacts, and the named file in `updated`.
+  const old = repo.state("feat");
+  old.steps.build = {
+    status: "IN_PROGRESS",
+    accepted_gates: [1],
+    artifacts: reportRecords("draft"),
+    updated: ["docs/report.md"],
+    history: ["2026-10-16T10:00:00.000Z handed out"],
+  };
+  repo.write(".konductor/workstreams/feat.yml", JSON.stringify(old));
+
+  repo.ok("status", "feat");
+  expect(repo.state("feat").steps.build.files).toContainEqual({
+    artifact: "code",
+    path: "docs/report.md",
+    kind: "file",
+    pass: "this",
+    status: "draft",
+  });
 });

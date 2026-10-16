@@ -35,6 +35,7 @@ function finish(): never {
   process.exit(failures.length === 0 ? 0 : 1);
 }
 
+// Whether `file` lies in the declared `path`, as an earlier fuse-flow decided it.
 function contains(path: string, file: string): boolean {
   if (file.startsWith("/") || file === ".." || file.startsWith("../")) return false;
   const base = path.replace(/\/+$/, "").replace(/^\.\/+/, "");
@@ -101,7 +102,13 @@ for (const step of workflow.steps) {
   }
   for (const artifact of step.updates) {
     const path = artifactPath(policy, artifact, slug);
-    const updated = (state.updated ?? []).some((file) => contains(path, file));
+    // A file the agent named with --updated in this pass; the whole updates
+    // path is recorded from disk anyway, so it is no evidence of a revision.
+    // A state file of an earlier fuse-flow has only the bare `updated` list.
+    const updated =
+      state.files === undefined
+        ? (state.updated ?? []).some((file) => contains(path, file))
+        : state.files.some((f) => f.artifact === artifact.artifact && f.kind === "file" && f.pass === "this");
     if (!updated && !(artifact.artifact in (state.unchanged ?? {}))) {
       failures.push(`${step.id}: update not accounted for ${path} (${artifact.artifact})`);
     }

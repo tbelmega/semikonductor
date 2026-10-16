@@ -25,6 +25,21 @@ export const RecordedArtifactSchema = z
   })
   .strict();
 
+// A file or folder the step wrote, under the artifact it belongs to.
+export const WrittenSchema = z
+  .object({
+    artifact: z.string().optional().meta({
+      description: "The artifact's id, fixed when the file is named or found; absent for a file outside every declared path.",
+    }),
+    path: z.string(),
+    kind: z.enum(["whole", "file"]).meta({
+      description: "whole: the artifact's declared path, found on disk by fuse-flow. file: a file the agent named with --updated.",
+    }),
+    pass: z.enum(["this", "earlier"]).meta({ description: "Whether the step wrote it in this pass or in an earlier one." }),
+    status: z.enum(["draft", "approved", "superseded"]),
+  })
+  .strict();
+
 export const StepStateSchema = z
   .preprocess(
     (raw) => {
@@ -53,8 +68,25 @@ export const StepStateSchema = z
         rounds_granted: z.number().int().min(1).optional().meta({
           description: "Review rounds the owner granted on top of the agent gates' cap, with --more-rounds.",
         }),
-        artifacts: z.array(RecordedArtifactSchema).meta({ description: "The artifacts recorded for the step." }),
-        updated: z.array(z.string()).optional().meta({ description: "The files the agent reported with --updated." }),
+        blocked_gate: z.number().int().min(1).optional().meta({
+          description:
+            "While the step is BLOCKED: the review the agent reported it blocked at, with --gate, by its number in " +
+            "the step block's list of gates.",
+        }),
+        accepted_gates: z.array(z.number().int().min(1)).optional().meta({
+          description:
+            "The reviews the owner accepted as they were in this pass, with --owner-approved --gate, by their " +
+            "number in the step block's list of gates. The agent does not run them again.",
+        }),
+        artifacts: z.array(RecordedArtifactSchema).meta({
+          description: "The artifacts recorded for the step, as later steps and workstreams read them; derived from `files`.",
+        }),
+        files: z.array(WrittenSchema).optional().meta({
+          description: "What the step wrote, in this pass and earlier ones, by artifact id: the files the agent named and the declared paths found on disk.",
+        }),
+        updated: z.array(z.string()).optional().meta({
+          description: "Before `files`: the files the agent reported with --updated. Converted to `files` by the next command.",
+        }),
         unchanged: z.record(z.string(), z.string()).optional().meta({
           description: "Updates artifacts the agent left as they were, with the reason, by artifact id.",
         }),
@@ -70,7 +102,7 @@ export const StepStateSchema = z
             "first pass. Review rounds count per pass.",
         }),
         earlier_pass: z.array(z.string()).optional().meta({
-          description: "The files the step wrote in its earlier passes, for its next pass to keep, update or redo.",
+          description: "Before `files`: the files the step wrote in its earlier passes. Converted to `files` by the next command.",
         }),
         verification: z.array(z.string()).optional().meta({
           description: "The result of each check and script gate when the step was last continued.",
@@ -133,5 +165,6 @@ export const WorkstreamSchema = z
   .meta({ title: "fuse-flow workstream state" });
 
 export type RecordedArtifact = z.infer<typeof RecordedArtifactSchema>;
+export type Written = z.infer<typeof WrittenSchema>;
 export type StepState = z.infer<typeof StepStateSchema>;
 export type Workstream = z.infer<typeof WorkstreamSchema>;

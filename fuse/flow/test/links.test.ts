@@ -157,6 +157,63 @@ steps:
   });
 });
 
+describe("a document inside a folder the same step updates", () => {
+  // As in custom-example-small: the report lies inside the code the step updates.
+  const BUILD = `version: 1
+name: build
+steps:
+  - id: implementation
+    instruction: Make the change and write the report.
+    produces:
+      - artifact: implementation-report
+        path: docs/{slug}-report.md
+    updates:
+      - artifact: code
+        path: .
+    gates:
+      - owner-action: approve the change
+`;
+  const FOLLOWUP = `version: 1
+name: followup
+inputs:
+  - artifact: implementation-report
+    required: true
+steps:
+  - id: follow
+    instruction: Follow up on the report.
+    consumes: [implementation-report]
+`;
+
+  beforeEach(() => {
+    install("build", BUILD);
+    install("followup", FOLLOWUP);
+    repo.ok("start", "b", "--workflow", "build");
+    repo.write("docs/b-report.md");
+    repo.write("src/a.ts");
+  });
+
+  const records = [
+    { artifact: "implementation-report", path: "docs/b-report.md", status: "approved" },
+    { artifact: "code", path: ".", status: "approved" },
+  ];
+
+  test("a finished step records the document, and --after finds it by its id", () => {
+    repo.ok("continue", "b", "--updated", "src/a.ts");
+    repo.ok("continue", "b", "--owner-approved");
+    const out = repo.ok("start", "next", "--workflow", "followup", "--after", "b");
+    expect(out).toContain("inputs:   implementation-report=docs/b-report.md\n");
+    expect(out).toContain("READ docs/b-report.md (input implementation-report).");
+    expect(repo.state("b").steps.implementation.artifacts).toEqual(records);
+  });
+
+  test("a blocked step records the document, and once the owner approves it --after finds it by its id", () => {
+    repo.ok("continue", "b", "--blocked", "waiting on a decision", "--updated", "src/a.ts");
+    repo.ok("continue", "b", "--owner-approved");
+    expect(repo.ok("start", "next", "--workflow", "followup", "--after", "b")).toContain("inputs:   implementation-report=docs/b-report.md\n");
+    expect(repo.state("b").steps.implementation.artifacts).toEqual(records);
+  });
+});
+
 describe("delegation gate", () => {
   const CHILD = `version: 1
 name: child

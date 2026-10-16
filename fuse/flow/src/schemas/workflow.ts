@@ -124,6 +124,15 @@ export const WorkflowSchema = z
       });
       earlier.add(step.id);
       const own = written(step);
+      // fuse-flow accounts for what a step wrote by artifact id, so each
+      // declared path needs an id of its own.
+      for (const id of new Set(own.filter((id, j) => id !== undefined && own.indexOf(id) !== j))) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["steps", i],
+          message: `"${step.id}" declares the artifact "${id}" twice; give each produces, optional_produces and updates entry its own id`,
+        });
+      }
       for (const id of own) {
         if (inputs.has(id)) {
           ctx.addIssue({ code: "custom", path: ["steps", i], message: `"${step.id}" writes "${id}", which is an input of the workflow; name the input differently` });

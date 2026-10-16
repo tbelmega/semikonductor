@@ -56,8 +56,9 @@ findings when the fix is cheap; list the rest as deferred in the hand-over.
 Fix every required finding in one pass. In code, start each fix with a test that fails because
 of the finding. Run the checks, then start the next round with a fresh reviewer on the whole
 artifact again, told how each earlier finding was handled. A round passes when it leaves no P0 or
-P1 open. When the round cap is reached with required fixes open, stop and report the step as
-blocked with the open findings; the owner decides.
+P1 open. When the round cap is reached with required fixes open, make the last round's fixes
+anyway, start no further review, and report the step blocked, naming the fixes no reviewer has
+seen. The owner decides, and can grant a round to review them.
 
 In the hand-over, list each round's findings with how each was handled, and the deferred ones.
 

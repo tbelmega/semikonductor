@@ -11,7 +11,7 @@ import { findWorkflow, projectsFile, workstreamFile, workstreamsDir } from "./pr
 import { registerProject } from "./registry.ts";
 import { type StepState, type Workstream, WorkstreamSchema } from "./schemas/workstream.ts";
 
-export type { RecordedArtifact, StepState, StepStatus, Workstream } from "./schemas/workstream.ts";
+export type { RecordedArtifact, StepState, StepStatus, Workstream, Written } from "./schemas/workstream.ts";
 
 // A step the state file does not mention yet (for example one added to the
 // workflow after `start`) is simply PENDING.

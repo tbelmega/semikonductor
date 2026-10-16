@@ -112,6 +112,16 @@ describe("invalid workflows are refused with the reason", () => {
     ["depends_on, replaced by consumes", ONE_STEP + "    depends_on: []\n", "Unrecognized key"],
     ["the gate alias, replaced by gates", ONE_STEP + "    gate: { agent: review }\n", "Unrecognized key"],
     ["duplicate step id", ONE_STEP + "  - id: only\n    instruction: again\n", 'duplicate step id "only"'],
+    [
+      "an artifact id a step declares twice",
+      ONE_STEP + "    updates: [{ artifact: code, path: src/ }, { artifact: code, path: tests/ }]\n",
+      'steps.0: "only" declares the artifact "code" twice; give each produces, optional_produces and updates entry its own id',
+    ],
+    [
+      "an artifact id a step both produces and updates",
+      ONE_STEP + "    produces: { artifact: code, path: src/new.ts }\n    updates: { artifact: code, path: src/ }\n",
+      '"only" declares the artifact "code" twice',
+    ],
     ["bad gate", ONE_STEP + "    gates: sometimes\n", 'must be one of owner-action, check, script, agent or workflow'],
     ["empty script", ONE_STEP + '    gates: "script:"\n', "script needs a text"],
     ["step without an instruction", "version: 1\nname: x\nsteps:\n  - id: a\n", "steps.0.instruction"],
@@ -156,7 +166,7 @@ steps:
         description: The owner signs off.
 `,
   );
-  expect(out).toContain("  1. Run `true`.");
+  expect(out).toContain("  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=only sh -c true`.");
   expect(out).toContain("After 3 such rounds");
   expect(out).not.toContain("Why this step exists");
   expect(out).not.toContain("The suite must stay green");
