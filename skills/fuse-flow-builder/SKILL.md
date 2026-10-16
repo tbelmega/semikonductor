@@ -151,7 +151,8 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
    `required: true`; steps consume them like earlier artifacts, and an input's id must not be one
    the workflow's own steps write. `hands_off_to` names the workflows that may come next, each
    with a `when` text; the completion block offers them with `start --after <slug>`, which binds
-   the next workflow's inputs to this workstream's documents. Use them when the source says
+   the next workflow's inputs to this workstream's documents. A `when` that does not hold rules
+   the hand-off out, and the agent does not mention it. Use them when the source says
    "then run X" or "this is the input to X", instead of a sentence in the last instruction.
 
 ### The artifact library

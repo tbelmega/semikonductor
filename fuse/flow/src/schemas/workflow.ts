@@ -41,8 +41,10 @@ const HandOffObject = z
     }),
     when: z.string().optional().meta({
       description:
-        "When to start it, in words, such as once per entry of the build order. Engine effect: printed in the " +
-        "completion block with the start command.",
+        "When to start it, in words, such as once per entry of the build order. It can rule the hand-off out, " +
+        "such as a pull request workflow the owner did not choose. Engine effect: printed in the completion block " +
+        "with the start command; the agent offers the hand-off where this applies and does not mention it where " +
+        "it does not.",
     }),
   })
   .strict();

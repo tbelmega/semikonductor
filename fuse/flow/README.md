@@ -192,9 +192,11 @@ steps:
   does not exist is reported in the step block, as a missing artifact is.
 - `hands_off_to` is one workflow or a list, each a name or a `{ workflow, when }` mapping. The
   completion block names each one with its `when` text and the exact `start ... --after <slug>`
-  command. Nothing starts on its own: the agent offers the next workflow to the owner. When one
-  workstream leads to several, such as one feature workstream per entry of a build order, the
-  agent starts each as the owner agrees.
+  command. Nothing starts on its own: the agent offers the next workflow to the owner where its
+  `when` applies, and does not mention it where it does not, so a `when` can rule a hand-off out,
+  such as a pull request workflow in a project without pull requests. When one workstream leads
+  to several, such as one feature workstream per entry of a build order, the agent starts each as
+  the owner agrees.
 - A `workflow` gate delegates the step to a child workstream. When the step is handed out,
   fuse-flow creates the child under `slug`, a template with `{slug}` (the parent's slug) and
   optionally `{step}`; the default is `{slug}-{step}`. `inputs` maps each child input id to an

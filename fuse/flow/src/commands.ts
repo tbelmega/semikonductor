@@ -839,15 +839,19 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
     const reviews = done.filter((s) => s.gates.some((g) => g.kind === "agent")).map((s) => `${s.id}: <review rounds used>`);
     const handOffs = c.wf.hands_off_to;
     const next = handOffs.length
-      ? `NEXT STEP: <what the owner may want next, with the workflow that comes after this one: ${handOffs
+      ? `NEXT STEP: <what the owner may want next, with the workflow that comes after this one where it applies: ${handOffs
           .map((h) => `${refName(c, h.workflow)}${h.when ? ` (${h.when})` : ""}`)
           .join("; or ")}>`
       : "NEXT STEP: <what the owner may want next, for example reviewing or landing the work>";
     const forYou: string[] = [];
     for (const h of handOffs) {
+      // A `when` can rule a hand-off out, such as a pull request workflow in a
+      // project with no pull requests; then the owner is not asked at all.
+      const offer = h.when
+        ? `This workflow hands off to ${refName(c, h.workflow)}, ${h.when}. Offer it to the owner where that applies, and do not mention it where it does not`
+        : `This workflow hands off to ${refName(c, h.workflow)}. Offer it to the owner`;
       forYou.push(
-        `  - This workflow hands off to ${refName(c, h.workflow)}${h.when ? `, ${h.when}` : ""}. Offer it to the owner; start ` +
-          `it only once the owner agrees, with \`${FUSE_FLOW} start <new-slug> --workflow ${shellQuote(h.workflow)} --after ${c.slug}\`, ` +
+        `  - ${offer}; start it only once the owner agrees, with \`${FUSE_FLOW} start <new-slug> --workflow ${shellQuote(h.workflow)} --after ${c.slug}\`, ` +
           "which gives it this workstream's documents.",
       );
     }

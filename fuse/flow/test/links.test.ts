@@ -56,13 +56,29 @@ steps:
   test("the completion block names each hand-off with the command that starts it after this workstream", () => {
     const done = repo.ok("continue", "sys");
     expect(done).toContain("STATUS: workflow complete");
-    expect(done).toContain("NEXT STEP: <what the owner may want next, with the workflow that comes after this one: feature (once per entry of the build order)>");
     expect(done).toContain(
-      "  - This workflow hands off to feature, once per entry of the build order. Offer it to the owner; start it only " +
-        "once the owner agrees, with `fuse-flow start <new-slug> --workflow feature --after sys`, which gives it this workstream's documents.",
+      "NEXT STEP: <what the owner may want next, with the workflow that comes after this one where it applies: feature (once per entry of the build order)>",
+    );
+    expect(done).toContain(
+      "  - This workflow hands off to feature, once per entry of the build order. Offer it to the owner where that applies, " +
+        "and do not mention it where it does not; start it only once the owner agrees, with " +
+        "`fuse-flow start <new-slug> --workflow feature --after sys`, which gives it this workstream's documents.",
     );
     // Nothing starts on its own.
     expect(repo.ok("list")).not.toContain("after sys");
+  });
+
+  test("a hand-off without a when text is offered to the owner with no condition", () => {
+    install("system", SYSTEM.replace("  - workflow: feature\n    when: once per entry of the build order\n", "  - feature\n"));
+    repo.ok("start", "sys-2", "--workflow", "system");
+    repo.write("docs/sys-2-order.md");
+    repo.write("docs/sys-2-design.md");
+    const done = repo.ok("continue", "sys-2");
+    expect(done).toContain("NEXT STEP: <what the owner may want next, with the workflow that comes after this one where it applies: feature>");
+    expect(done).toContain(
+      "  - This workflow hands off to feature. Offer it to the owner; start it only once the owner agrees, with " +
+        "`fuse-flow start <new-slug> --workflow feature --after sys-2`, which gives it this workstream's documents.",
+    );
   });
 
   test("--after binds each declared input to the earlier workstream's document of the same id; --input wins", () => {
