@@ -80,8 +80,12 @@ Replace `<workspace>` with the project's workspace directory, such as `.konducto
 ## Procedure
 
 1. Check whether `AGENTS.md` exists. If it does, read it and patch it instead of replacing it.
-2. Write or update the sections above, always with the context-loading block.
-3. Make sure a `CLAUDE.md` with `@AGENTS.md` exists, and create it if it is missing.
-4. Check that the relevant agent specs list `file://AGENTS.md` in
+2. Draft the sections above, always with the context-loading block.
+3. Confirm before writing. A calling workflow handles the owner's confirmation, for example
+   through its own review gate, so go on. Used on its own, show the owner the proposed content,
+   and the `CLAUDE.md` you would create, and write nothing until they confirm.
+4. Write `AGENTS.md`. Make sure a `CLAUDE.md` with `@AGENTS.md` exists, and create it if it is
+   missing.
+5. Check that the relevant agent specs list `file://AGENTS.md` in
    `clientConfig.kiroCli.resources`.
-5. In the hand-over, list what you inferred and what you changed, so the owner can review it.
+6. In the hand-over, list what you inferred and what you changed, so the owner can review it.

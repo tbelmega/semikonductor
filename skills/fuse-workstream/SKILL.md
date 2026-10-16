@@ -142,9 +142,9 @@ it: what it is, a guide to writing it, often a template, and sometimes a review 
    - **Start a workflow that produces it.** Name at most three, the ones that fit the request
      and the project best, and describe each by what it does, as section 2 says. Leave out
      workflows whose other steps the request clearly does not need.
-   - **Write it now with the library's guide.** Follow the artifact's `guide.md` and
-     `template.md`, and review the result against its `review.md` if it has one. This is the
-     lightest way and fits a one-off the user wants now.
+   - **Write it now with the library's guide.** Follow the artifact's `guide.md`, use its
+     `template.*` file when it has one, and review the result against its `review.md` if it has
+     one. This is the lightest way and fits a one-off the user wants now.
    - **Build a small workflow for it.** Fits when the user will want this artifact again, or
      wants steps around it that no workflow has. Load `fuse-flow-builder` and walk the user
      through it: suggest the few steps that fit, such as an interview before the draft or an

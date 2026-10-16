@@ -15,6 +15,10 @@
 #   per-package evidence.
 # - A checklist item that still fails after the agent fixed what it could: the agent reports the
 #   step blocked instead of declaring the task complete, and the owner decides.
+# - A CDK check that needs live AWS access runs only against an account and region the owner
+#   confirmed, and cdk diff compares templates instead of creating a change set; without a
+#   confirmed account the check is recorded NOT RUN. Manual verification stays local unless the
+#   owner authorized a live target. The SOP ran plain cdk diff and named no target.
 version: 1
 name: k-verify-sop
 description: Port of the former k-verify SOP, evidence that a finished change works, from the build,
@@ -53,10 +57,18 @@ steps:
       before going on. Without lint, record lint as Skipped.
       (5) CDK, only when the project contains CDK infrastructure code: run cdk ls, cdk diff and cdk
       synth in that order, record each output and status, and flag every unexpected stack change.
+      cdk diff compares with the deployed stacks, so it reads the target AWS account. Before any
+      check that needs live AWS access, have the owner confirm the account and region, unless the
+      request already names a target the owner authorized. Run the comparison as cdk diff
+      --method=template, or cdk diff --no-change-set on a CLI without the --method option, because
+      plain cdk diff creates a CloudFormation change set in that account. cdk ls and cdk synth run
+      locally, but a context lookup that cdk.context.json does not hold yet reads the account too.
+      Without a confirmed account, record each check that needs one as NOT RUN with that reason.
       (6) Manual verification, never skipped, because automated tests alone are not enough:
       exercise the actual change (the feature slice or the fix) against the success criteria, and
-      record what you tested, the steps you took, what you observed and the status. Never declare
-      success when the observed behavior differs from the expected behavior.
+      record what you tested, the steps you took, what you observed and the status. Exercise it
+      locally; use a deployed or other live target only when the owner authorized that target.
+      Never declare success when the observed behavior differs from the expected behavior.
       Write the evidence report under "## Verification Evidence": a section each for Build, Tests,
       Lint, CDK when it applies, and Manual Verification, each with the command run, the exit code
       or result, the relevant output and the status (✓ or ✗; Skipped for lint without a linter);
