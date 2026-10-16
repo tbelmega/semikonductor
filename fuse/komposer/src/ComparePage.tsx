@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { ArrowLeftRight, Pencil } from "lucide-react";
 import type { LibraryEntry } from "./api.ts";
 import { Flow } from "./Flow.tsx";
-import { compareWorkflows, copyStepEdits, type CompareCounts } from "./model/compare.ts";
+import { compareWorkflows, copySourceProblem, copyStepEdits, type CompareCounts } from "./model/compare.ts";
 import { lineDiff, visibleDiff } from "./diff.ts";
 import type { Edit } from "./model/yamlEdit.ts";
 import { problemsByStep, problemsForText } from "./validate.ts";
@@ -125,6 +125,8 @@ export function ComparePage({
                     let edits: Edit[] = [];
                     let message = `Copied ${steps[index].id} into ${other.file} (unsaved)`;
                     try {
+                      const problem = copySourceProblem(w);
+                      if (problem) throw new Error(problem);
                       edits = copyStepEdits(steps, index, otherSteps);
                     } catch (e) {
                       message = e instanceof Error ? e.message : String(e);
