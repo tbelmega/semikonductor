@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { compareWorkflows, copyStepEdits, defaultComparePair, swapPair } from "../src/model/compare.ts";
+import { compareWorkflows, copySourceProblem, copyStepEdits, defaultComparePair, swapPair } from "../src/model/compare.ts";
 import { applyEdit } from "../src/model/yamlEdit.ts";
 import { artifactCount, gateCount, openWorkflow, routeBackCount, stepViews } from "../src/workflowView.ts";
 
@@ -274,4 +274,27 @@ steps:
       const result = compareWorkflows(steps(base), steps(base.replace(from, to)));
       expect(result.left[1]).toEqual({ id: "s", status: "changed", fields: [field] });
     });
+});
+
+describe("copy fidelity", () => {
+  const TARGET = `version: 1\nname: t\nsteps:\n  - id: other\n    instruction: X.\n`;
+
+  test("an instruction is copied exactly, repeated spaces included", () => {
+    const src = `version: 1\nname: s\nsteps:\n  - id: s\n    instruction: Run printf '%s' 'a  b'  and  wait.\n`;
+    const out = copyStepEdits(steps(src), 0, steps(TARGET)).reduce((t, edit) => applyEdit(t, edit), TARGET);
+    const copied = steps(out).find((s) => s.id === "s")!;
+    expect(copied.instruction!.trimEnd()).toBe("Run printf '%s' 'a  b'  and  wait.");
+    expect(compareWorkflows(steps(src), [copied]).left[0].status).toBe("same");
+  });
+
+  test("a workflow that does not parse cannot be copied from, so no gate or condition is lost", () => {
+    const broken = openWorkflow({
+      location: "project", dir: "", file: "b.yml", path: "/b.yml", onDisk: true, hash: "",
+      text: `version: 1\nname: b\nsteps:\n  - id: s\n    instruction: Do it.\n    gates: ['script("bun run check")']\n  - id: t\n    instruction: ""\n`,
+    });
+    expect(broken.parsed).toBeNull();
+    expect(copySourceProblem(broken)).toMatch(/Fix the problems/);
+    const valid = openWorkflow({ ...broken, text: TARGET });
+    expect(copySourceProblem(valid)).toBeNull();
+  });
 });

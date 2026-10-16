@@ -12,17 +12,17 @@ import {
   type ReviewGuides,
   type WorkstreamSummary,
 } from "./api.ts";
-import { applyEdit, type Edit, type OutputMode } from "./model/yamlEdit.ts";
+import { type Edit, type OutputMode } from "./model/yamlEdit.ts";
 import { diskChangeWatcher } from "./model/diskChange.ts";
 import { mergeListed } from "./model/listedWorkflows.ts";
 import { givesWay } from "./model/readOnlyView.ts";
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
+import { copyWrite, editedWorkflow } from "./model/editWorkflow.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
   linkTo,
   openWorkflow,
-  newStepKey,
   routeBackCount,
   stepViews,
   workflowHandOffs,
@@ -245,42 +245,18 @@ export function App() {
     };
   }, [workflow?.path, workflow?.onDisk, readOnly]);
 
-  // The workflow after edits applied in order as one change: either all
-  // apply or the function throws and nothing changes.
-  const edited = (target: OpenWorkflow, list: Edit[]): OpenWorkflow => {
-    let nextText = target.openText;
-    const stepKeys = [...target.stepKeys];
-    // A step deleted and inserted again at the same index is a replaced step
-    // (compare mode's copy); it keeps its identity, so saving does not report
-    // it as deleted and added.
-    let freed: { at: number; key: string } | null = null;
-    for (const edit of list) {
-      nextText = applyEdit(nextText, edit);
-      if (edit.op === "insertStep") {
-        stepKeys.splice(edit.at, 0, freed?.at === edit.at ? freed.key : newStepKey());
-        freed = null;
-      }
-      if (edit.op === "deleteStep") freed = { at: edit.index, key: stepKeys.splice(edit.index, 1)[0] };
-      if (edit.op === "moveStep") {
-        const [key] = stepKeys.splice(edit.from, 1);
-        stepKeys.splice(edit.to, 0, key);
-      }
-    }
-    return openWorkflow({ ...target, stepKeys, workingCopy: nextText === target.text ? undefined : nextText });
-  };
-  // Compare mode's copy: edits any workflow, not only the open one. The
-  // autosave below follows the open workflow only, so a copy into any other
-  // workflow writes its working copy at once; one into the open workflow is
-  // left to the autosave, so it is written once.
+  // Compare mode's copy: edits any workflow, not only the open one, and
+  // stores the result as copyWrite says.
   const applyTo = (key: string, list: Edit[], message: string) => {
     const target = workflows.find((w) => workflowKey(w) === key);
     if (!target) return;
     if (!list.length) return showToast(message);
     try {
-      const next = edited(target, list);
+      const next = editedWorkflow(target, list);
       replaceWorkflow(key, next);
-      if (key === currentKey) return showToast(message);
-      (next.workingCopy === undefined ? api.deleteWorkingCopy(next.path) : api.putWorkingCopy(next.path, next.openText))
+      const write = copyWrite(next, currentKey);
+      if (write === "autosave") return showToast(message);
+      (write === "delete" ? api.deleteWorkingCopy(next.path) : api.putWorkingCopy(next.path, next.openText))
         .then(() => showToast(message))
         .catch((e) => showToast(e instanceof Error ? e.message : String(e)));
     } catch (e) {
@@ -292,7 +268,7 @@ export function App() {
     if (!workflow || !currentKey || readOnly) return;
     const list = Array.isArray(edits) ? edits : [edits];
     try {
-      replaceWorkflow(currentKey, edited(workflow, list));
+      replaceWorkflow(currentKey, editedWorkflow(workflow, list));
       for (const edit of list) {
         if (edit.op === "insertStep") {
           setSelectedIndex(edit.at);
@@ -370,6 +346,7 @@ export function App() {
   };
   // A run from the projects list: open the workflow file it follows with it.
   const openRunOfAnyWorkflow = (item: WorkstreamSummary) => {
+    setMode("edit");
     const target = item.workflowPath ? workflows.find((w) => w.path === item.workflowPath) : undefined;
     if (!target) {
       showToast(`The workflow of ${item.slug}, ${item.workflow}, is not found in ${item.project}`);
@@ -389,6 +366,7 @@ export function App() {
     setTab("step");
   };
   const openWorkflowStep = (key: string, stepIndex: number) => {
+    setMode("edit");
     setCurrentKey(key);
     setLinkedKey(key);
     setSelectedIndex(stepIndex);
@@ -411,6 +389,7 @@ export function App() {
     workstreams.find((item) => item.project === (run?.project ?? session?.root) && item.slug === slug);
   // Opens a linked run, in the workflow it follows.
   const openAnyRun = (slug: string) => {
+    setMode("edit");
     const target = findRun(slug);
     if (!target) {
       showToast(`Workstream ${slug} is not one Komposer lists.`);
@@ -443,6 +422,7 @@ export function App() {
       workingCopy: text,
     });
     setWorkflows((all) => [...all, created]);
+    setMode("edit");
     setCurrentKey(workflowKey(created));
     setSelectedIndex(0);
     showTab("step");

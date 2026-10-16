@@ -2,7 +2,7 @@
 // Compare mode: how each step of two workflows compares with the other side,
 // matched by step id, and the counts shown above each diagram.
 
-import { artifactCount, routeBackCount, type StepView } from "../workflowView.ts";
+import { artifactCount, routeBackCount, type OpenWorkflow, type StepView } from "../workflowView.ts";
 import type { Edit } from "./yamlEdit.ts";
 
 export type CompareStatus = "same" | "changed" | "only-here";
@@ -110,9 +110,21 @@ function copyPosition(source: StepView[], index: number, target: StepView[]): { 
   return { at: 0, replaces: false };
 }
 
+// Why steps cannot be copied from this workflow, or null when they can. A
+// workflow that does not parse is shown from a loose reading of its YAML,
+// which leaves out gates and conditions written as strings and artifact
+// paths, so a copy from it would silently drop them.
+export function copySourceProblem(workflow: OpenWorkflow): string | null {
+  return workflow.parsed ? null : `Fix the problems in ${workflow.file} before copying from it.`;
+}
+
 // The edits that make the target workflow's step with this id equal to
 // source[index], applied in order with applyEdit. Every other step of the
-// target, and the file's comments, are left as they are.
+// target, and the file's comments, are left as they are. A step with the same
+// id is replaced in place: the copy is inserted under a free id, the old step
+// deleted, and the copy given the id, so a workflow's only step can be
+// replaced too (a workflow cannot lose its last step). editedWorkflow keeps
+// the replaced step's key.
 export function copyStepEdits(source: StepView[], index: number, target: StepView[]): Edit[] {
   const step = source[index];
   // The structured edits cannot write a workflow gate's slug, inputs or
@@ -121,12 +133,17 @@ export function copyStepEdits(source: StepView[], index: number, target: StepVie
     throw new Error(`Step ${step.id} has a workflow gate with a slug, inputs or returns; copy it in edit mode instead.`);
   const { at, replaces } = copyPosition(source, index, target);
   const instruction = step.instruction ?? "";
-  // A folded instruction would rewrap line breaks inside the text; keep them literal.
-  const style = instruction.trimEnd().includes("\n") ? "|" : ">";
   const edits: Edit[] = [];
-  if (replaces) edits.push({ op: "deleteStep", index: at });
-  edits.push({ op: "insertStep", at, step: { id: step.id, instruction: "" } });
-  edits.push({ op: "setInstruction", step: at, text: instruction, style });
+  if (replaces) {
+    let tempId = `${step.id}-copy`;
+    for (let n = 2; target.some((s) => s.id === tempId); n++) tempId = `${step.id}-copy-${n}`;
+    edits.push({ op: "insertStep", at, step: { id: tempId, instruction: "" } });
+    edits.push({ op: "deleteStep", index: at + 1 });
+    edits.push({ op: "setStepField", step: at, key: "id", value: step.id });
+  } else edits.push({ op: "insertStep", at, step: { id: step.id, instruction: "" } });
+  // Literal style keeps the text exactly; folded style would rewrap it and
+  // collapse repeated spaces.
+  edits.push({ op: "setInstruction", step: at, text: instruction, style: "|" });
   for (const key of ["title", "phase", "description"] as const)
     if (step[key] !== undefined) edits.push({ op: "setStepField", step: at, key, value: step[key]! });
   if (step.condition) edits.push({ op: "setCondition", step: at, condition: step.condition });
@@ -152,3 +169,4 @@ export function copyStepEdits(source: StepView[], index: number, target: StepVie
   });
   return edits;
 }
+
