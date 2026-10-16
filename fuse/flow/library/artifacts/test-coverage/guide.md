@@ -32,11 +32,11 @@ tests with the cloud services it calls; microservices need contract tests betwee
 
 ## 2. Count and classify the tests
 
-Take the counts from the test runner: from the output of an existing run when there is one,
-otherwise from a command that lists the tests without running them, such as `pytest
---collect-only` or `playwright test --list`. Test files are not test cases: a file often holds ten
-to fifty tests, and counting files instead of cases misstates the distribution by an order of
-magnitude.
+Take the counts from the test runner: from the output of an existing run of the revision under
+review when there is one, otherwise from a command that lists the tests without running them,
+such as `pytest --collect-only` or `playwright test --list`. Test files are not test cases: a file
+often holds ten to fifty tests, and counting files instead of cases misstates the distribution by
+an order of magnitude.
 
 To see which tests pass, you may run the local unit and integration tests. Run tests that call a
 deployed system, such as a deployed app, a cloud account or live endpoints, only with the owner's

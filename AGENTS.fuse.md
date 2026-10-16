@@ -37,6 +37,10 @@ location.
 - When another installed rule covers the same ground as a step, such as a second review mechanism,
   do the work once. When the two differ, follow the owner's ruling, or ask the owner which takes
   precedence and record the answer as the `fuse-workstream` skill says.
+- Run a test suite or check that calls a deployed system, such as a deployed app, a cloud account
+  or live endpoints, only when the owner authorized that target, even when a step says to run
+  every test. Otherwise record it as not run, never as passing. A check bound in the project's
+  policy was confirmed with the owner when it was bound.
 
 ## Writing for the owner
 

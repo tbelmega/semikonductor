@@ -150,8 +150,8 @@ steps:
       class the guide gives that test, because a test that exists is not a test that passes. It is
       also NOT READY when a test the release depends on (one covering a P0 or P1 journey, a
       critical acceptance criterion, an integration point or a security control) has no passing
-      result, from this run or from an existing run's output; the reason names those tests as
-      unverified.
+      result, from this run or from an existing run of the revision under review against the same
+      target configuration; the reason names those tests as unverified.
       Do not print the report. Tell the owner where the reports are and state the recommendation
       plainly; when it is NOT READY, list the failing tests and the critical gaps that must be
       addressed. Offer to write
