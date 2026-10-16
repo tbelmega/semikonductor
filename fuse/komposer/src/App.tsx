@@ -13,6 +13,7 @@ import {
   type WorkstreamSummary,
 } from "./api.ts";
 import { applyEdit, type Edit, type OutputMode } from "./model/yamlEdit.ts";
+import { diskChangeAction } from "./model/diskChange.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
@@ -160,19 +161,28 @@ export function App() {
     };
   }, [workflow?.path, workflow?.openText, readOnly]);
 
-  // Watch the open original. Clean files reload silently; dirty files retain their text and get the conflict banner.
+  // The workflows as last rendered, for handlers that finish after an await:
+  // their closure may predate a save that completed meanwhile.
+  const workflowsRef = useRef(workflows);
+  workflowsRef.current = workflows;
+
+  // Watch the open original. Clean files reload silently; dirty files retain
+  // their text and get the conflict banner, unless the file now holds exactly
+  // the open text, which is what Komposer's own Save produces.
   useEffect(() => {
     if (!workflow?.onDisk || readOnly) return;
+    const key = workflowKey(workflow);
+    const latest = () => workflowsRef.current.find((w) => workflowKey(w) === key);
     const source = new EventSource(api.watchUrl(workflow.path));
     source.addEventListener("change", async (event) => {
       const change = JSON.parse((event as MessageEvent).data) as { hash: string | null };
-      if (!change.hash || change.hash === workflow.hash) return;
+      if (!change.hash || change.hash === latest()?.hash) return;
       const listed = (await api.workflows()).workflows.find((w) => w.path === workflow.path);
-      if (!listed) return;
-      const fresh = openWorkflow(listed);
-      const key = workflowKey(workflow);
-      if (workflow.openText === workflow.text) replaceWorkflow(key, fresh);
-      else
+      const open = latest();
+      if (!listed || !open) return;
+      const action = diskChangeAction(open, listed);
+      if (action === "ignore") return;
+      if (action === "conflict") {
         setDiskVersions((all) => ({
           ...all,
           [key]: {
@@ -181,9 +191,23 @@ export function App() {
             at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           },
         }));
+        return;
+      }
+      replaceWorkflow(
+        key,
+        action === "reload"
+          ? openWorkflow(listed)
+          : openWorkflow({ ...open, text: listed.text, hash: listed.hash, workingCopy: undefined }, true),
+      );
+      setDiskVersions((all) => {
+        if (!(key in all)) return all;
+        const next = { ...all };
+        delete next[key];
+        return next;
+      });
     });
     return () => source.close();
-  }, [workflow?.path, workflow?.hash, workflow?.openText, workflow?.text, workflow?.onDisk, readOnly]);
+  }, [workflow?.path, workflow?.onDisk, readOnly]);
 
   // Applies one edit, or several in order as one change: either all apply or none.
   const apply = (edits: Edit | Edit[]) => {
