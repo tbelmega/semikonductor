@@ -66,7 +66,7 @@ After generating any artifact (design doc, implementation guide, specification):
 
 1. Run the corresponding checker skill automatically
 2. Checker must pass (see the pass condition below) before presenting to user
-3. If checker finds CRITICAL issues, fix them, re-run checker, then present
+3. If checker finds CRITICAL issues (P0 or P1 from the code review guide), fix them, re-run checker, then present
 4. Include the checker's result (its score, or its finding counts per severity) in evidence
 
 ### Checker for each artifact
@@ -92,7 +92,9 @@ finds before proceeding.
 Present checker findings in the order CRITICAL, IMPORTANT, SUGGESTION. Most checkers report
 severity-ranked findings rather than a score: for those, the artifact passes when no CRITICAL
 finding remains, and the evidence is the finding counts per severity. A checker that defines its
-own pass condition or score uses that instead. Then ask the user "Fix these issues? [y/n]", unless
+own pass condition or score uses that instead. The code review guide ranks findings P0 to P3
+instead: present them in that order; the code passes when no P0 or P1 finding remains, and the
+evidence is the finding counts per priority. Then ask the user "Fix these issues? [y/n]", unless
 the checker's own instructions say the user already confirmed scope or the run is unattended; in
 that case report the findings without asking
 and leave fixing to the caller, as the checker says.
