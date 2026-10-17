@@ -84,7 +84,7 @@ export interface OutputFields {
 
 export type Edit =
   | { op: "setWorkflowField"; key: "name" | "description"; value: string | null }
-  | { op: "setStepField"; step: number; key: "id" | "title" | "phase" | "description"; value: string | null }
+  | { op: "setStepField"; step: number; key: "id" | "title" | "phase" | "mode" | "description"; value: string | null }
   | { op: "setInstruction"; step: number; text: string; style: ">" | "|" }
   | { op: "setCondition"; step: number; condition: ConditionValue | null }
   | { op: "setConsumes"; step: number; ids: string[] }
@@ -105,7 +105,7 @@ export type Edit =
 // The order new keys are inserted in: before the first existing key that comes
 // later in this order. Keys not listed keep their place and are skipped.
 const ROOT_KEY_ORDER = ["version", "name", "description", "inputs", "hands_off_to", "steps"] as const;
-const STEP_KEY_ORDER = ["id", "title", "phase", "description", "instruction", "condition", "consumes", "produces", "optional_produces", "updates", "gates"] as const;
+const STEP_KEY_ORDER = ["id", "title", "phase", "mode", "description", "instruction", "condition", "consumes", "produces", "optional_produces", "updates", "gates"] as const;
 const OUTPUT_KEY_ORDER = ["artifact", "path", "description"] as const;
 const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to"] as const;
 const CONDITION_KEY_ORDER = [...GATE_KINDS, "description"] as const;

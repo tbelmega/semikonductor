@@ -11,6 +11,7 @@ export type StepSection = "basics" | "instruction" | "artifacts" | "gates";
 // section.
 const SECTION_OF: Record<Exclude<ProblemField, "name" | "steps">, StepSection> = {
   id: "basics",
+  mode: "basics",
   instr: "instruction",
   cond: "instruction",
   consumes: "artifacts",

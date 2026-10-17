@@ -6,7 +6,7 @@
 import YAML from "yaml";
 import { parseWorkflowText, type WorkflowIssue } from "../../flow/src/parse.ts";
 
-export type ProblemField = "name" | "steps" | "id" | "instr" | "cond" | "consumes" | "art" | "gate";
+export type ProblemField = "name" | "steps" | "id" | "mode" | "instr" | "cond" | "consumes" | "art" | "gate";
 export interface Problem {
   stepIndex: number;
   field: ProblemField;
@@ -62,6 +62,7 @@ function translate(issue: WorkflowIssue, doc: Record<string, unknown>): Problem 
     }
     return { stepIndex, field: "id", message: "Id: lower-case letters, digits and hyphens." };
   }
+  if (key === "mode") return { stepIndex, field: "mode", message: "Mode is attended or unattended." };
   if (key === "instruction") return { stepIndex, field: "instr", message: "Instruction is empty." };
   if (key === "condition") {
     return {

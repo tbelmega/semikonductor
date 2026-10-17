@@ -537,6 +537,19 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.step-mode {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: 600 10.5px "JetBrains Mono", monospace;
+  color: var(--text-faint);
+  background: transparent;
+}
+.step-mode.is-unattended {
+  color: var(--text-strong);
+  background: var(--surface-sunken);
+}
 .step-condition {
   display: flex;
   align-items: center;

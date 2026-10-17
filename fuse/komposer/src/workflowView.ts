@@ -72,6 +72,8 @@ export interface RawStepGuess {
   id: string;
   title?: string;
   phase?: string;
+  // Any value as written, so an invalid one can be shown and corrected.
+  mode?: unknown;
   description?: string;
   instruction?: string;
   condition?: unknown;
@@ -131,6 +133,7 @@ export function guessRawWorkflow(text: string): RawWorkflowGuess {
         id: typeof s.id === "string" ? s.id : "",
         title: typeof s.title === "string" ? s.title : undefined,
         phase: typeof s.phase === "string" ? s.phase : undefined,
+        ...("mode" in s ? { mode: s.mode } : {}),
         description: typeof s.description === "string" ? s.description : undefined,
         instruction: typeof s.instruction === "string" ? s.instruction : undefined,
         condition: s.condition,
@@ -212,6 +215,9 @@ export interface StepView {
   id: string;
   title?: string;
   phase?: string;
+  // The mode as written: absent means attended. A value that is not a string
+  // is shown as YAML would print it.
+  mode?: string;
   description?: string;
   instruction?: string;
   condition?: { kind: Gate["kind"]; text: string; description?: string };
@@ -225,6 +231,7 @@ export function stepViewsFromWorkflow(w: Workflow): StepView[] {
     id: s.id,
     title: s.title,
     phase: s.phase,
+    ...(s.mode ? { mode: s.mode } : {}),
     description: s.description,
     instruction: s.instruction,
     condition: s.condition
@@ -279,6 +286,18 @@ function guessGate(raw: unknown): Gate | null {
   };
 }
 
+// An invalid mode as it is shown: a string as written, any other value as
+// JSON, and a value that refers to itself through a YAML alias, which JSON
+// cannot write, as YAML.
+function shownMode(mode: unknown): string {
+  if (typeof mode === "string") return mode;
+  try {
+    return JSON.stringify(mode) ?? "";
+  } catch {
+    return YAML.stringify(mode, { collectionStyle: "flow" }).trim();
+  }
+}
+
 export function stepViewsFromRaw(w: RawWorkflowGuess): StepView[] {
   return w.steps.map((s) => {
     const cond = guessGate(s.condition);
@@ -286,6 +305,7 @@ export function stepViewsFromRaw(w: RawWorkflowGuess): StepView[] {
       id: s.id,
       title: s.title,
       phase: s.phase,
+      ...("mode" in s ? { mode: shownMode(s.mode) } : {}),
       description: s.description,
       instruction: s.instruction,
       condition: cond ? { kind: cond.kind, text: cond.text, description: cond.description } : undefined,
@@ -335,6 +355,23 @@ export function linkTo(
 // Gates run the workflow gate first (its child must be complete), then checks
 // and scripts, then agent, then owner. Conditions run the same order.
 const GATE_ORDER: Record<Gate["kind"], number> = { workflow: -1, check: 0, script: 0, agent: 1, "owner-action": 2 };
+
+// The Mode select's value. No mode and an explicit "attended" both select
+// the attended default; any other value, the empty string included, selects
+// one option of its own, so it never looks like the default. That option is
+// never written: the select ignores choosing it.
+export const INVALID_MODE = "invalid";
+export function modeSelectValue(mode: string | undefined): string {
+  if (mode === undefined || mode === "attended") return "";
+  return mode === "unattended" ? mode : INVALID_MODE;
+}
+
+// The mode badge on a step card: no mode reads as attended, and an invalid
+// mode is shown as written.
+export function modeBadge(mode: string | undefined): { label: string; title: string; unattended: boolean } {
+  if (mode === undefined) return { label: "attended", title: "attended (the default)", unattended: false };
+  return { label: mode, title: mode, unattended: mode === "unattended" };
+}
 
 export function gatesInRunOrder(gates: Gate[]): { gate: Gate; fileIndex: number }[] {
   return gates

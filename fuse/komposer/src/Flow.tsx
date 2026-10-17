@@ -10,7 +10,7 @@ import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
 import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import type { LibraryEntry } from "./api.ts";
 import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
-import { gatesInRunOrder, type ArtifactRole, type StepView, type WorkflowLink } from "./workflowView.ts";
+import { gatesInRunOrder, modeBadge, type ArtifactRole, type StepView, type WorkflowLink } from "./workflowView.ts";
 import { layoutEdges } from "./layout.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
@@ -40,6 +40,16 @@ export const childSlug = (gate: Gate, stepId: string, parent?: string) => {
 
 // What a workflow gate does, for its pill's tooltip: the child's workflow,
 // its slug, what it is given and what it returns.
+// A step card's mode badge, on every page that draws step cards.
+export function ModeBadge({ mode }: { mode: string | undefined }) {
+  const badge = modeBadge(mode);
+  return (
+    <span className={`step-mode${badge.unattended ? " is-unattended" : ""}`} title={badge.title}>
+      {badge.label}
+    </span>
+  );
+}
+
 export function delegationTip(gate: Gate, link: WorkflowLink): string {
   const pairs = (map: Record<string, string> | undefined, arrow: string) =>
     Object.entries(map ?? {}).map(([a, b]) => (a === b ? a : `${a} ${arrow} ${b}`)).join(", ");
@@ -377,6 +387,7 @@ function StepCard({
             {step.title || step.id}
           </button>
           {step.title && <span className="step-id">{step.id}</span>}
+          <ModeBadge mode={step.mode} />
         </div>
         {step.condition && (
           <div className="step-condition" title={`${step.condition.kind}: ${step.condition.text}`}>

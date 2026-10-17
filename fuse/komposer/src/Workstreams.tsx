@@ -29,7 +29,7 @@ import {
 } from "./workflowView.ts";
 import { ProjectList, workflowStem } from "./ProjectList.tsx";
 import { WorkflowLinkButton, WorkstreamLinkButton } from "./Links.tsx";
-import { childSlug, delegationTip, GATE_STYLE } from "./Flow.tsx";
+import { childSlug, delegationTip, GATE_STYLE, ModeBadge } from "./Flow.tsx";
 
 export type WorkstreamView = "summary" | "diagram";
 
@@ -411,6 +411,7 @@ function WorkstreamDiagram({
                 <div className="step-title-row">
                   <span className="step-title">{step.title || step.id}</span>
                   {step.title && <span className="step-id">{step.id}</span>}
+                  <ModeBadge mode={step.mode} />
                 </div>
                 {step.condition && (
                   <div className="step-condition" title={`${step.condition.kind}: ${step.condition.text}`}>

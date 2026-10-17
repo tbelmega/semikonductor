@@ -33,6 +33,7 @@ export interface CompareResult {
 const COMPARED_FIELDS = [
   "title",
   "phase",
+  "mode",
   "description",
   "instruction",
   "condition",
@@ -55,8 +56,13 @@ function canonical(value: unknown): string {
 // YAML block style alone decides whether there is a final newline.
 const normal = (value: unknown) => (typeof value === "string" ? value.trimEnd() : value);
 
+// A step without a mode runs attended, so the two compare as the same. A
+// mode is not trimmed: whitespace makes it invalid.
+const effective = (step: StepView, field: (typeof COMPARED_FIELDS)[number]) =>
+  field === "mode" ? (step.mode ?? "attended") : normal(step[field]);
+
 function differingFields(a: StepView, b: StepView): string[] {
-  return COMPARED_FIELDS.filter((field) => canonical(normal(a[field])) !== canonical(normal(b[field])));
+  return COMPARED_FIELDS.filter((field) => canonical(effective(a, field)) !== canonical(effective(b, field)));
 }
 
 function side(own: StepView[], other: StepView[]): StepCompare[] {
@@ -164,7 +170,7 @@ export function copyStepEdits(source: StepView[], index: number, target: StepVie
   // Literal style keeps the text exactly; folded style would rewrap it and
   // collapse repeated spaces.
   edits.push({ op: "setInstruction", step: at, text: instruction, style: "|" });
-  for (const key of ["title", "phase", "description"] as const)
+  for (const key of ["title", "phase", "mode", "description"] as const)
     if (step[key] !== undefined) edits.push({ op: "setStepField", step: at, key, value: step[key]! });
   if (step.condition) edits.push({ op: "setCondition", step: at, condition: step.condition });
   if (step.consumes.length) edits.push({ op: "setConsumes", step: at, ids: step.consumes });

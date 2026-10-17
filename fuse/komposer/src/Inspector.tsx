@@ -18,6 +18,8 @@ import type { Edit, GateKind, OutputMode } from "./model/yamlEdit.ts";
 import {
   delegationOf,
   gatesInRunOrder,
+  INVALID_MODE,
+  modeSelectValue,
   stepViews,
   workflowHandOffs,
   workflowInputs,
@@ -301,7 +303,7 @@ function StepTab({
   const gateOrder = gatesInRunOrder(step.gates);
   const differs = gateOrder.some((g, i) => g.fileIndex !== i);
   const style = instructionStyle(text, selectedIndex);
-  const setStep = (key: "id" | "title" | "phase" | "description", value: string) =>
+  const setStep = (key: "id" | "title" | "phase" | "mode" | "description", value: string) =>
     onEdit({ op: "setStepField", step: selectedIndex, key, value: value || null });
   const setCondition = (kind: GateKind, value: string, description?: string) =>
     onEdit({
@@ -323,7 +325,7 @@ function StepTab({
     <div className="inspector-section-stack">
       <StepSectionView
         title="Basics"
-        summary={[step.title ?? step.id, step.phase].filter(Boolean).join(" · ")}
+        summary={[step.title ?? step.id, step.phase, step.mode === "unattended" ? "unattended" : undefined].filter(Boolean).join(" · ")}
         {...section("basics")}
       >
         <div className="field-grid">
@@ -360,6 +362,25 @@ function StepTab({
             </datalist>
           </label>
           {err("id") && <div className="field-error full-span">{err("id")}</div>}
+          <label className="field full-span">
+            <FieldLabel label="Mode" doc={DOCS.mode} />
+            {/* No mode is attended. An explicit "attended" shows as attended and
+                stays as written until the author picks another value; any other
+                value is shown as written, beside its error. */}
+            <select
+              className="field-input"
+              value={modeSelectValue(step.mode)}
+              onChange={(e) => e.target.value !== INVALID_MODE && setStep("mode", e.target.value)}
+              data-error={!!err("mode")}
+            >
+              <option value="">attended (default)</option>
+              <option value="unattended">unattended</option>
+              {modeSelectValue(step.mode) === INVALID_MODE && (
+                <option value={INVALID_MODE}>{step.mode === "" ? '""' : step.mode} (invalid)</option>
+              )}
+            </select>
+          </label>
+          {err("mode") && <div className="field-error full-span">{err("mode")}</div>}
           <label className="field full-span">
             <FieldLabel label="Description" doc={DOCS.description} />
             <input

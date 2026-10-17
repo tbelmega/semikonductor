@@ -45,6 +45,7 @@ export const DOCS: Record<string, FieldDoc> = {
   title: doc("title", false, stepShape.title),
   description: doc("description", false, stepShape.description),
   phase: doc("phase", false, stepShape.phase),
+  mode: doc("mode", false, stepShape.mode),
   instruction: doc("instruction", true, stepShape.instruction),
   condition: doc("condition", false, stepShape.condition),
   consumes: doc("consumes", false, stepShape.consumes),
