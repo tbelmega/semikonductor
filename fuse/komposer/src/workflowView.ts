@@ -4,7 +4,7 @@
 // and the per-step derived view the diagram and inspector read from.
 
 import YAML from "yaml";
-import type { Gate } from "../../flow/src/schemas/gate.ts";
+import { ConditionSchema, GateListSchema, type Gate } from "../../flow/src/schemas/gate.ts";
 import type { HandOff, Workflow, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import { parseWorkflowText, type WorkflowIssue } from "../../flow/src/parse.ts";
 import { resolveWorkflowRef, type UnavailableWorkflow } from "./model/workflowLinks.ts";
@@ -258,7 +258,25 @@ function guessIdMap(v: unknown, listAllowed: boolean): Record<string, string> | 
   return Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string"));
 }
 
+// One gate as the engine reads it, in any form it accepts (a mapping, or a
+// string such as `agent: Review.` or `script("bun test")`), or else as a
+// mapping read loosely, so a gate the engine refuses for a detail (a check
+// with a command, say) still shows at its position. Anything else is null.
 function guessGate(raw: unknown): Gate | null {
+  const engine = GateListSchema.safeParse([raw]);
+  if (engine.success && engine.data.length === 1) return engine.data[0];
+  return looseGate(raw);
+}
+
+// A condition as the engine reads it, or else loosely like a gate (a
+// workflow gate written as a condition still shows, and the engine reports it).
+function guessCondition(raw: unknown): StepView["condition"] | null {
+  const engine = ConditionSchema.safeParse(raw);
+  const read = engine.success && engine.data ? engine.data : looseGate(raw);
+  return read ? { kind: read.kind, text: read.text, ...(read.description !== undefined ? { description: read.description } : {}) } : null;
+}
+
+function looseGate(raw: unknown): Gate | null {
   if (!raw || typeof raw !== "object") return null;
   const { max_rounds, guide, route_back_to, description, slug, inputs, returns, ...rest } = raw as Record<string, unknown>;
   const entries = Object.entries(rest).filter(([k]) => k !== "description");
@@ -300,7 +318,7 @@ function shownMode(mode: unknown): string {
 
 export function stepViewsFromRaw(w: RawWorkflowGuess): StepView[] {
   return w.steps.map((s) => {
-    const cond = guessGate(s.condition);
+    const cond = s.condition === undefined ? null : guessCondition(s.condition);
     return {
       id: s.id,
       title: s.title,
@@ -308,7 +326,7 @@ export function stepViewsFromRaw(w: RawWorkflowGuess): StepView[] {
       ...("mode" in s ? { mode: shownMode(s.mode) } : {}),
       description: s.description,
       instruction: s.instruction,
-      condition: cond ? { kind: cond.kind, text: cond.text, description: cond.description } : undefined,
+      condition: cond ?? undefined,
       consumes: s.consumes,
       artifacts: [
         ...s.produces.map((a) => ({ role: "produces" as const, ...a, path: a.path ?? "" })),
@@ -322,6 +340,39 @@ export function stepViewsFromRaw(w: RawWorkflowGuess): StepView[] {
 
 export function stepViews(w: OpenWorkflow): StepView[] {
   return w.parsed ? stepViewsFromWorkflow(w.parsed) : stepViewsFromRaw(w.rawWorkflow);
+}
+
+// Whether the step views of a workflow hold every step, condition, gate and
+// output of its YAML, each at its position in the file, so edits addressed
+// by position reach the item shown. Always so for a workflow that parses;
+// for one that does not, the loose reading must have left nothing out (a
+// gate or condition in no form the engine reads, an output without a path,
+// a step that is not a mapping), as with a workflow whose only problem is,
+// say, a consume no earlier step produces, or one artifact in two modes.
+export function readsCompletely(w: OpenWorkflow): boolean {
+  if (w.parsed) return true;
+  let doc: unknown;
+  try {
+    doc = YAML.parse(w.openText);
+  } catch {
+    return false;
+  }
+  const steps = doc && typeof doc === "object" ? (doc as Record<string, unknown>).steps : undefined;
+  if (!Array.isArray(steps)) return false;
+  const list = (v: unknown) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+  const isOutput = (a: unknown) =>
+    !!a && typeof a === "object" && typeof (a as Record<string, unknown>).artifact === "string" && typeof (a as Record<string, unknown>).path === "string";
+  return steps.every((s) => {
+    if (!s || typeof s !== "object") return false;
+    const step = s as Record<string, unknown>;
+    return (
+      typeof step.id === "string" &&
+      (step.consumes === undefined || (Array.isArray(step.consumes) && step.consumes.every((c) => typeof c === "string"))) &&
+      (step.condition === undefined || guessCondition(step.condition) !== null) &&
+      list(step.gates).every((g) => guessGate(g) !== null) &&
+      ["produces", "optional_produces", "updates"].every((key) => list(step[key]).every(isOutput))
+    );
+  });
 }
 
 // The documents the workflow expects from outside, and the workflows that may

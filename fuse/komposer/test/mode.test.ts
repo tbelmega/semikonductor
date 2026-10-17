@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { parseWorkflowText } from "../../flow/src/parse.ts";
-import { compareWorkflows, copyStepEdits } from "../src/model/compare.ts";
+import { copyStepEdits, differences, hasDifferences, stepDiff } from "../src/model/compare.ts";
 import { applyEdit } from "../src/model/yamlEdit.ts";
 import { problemsForText } from "../src/validate.ts";
 import { INVALID_MODE, modeBadge, modeSelectValue, openWorkflow, stepViews } from "../src/workflowView.ts";
@@ -170,21 +170,40 @@ describe("the mode in Compare", () => {
   const wf = (name: string, steps: string) => `version: 1\nname: ${name}\nsteps:\n${steps}`;
   const build = (mode: string | null, instruction = "Build it.") =>
     `  - id: build\n${mode === null ? "" : `    mode: ${mode}\n`}    instruction: ${instruction}\n`;
-  const status = (a: string, b: string) => compareWorkflows(view(a), view(b)).left[0];
+  const status = (a: string, b: string) => {
+    const d = stepDiff(view(a)[0], view(b)[0]);
+    return { changed: hasDifferences(d), mode: d.mode };
+  };
 
   test("a step differs when its mode differs, and an absent mode is the same as attended", () => {
-    expect(status(wf("a", build("unattended")), wf("b", build(null)))).toEqual({ id: "build", status: "changed", fields: ["mode"] });
-    expect(status(wf("a", build("unattended")), wf("b", build("attended"))).fields).toEqual(["mode"]);
-    expect(status(wf("a", build("attended")), wf("b", build(null))).status).toBe("same");
+    expect(status(wf("a", build("unattended")), wf("b", build(null)))).toEqual({ changed: true, mode: true });
+    expect(status(wf("a", build("unattended")), wf("b", build("attended")))).toEqual({ changed: true, mode: true });
+    expect(status(wf("a", build("attended")), wf("b", build(null)))).toEqual({ changed: false, mode: false });
     // Whitespace makes a mode invalid, so it is a difference.
-    expect(status(wf("a", build('"unattended "')), wf("b", build("unattended"))).fields).toEqual(["mode"]);
-    expect(status(wf("a", build('"attended "')), wf("b", build(null))).fields).toEqual(["mode"]);
-    expect(status(wf("a", build('"unattended\\n"')), wf("b", build("unattended"))).fields).toEqual(["mode"]);
+    expect(status(wf("a", build('"unattended "')), wf("b", build("unattended"))).mode).toBe(true);
+    expect(status(wf("a", build('"attended "')), wf("b", build(null))).mode).toBe(true);
+    expect(status(wf("a", build('"unattended\\n"')), wf("b", build("unattended"))).mode).toBe(true);
+  });
+
+  test("applying a mode difference sets the right's mode, or removes the key when the right has none", () => {
+    for (const [left, right] of [
+      [null, "unattended"],
+      ["attended", "unattended"],
+      ["unattended", null],
+      ["unattended", "attended"],
+    ] as const) {
+      const [l, r] = [wf("a", build(left)), wf("b", build(right))];
+      const diffs = differences(view(l)[0], view(r)[0], 0);
+      expect(diffs.map((d) => d.label)).toEqual([`mode → ${right ?? "attended"}`]);
+      const applied = diffs[0].edits.reduce((t, edit) => applyEdit(t, edit), l);
+      expect(view(applied)[0].mode).toBe(right ?? undefined);
+      expect(hasDifferences(stepDiff(view(applied)[0], view(r)[0]))).toBe(false);
+    }
   });
 
   test("copying a step keeps its mode as written, when it replaces a step and when it is new", () => {
     const copy = (source: string, target: string) =>
-      copyStepEdits(view(source), 0, view(target)).reduce((t, edit) => applyEdit(t, edit), target);
+      copyStepEdits(view(source), 0, view(target), 0).reduce((t, edit) => applyEdit(t, edit), target);
     const other = "  - id: other\n    instruction: Keep it.\n";
     for (const mode of ["unattended", "attended", null]) {
       const source = wf("source", build(mode));

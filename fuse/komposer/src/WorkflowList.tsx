@@ -3,7 +3,9 @@
 // sections and folder rows that open and close (kept in localStorage),
 // search, and New. While searching, every match is shown. On the Workstreams
 // page the lane also offers "All workstreams" and the workflows of other
-// projects that workstreams follow, and each row counts its workstreams.
+// projects that workstreams follow, and each row counts its workstreams. On
+// the Compare page the selected row is tagged "left", the right workflow's
+// row "right", and every other row offers "as right".
 
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
@@ -48,6 +50,8 @@ export function WorkflowList({
   onNew,
   allWorkstreams,
   onAllWorkstreams,
+  compareRight,
+  onCompareRight,
 }: {
   mode: LaneMode;
   workflows: OpenWorkflow[];
@@ -59,7 +63,12 @@ export function WorkflowList({
   // The Workstreams page's "All workstreams" row.
   allWorkstreams?: boolean;
   onAllWorkstreams?: () => void;
+  // The Compare page's right workflow (null when it has none); undefined on
+  // the other pages.
+  compareRight?: string | null;
+  onCompareRight?: (key: string) => void;
 }) {
+  const comparing = compareRight !== undefined;
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const order: WorkflowLocation[] = mode === "workstreams" ? ["project", "personal", "fuse-flow", "run"] : ["project", "personal", "fuse-flow"];
@@ -155,22 +164,34 @@ export function WorkflowList({
                   const meta = counted
                     ? `${counted.text}${readOnly && w.project ? ` · ${projectName(w.project)}` : ""}`
                     : `${plural(steps.length, "step")} · ${plural(gateCount(steps), "gate")}`;
+                  const isLeft = key === currentKey;
+                  const isRight = comparing && key === compareRight;
+                  const asRight = comparing && !isLeft && !isRight;
                   return (
                     <div key={key}>
                       {folderRows}
-                      <button
-                        className={`lane-row${key === currentKey ? " is-current" : ""}${counted && !counted.count ? " is-faded" : ""}`}
-                        onClick={() => onOpen(key)}
-                        title={w.path}
-                        style={{ paddingLeft: `${10 + parts.length * 12}px` }}
-                      >
-                        <span className="lane-row-head">
-                          <span className="lane-row-name">{stem(w.file)}</span>
-                          {problemCount > 0 && <span className="dot dot-problem" title="Has problems" />}
-                          {dirty && <span className="dot dot-unsaved" title="Unsaved changes" />}
-                        </span>
-                        <span className="lane-row-meta">{meta}</span>
-                      </button>
+                      <div className="lane-row-wrap">
+                        <button
+                          className={`lane-row${isLeft ? " is-current" : ""}${isRight ? " is-right" : ""}${asRight ? " has-as-right" : ""}${counted && !counted.count ? " is-faded" : ""}`}
+                          onClick={() => onOpen(key)}
+                          title={w.path}
+                          style={{ paddingLeft: `${10 + parts.length * 12}px` }}
+                        >
+                          <span className="lane-row-head">
+                            <span className="lane-row-name">{stem(w.file)}</span>
+                            {problemCount > 0 && <span className="dot dot-problem" title="Has problems" />}
+                            {dirty && <span className="dot dot-unsaved" title="Unsaved changes" />}
+                            {comparing && isLeft && <span className="lane-row-tag is-left">left</span>}
+                            {isRight && <span className="lane-row-tag is-right">right</span>}
+                          </span>
+                          <span className="lane-row-meta">{meta}</span>
+                        </button>
+                        {asRight && (
+                          <button className="lane-as-right" title="Compare against this workflow, on the right" onClick={() => onCompareRight?.(key)}>
+                            as right
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

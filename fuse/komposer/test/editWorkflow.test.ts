@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { copyStepEdits } from "../src/model/compare.ts";
-import { copyWrite, editedWorkflow } from "../src/model/editWorkflow.ts";
+import { editedWorkflow } from "../src/model/editWorkflow.ts";
 import { openWorkflow, stepViews, type OpenWorkflow } from "../src/workflowView.ts";
 
 const open = (text: string, path = "/target.yml"): OpenWorkflow =>
@@ -67,23 +67,5 @@ describe("editedWorkflow", () => {
     const target = open(TARGET);
     const same = editedWorkflow(target, [{ op: "setStepField", step: 0, key: "title", value: null }]);
     expect(same.workingCopy).toBeUndefined();
-  });
-});
-
-describe("copyWrite", () => {
-  const target = open(TARGET);
-  const changed = editedWorkflow(target, copyStepEdits(stepViews(open(SOURCE)), 2, stepViews(target)));
-  const reverted = editedWorkflow(target, [{ op: "setStepField", step: 0, key: "title", value: null }]);
-
-  test("a copy into a workflow that is not open writes its working copy at once", () => {
-    expect(copyWrite(changed, "/other.yml")).toBe("put");
-  });
-
-  test("a copy into the open workflow is left to the autosave, so it is written once", () => {
-    expect(copyWrite(changed, "/target.yml")).toBe("autosave");
-  });
-
-  test("a result equal to the file removes the working copy", () => {
-    expect(copyWrite(reverted, "/other.yml")).toBe("delete");
   });
 });

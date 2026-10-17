@@ -14,7 +14,6 @@ import { gatesInRunOrder, modeBadge, type ArtifactRole, type StepView, type Work
 import { layoutEdges } from "./layout.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
-import type { StepCompare } from "./model/compare.ts";
 
 type Rect = { t: number; b: number; l: number; r: number };
 
@@ -40,11 +39,12 @@ export const childSlug = (gate: Gate, stepId: string, parent?: string) => {
 
 // What a workflow gate does, for its pill's tooltip: the child's workflow,
 // its slug, what it is given and what it returns.
-// A step card's mode badge, on every page that draws step cards.
-export function ModeBadge({ mode }: { mode: string | undefined }) {
+// A step card's mode badge, on every page that draws step cards. Compare
+// marks it changed when the other side's mode differs.
+export function ModeBadge({ mode, changed }: { mode: string | undefined; changed?: boolean }) {
   const badge = modeBadge(mode);
   return (
-    <span className={`step-mode${badge.unattended ? " is-unattended" : ""}`} title={badge.title}>
+    <span className={`step-mode${badge.unattended ? " is-unattended" : ""}${changed ? " is-chg" : ""}`} title={badge.title}>
       {badge.label}
     </span>
   );
@@ -64,11 +64,6 @@ export function delegationTip(gate: Gate, link: WorkflowLink): string {
     .filter(Boolean)
     .join("\n");
 }
-const COMPARE_LABEL: Record<StepCompare["status"], string> = {
-  same: "same",
-  changed: "changed",
-  "only-here": "only here",
-};
 
 const ROLE_PREFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "", updates: "~" };
 const ROLE_SUFFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "?", updates: "" };
@@ -94,8 +89,6 @@ export function Flow({
   handOffs,
   linkTo,
   onOpenWorkflow,
-  compare,
-  compareAction,
 }: {
   steps: StepView[];
   selectedIndex: number;
@@ -113,7 +106,7 @@ export function Flow({
   onDropArtifact: (step: number, artifact: string) => void;
   // A library entry dropped between steps, or on "Append step", becomes a new step at `at`.
   onDropArtifactAt: (at: number, artifact: string) => void;
-  // Another project's own workflow, or the Compare page: no insert seams,
+  // Another project's own workflow: no insert seams,
   // moves, deletes or Append step, and artifact drops are ignored.
   readOnly: boolean;
   // The documents the workflow expects from outside, and the workflows it hands off to.
@@ -122,10 +115,6 @@ export function Flow({
   // Where a workflow reference leads, and opening a listed workflow by key.
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
-  // The Compare page: how each step compares with the other workflow, by index.
-  compare?: StepCompare[];
-  // The Compare page: an action on each step that differs from the other side.
-  compareAction?: { label: string; title: (id: string) => string; run: (index: number) => void };
 }) {
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
@@ -252,12 +241,6 @@ export function Flow({
                 inputIds={inputs.map((input) => input.artifact)}
                 linkTo={linkTo}
                 onOpenWorkflow={onOpenWorkflow}
-                compare={compare?.[i]}
-                compareAction={
-                  compareAction && compare?.[i] && compare[i].status !== "same"
-                    ? { label: compareAction.label, title: compareAction.title(step.id), run: () => compareAction.run(i) }
-                    : undefined
-                }
               />
             </div>
           ))}
@@ -324,8 +307,6 @@ function StepCard({
   inputIds,
   linkTo,
   onOpenWorkflow,
-  compare,
-  compareAction,
 }: {
   step: StepView;
   num: number;
@@ -347,8 +328,6 @@ function StepCard({
   inputIds: string[];
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
-  compare?: StepCompare;
-  compareAction?: { label: string; title: string; run: () => void };
 }) {
   const hasProblems = problems.length > 0;
   const badConsumes = new Set(
@@ -360,7 +339,7 @@ function StepCard({
   return (
     <div
       data-node={num}
-      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${compare ? ` compare-${compare.status}` : ""}`}
+      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}`}
       onClick={onSelect}
       onDragOver={(event) => {
         if (!readOnly && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
@@ -504,20 +483,8 @@ function StepCard({
             {problems.length > 1 && `  +${problems.length - 1} more`}
           </div>
         )}
-        {compare?.status === "changed" && (
-          <div className="compare-fields">differs in {compare.fields.join(", ")}</div>
-        )}
       </div>
-      {compare ? (
-        <div className="compare-card-side" onClick={(event) => event.stopPropagation()}>
-          <span className={`compare-pill compare-pill-${compare.status}`}>{COMPARE_LABEL[compare.status]}</span>
-          {compareAction && (
-            <button type="button" className="compare-copy-btn" title={compareAction.title} onClick={compareAction.run}>
-              {compareAction.label}
-            </button>
-          )}
-        </div>
-      ) : readOnly ? (
+      {readOnly ? (
         <span />
       ) : (
         <div className="step-actions" onClick={(event) => event.stopPropagation()}>

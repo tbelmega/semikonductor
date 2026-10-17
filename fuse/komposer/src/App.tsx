@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The app: the top bar, the page switcher's pages, and the state they share.
 // One workflow is selected for every page; the Edit page edits it, and the
-// Workstreams page shows its workstreams. The Compare page shows any two
-// workflows side by side.
+// Workstreams page shows its workstreams. The Compare page shows it on the
+// left, against any other workflow on the right, and edits it there.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -21,7 +21,7 @@ import { diskChangeWatcher } from "./model/diskChange.ts";
 import { mergeListed } from "./model/listedWorkflows.ts";
 import { givesWay } from "./model/readOnlyView.ts";
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
-import { copyWrite, editedWorkflow } from "./model/editWorkflow.ts";
+import { editedWorkflow } from "./model/editWorkflow.ts";
 import { selectionAfterMove } from "./model/stepSelection.ts";
 import { plural, workstreamLinkDir } from "./model/workstreams.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
@@ -40,8 +40,8 @@ import {
 } from "./workflowView.ts";
 import { problemsByStep, problemsForText } from "./validate.ts";
 import { LOCATION_ROOT, WorkflowList } from "./WorkflowList.tsx";
-import { ComparePage, compareOrder } from "./ComparePage.tsx";
-import { comparePair, comparePick } from "./model/compare.ts";
+import { Compare } from "./Compare.tsx";
+import { compareOrder, comparePair, comparePick } from "./model/compare.ts";
 import { Flow } from "./Flow.tsx";
 import { RailPanel, RailStrip, type RailTab, type WorkflowView } from "./Inspector.tsx";
 import { TopBar, PAGES, type Page } from "./TopBar.tsx";
@@ -82,8 +82,14 @@ export function App() {
   const [allWorkstreams, setAllWorkstreams] = useState(false);
   const [workstreamKeySelected, setWorkstreamKeySelected] = useState<string | null>(null);
   const [workstreamView, setWorkstreamView] = useState<WorkstreamView>("summary");
-  // The Compare page: the workflows on its left and right, by key.
+  // The Compare page: its right workflow by key (the left one is the
+  // selected workflow), and its two toggles.
   const [compareRight, setCompareRight] = useState<string | null>(null);
+  const [onlyDifferences, setOnlyDifferences] = useState(false);
+  // A step Compare must bring into view (a problem was picked); n tells
+  // repeated picks of the same step apart.
+  const [compareReveal, setCompareReveal] = useState<{ index: number; n: number } | null>(null);
+  const [allInstructions, setAllInstructions] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(false);
   const [showDescriptions, setShowDescriptions] = useState(true);
@@ -159,7 +165,7 @@ export function App() {
       const now = keyState.current;
       if (now.modal || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") {
-        if (now.page !== "edit") return;
+        if (now.page !== "edit" && now.page !== "compare") return;
         if (typingIn(event.target)) (event.target as HTMLElement).blur();
         else if (now.railOpen) setRailOpen(false);
         else if (now.selected !== null) setSelectedIndex(null);
@@ -258,24 +264,6 @@ export function App() {
     };
   }, [workflow?.path, workflow?.onDisk, readOnly]);
 
-  // The Compare page's copy: edits any workflow, not only the selected one,
-  // and stores the result as copyWrite says.
-  const applyTo = (key: string, list: Edit[], message: string) => {
-    const target = workflows.find((w) => workflowKey(w) === key);
-    if (!target) return;
-    if (!list.length) return showToast(message);
-    try {
-      const next = editedWorkflow(target, list);
-      replaceWorkflow(key, next);
-      const write = copyWrite(next, currentKey);
-      if (write === "autosave") return showToast(message);
-      (write === "delete" ? api.deleteWorkingCopy(next.path) : api.putWorkingCopy(next.path, next.openText))
-        .then(() => showToast(message))
-        .catch((e) => showToast(e instanceof Error ? e.message : String(e)));
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e));
-    }
-  };
   // Applies one edit, or several in order as one change: either all apply or none.
   const apply = (edits: Edit | Edit[]) => {
     if (!workflow || !currentKey || readOnly) return;
@@ -291,6 +279,23 @@ export function App() {
         if (edit.op === "deleteStep")
           setSelectedIndex((i) => (i === null || i === edit.index ? null : i > edit.index ? i - 1 : i));
       }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  };
+  // An apply on the Compare page: edits of the selected (left) workflow as one
+  // change, which the autosave stores like any other edit, and its message.
+  // No edits shows only the message, the reason it was refused. After a step
+  // was added, removed or moved, the step selection is cleared.
+  const applyCompare = (list: Edit[], message: string, clearSelection: boolean) => {
+    if (!list.length || !workflow || !currentKey || readOnly) return showToast(message);
+    try {
+      replaceWorkflow(currentKey, editedWorkflow(workflow, list));
+      if (clearSelection) {
+        setSelectedIndex(null);
+        if (railTab === "step") setRailOpen(false);
+      }
+      showToast(message);
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e));
     }
@@ -339,9 +344,13 @@ export function App() {
   }, [currentKey, !!workflow, readOnly, localWorkflows]);
   // The Compare page's two workflows: the selected workflow on the left, and
   // its own right side, kept while it is listed.
-  const shownPair = comparePair(compareOrder(workflows).map(workflowKey), currentKey, compareRight);
+  const compareList = useMemo(() => compareOrder(workflows), [workflows]);
+  const shownPair = comparePair(compareList.map(workflowKey), currentKey, compareRight);
+  // A selected workflow that Compare does not offer (another project's)
+  // gives way to the left side Compare shows, so the rail edits that one.
   const openCompare = () => {
     setCompareRight(shownPair[1]);
+    if (shownPair[0] !== null && shownPair[0] !== currentKey) selectWorkflow(shownPair[0]);
     setProblemsOpen(false);
     setPage("compare");
   };
@@ -351,7 +360,7 @@ export function App() {
     if (next.select !== null) selectWorkflow(next.select);
   };
   const goPage = (next: Page) => (next === "compare" ? openCompare() : setPage(next));
-  // A workflow opened from the Compare page: selected, on the Edit page.
+  // A workflow opened from another page: selected, on the Edit page.
   const editWorkflow = (key: string) => {
     selectWorkflow(key);
     setPage("edit");
@@ -375,9 +384,7 @@ export function App() {
   const linkProject = (readOnly ? workflow?.project : undefined) ?? session?.root;
   const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
   const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
-  // The Compare page shows this project's workflows only, so their references resolve here.
   const localLinkDir = projects.projects.find((p) => p.path === session?.root)?.workflowsDir ?? session?.locations[0].path ?? "";
-  const resolveLocalLink = (ref: string, from: OpenWorkflow) => linkTo(ref, from, workflows, localLinkDir, unavailable);
   // A workstream's workflow references resolve in the workstream's own project.
   const resolveWorkstreamLink = (item: WorkstreamSummary, from: OpenWorkflow) => (ref: string) =>
     linkTo(ref, from, workflows, workstreamLinkDir(item, projects.projects, localLinkDir), unavailable);
@@ -553,10 +560,13 @@ export function App() {
     <WorkflowList
       mode={page === "workstreams" ? "workstreams" : "edit"}
       workflows={workflows}
-      currentKey={(page === "workstreams" && allWorkstreams) || page === "compare" ? null : currentKey}
+      currentKey={page === "workstreams" && allWorkstreams ? null : currentKey}
+      compareRight={page === "compare" ? shownPair[1] : undefined}
+      onCompareRight={(key) => pickCompare("right", key)}
       onOpen={(key) => {
+        // On Compare a row picks the left workflow and stays on Compare.
+        if (page === "compare") return pickCompare("left", key);
         selectWorkflow(key);
-        if (page === "compare") setPage("edit");
         if (page === "workstreams") {
           setAllWorkstreams(false);
           setWorkstreamKeySelected(null);
@@ -570,6 +580,89 @@ export function App() {
         setWorkstreamKeySelected(null);
       }}
     />
+  );
+
+  // The problems chip and its list on the Edit and Compare pages, for the
+  // selected workflow. A problem of a step selects it and opens the Step tab
+  // (on Compare also bringing its card into view); one of the workflow opens
+  // the Workflow tab on Compare.
+  const pickProblem = (stepIndex: number) => {
+    if (stepIndex >= 0) {
+      setSelectedIndex(stepIndex);
+      showTab("step");
+      if (page === "compare") setCompareReveal((r) => ({ index: stepIndex, n: (r?.n ?? 0) + 1 }));
+    } else if (page === "compare") showTab("workflow");
+    setProblemsOpen(false);
+  };
+  const problemsChip =
+    workflow && !readOnly ? (
+      <ProblemsChip
+        problems={problems}
+        steps={steps}
+        open={problemsOpen}
+        onToggle={() => setProblemsOpen((v) => !v)}
+        onProblem={pickProblem}
+      />
+    ) : null;
+  // The disk-change banner of the Edit and Compare pages, for the selected workflow.
+  const diskBanner =
+    workflow && disk && !readOnly ? (
+      <DiskBanner
+        file={workflow.file}
+        disk={disk}
+        onCompare={() => {
+          setWorkflowView("changes");
+          showTab("workflow");
+        }}
+        onLoadDisk={loadDisk}
+        onKeepEdits={keepEdits}
+      />
+    ) : null;
+  // The right rail of the Edit and Compare pages, for the selected workflow.
+  const rail = (
+    <>
+      {railOpen && workflow && (
+        <RailPanel
+          tab={railTab}
+          workflowView={workflowView}
+          onWorkflowView={setWorkflowView}
+          onTab={showTab}
+          workflow={workflow}
+          readOnly={readOnly}
+          steps={steps}
+          selectedIndex={selected}
+          problems={problems.filter((p) => p.stepIndex === selected)}
+          library={library}
+          workstreams={workstreams}
+          root={session.root}
+          diffBase={disk?.text ?? workflow.text}
+          onEdit={apply}
+          onAddArtifact={addArtifact}
+          reviewGuides={reviewGuides}
+          allWorkflows={localWorkflows}
+          onOpenWorkstream={openWorkstreamPage}
+          linkTo={resolveLink}
+          onOpenWorkflow={selectWorkflow}
+          onOpenWorkflowStep={openWorkflowStep}
+          onClose={() => setRailOpen(false)}
+        />
+      )}
+      {workflow && (
+        <RailStrip
+          open={railOpen}
+          tab={railTab}
+          stepEnabled={selected !== null && !readOnly}
+          libraryEnabled={!readOnly}
+          stepProblem={selected !== null && byStep.has(selected)}
+          dirty={dirty && !readOnly}
+          onPick={(tab) => {
+            setProblemsOpen(false);
+            if (tab) showTab(tab);
+            else setRailOpen(false);
+          }}
+        />
+      )}
+    </>
   );
 
   return (
@@ -595,21 +688,36 @@ export function App() {
           />
         </div>
       ) : page === "compare" ? (
-        <div className="screen is-compare">
+        <div className={`screen is-compare${railOpen && workflow ? " has-panel" : ""}`}>
           {lane}
-          <div className="center">
-            <ComparePage
-              workflows={workflows}
+          {workflow ? (
+            <Compare
+              workflows={compareList}
+              left={workflow}
+              right={compareList.find((w) => workflowKey(w) === shownPair[1]) ?? null}
               library={library}
-              leftKey={shownPair[0]}
-              rightKey={shownPair[1]}
-              onPick={(side, key) => pickCompare(side, key)}
-              onEdit={editWorkflow}
+              selectedIndex={selected}
+              onSelectStep={selectStep}
+              onPick={pickCompare}
               onSwap={() => pickCompare("swap")}
-              onApply={applyTo}
-              resolveLink={resolveLocalLink}
+              onlyDifferences={onlyDifferences}
+              onOnlyDifferences={setOnlyDifferences}
+              allInstructions={allInstructions}
+              onAllInstructions={setAllInstructions}
+              status={workflowStatus(workflow, readOnly, dirty)}
+              dirty={dirty && !readOnly}
+              saveBlocked={problems.length ? "Fix the problems to save" : null}
+              onSave={openSave}
+              onApply={applyCompare}
+              diskBanner={diskBanner}
+              problemsChip={problemsChip}
+              problemSteps={byStep}
+              reveal={compareReveal}
             />
-          </div>
+          ) : (
+            <div className="center center-empty">No workflow to compare.</div>
+          )}
+          {rail}
         </div>
       ) : (
         <div className={`screen is-edit${railOpen && workflow ? " has-panel" : ""}`}>
@@ -620,25 +728,11 @@ export function App() {
               steps={steps}
               readOnly={readOnly}
               dirty={dirty}
-              disk={disk}
+              diskBanner={diskBanner}
+              problemsChip={problemsChip}
               problems={problems}
-              problemsOpen={problemsOpen}
-              setProblemsOpen={setProblemsOpen}
               onDiscard={discard}
               onSave={openSave}
-              onProblem={(stepIndex) => {
-                if (stepIndex >= 0) {
-                  setSelectedIndex(stepIndex);
-                  showTab("step");
-                }
-                setProblemsOpen(false);
-              }}
-              onCompareDisk={() => {
-                setWorkflowView("changes");
-                showTab("workflow");
-              }}
-              onLoadDisk={loadDisk}
-              onKeepEdits={keepEdits}
               showPaths={showPaths}
               setShowPaths={setShowPaths}
               showDescriptions={showDescriptions}
@@ -670,47 +764,7 @@ export function App() {
           ) : (
             <div className="center center-empty">No workflow selected.</div>
           )}
-          {railOpen && workflow && (
-            <RailPanel
-              tab={railTab}
-              workflowView={workflowView}
-              onWorkflowView={setWorkflowView}
-              onTab={showTab}
-              workflow={workflow}
-              readOnly={readOnly}
-              steps={steps}
-              selectedIndex={selected}
-              problems={problems.filter((p) => p.stepIndex === selected)}
-              library={library}
-              workstreams={workstreams}
-              root={session.root}
-              diffBase={disk?.text ?? workflow.text}
-              onEdit={apply}
-              onAddArtifact={addArtifact}
-              reviewGuides={reviewGuides}
-              allWorkflows={localWorkflows}
-              onOpenWorkstream={openWorkstreamPage}
-              linkTo={resolveLink}
-              onOpenWorkflow={selectWorkflow}
-              onOpenWorkflowStep={openWorkflowStep}
-              onClose={() => setRailOpen(false)}
-            />
-          )}
-          {workflow && (
-            <RailStrip
-              open={railOpen}
-              tab={railTab}
-              stepEnabled={selected !== null && !readOnly}
-              libraryEnabled={!readOnly}
-              stepProblem={selected !== null && byStep.has(selected)}
-              dirty={dirty && !readOnly}
-              onPick={(tab) => {
-                setProblemsOpen(false);
-                if (tab) showTab(tab);
-                else setRailOpen(false);
-              }}
-            />
-          )}
+          {rail}
         </div>
       )}
       {modal && workflow && (
@@ -731,6 +785,80 @@ export function App() {
   );
 }
 
+// The banner of the Edit and Compare pages when the selected workflow's file
+// changed on disk under unsaved edits (also after Save found it changed).
+// "Compare" opens the rail's Workflow tab on Changes.
+function DiskBanner({
+  file,
+  disk,
+  onCompare,
+  onLoadDisk,
+  onKeepEdits,
+}: {
+  file: string;
+  disk: DiskVersion;
+  onCompare: () => void;
+  onLoadDisk: () => void;
+  onKeepEdits: () => void;
+}) {
+  return (
+    <div className="disk-banner">
+      <span>
+        {file} changed on disk at {disk.at}. Your working copy has unsaved edits.
+      </span>
+      <button onClick={onCompare}>Compare</button>
+      <button onClick={onLoadDisk}>Load disk version</button>
+      <button className="keep" onClick={onKeepEdits}>
+        Keep my edits
+      </button>
+    </div>
+  );
+}
+
+// The chip that counts the workflow's problems, and the list it opens, each
+// problem a button that leads to its step (or to the workflow). The list is
+// positioned against the bar the chip sits in.
+function ProblemsChip({
+  problems,
+  steps,
+  open,
+  onToggle,
+  onProblem,
+}: {
+  problems: ReturnType<typeof problemsForText>;
+  steps: ReturnType<typeof stepViews>;
+  open: boolean;
+  onToggle: () => void;
+  onProblem: (stepIndex: number) => void;
+}) {
+  return (
+    <>
+      {problems.length > 0 && (
+        <button className="problems-chip" onClick={onToggle}>
+          {problems.length} problem{problems.length === 1 ? "" : "s"}
+        </button>
+      )}
+      {open && (
+        <div className="problems-popover">
+          {problems.map((p, i) => (
+            <button key={i} className="problems-popover-row" onClick={() => onProblem(p.stepIndex)}>
+              <span className="mono">{p.stepIndex >= 0 ? `${p.stepIndex + 1} · ${steps[p.stepIndex]?.id ?? ""}` : "workflow"}</span>
+              <span className="problems-popover-msg">{p.message}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// A workflow's status line in the Edit and Compare headers.
+function workflowStatus(workflow: OpenWorkflow, readOnly: boolean, dirty: boolean): string {
+  if (readOnly) return `read-only · ${projectName(workflow.project ?? "")}'s own workflow`;
+  if (!workflow.onDisk) return "new · working copy";
+  return dirty ? "modified · working copy" : "saved";
+}
+
 // The Edit page's centre column: the header with the file, its status and
 // Save, the disk-change banner, the toolbar, and the diagram.
 function EditCenter({
@@ -738,16 +866,11 @@ function EditCenter({
   steps,
   readOnly,
   dirty,
-  disk,
+  diskBanner,
+  problemsChip,
   problems,
-  problemsOpen,
-  setProblemsOpen,
   onDiscard,
   onSave,
-  onProblem,
-  onCompareDisk,
-  onLoadDisk,
-  onKeepEdits,
   showPaths,
   setShowPaths,
   showDescriptions,
@@ -758,29 +881,18 @@ function EditCenter({
   steps: ReturnType<typeof stepViews>;
   readOnly: boolean;
   dirty: boolean;
-  disk?: DiskVersion;
+  diskBanner: React.ReactNode;
+  problemsChip: React.ReactNode;
   problems: ReturnType<typeof problemsForText>;
-  problemsOpen: boolean;
-  setProblemsOpen: (update: (open: boolean) => boolean) => void;
   onDiscard: () => void;
   onSave: () => void;
-  onProblem: (stepIndex: number) => void;
-  onCompareDisk: () => void;
-  onLoadDisk: () => void;
-  onKeepEdits: () => void;
   showPaths: boolean;
   setShowPaths: (update: (on: boolean) => boolean) => void;
   showDescriptions: boolean;
   setShowDescriptions: (update: (on: boolean) => boolean) => void;
   children: React.ReactNode;
 }) {
-  const status = readOnly
-    ? `read-only · ${projectName(workflow.project ?? "")}'s own workflow`
-    : !workflow.onDisk
-      ? "new · working copy"
-      : dirty
-        ? "modified · working copy"
-        : "saved";
+  const status = workflowStatus(workflow, readOnly, dirty);
   return (
     <div className="center">
       <div className="center-header">
@@ -793,11 +905,7 @@ function EditCenter({
             </span>
           </div>
         </div>
-        {!readOnly && problems.length > 0 && (
-          <button className="problems-chip" onClick={() => setProblemsOpen((v) => !v)}>
-            {problems.length} problem{problems.length === 1 ? "" : "s"}
-          </button>
-        )}
+        {problemsChip}
         {!readOnly && dirty && workflow.onDisk && (
           <button className="discard-btn" onClick={onDiscard}>
             Discard changes
@@ -813,31 +921,8 @@ function EditCenter({
             Save…
           </button>
         )}
-        {problemsOpen && (
-          <div className="problems-popover">
-            {problems.map((p, i) => (
-              <button key={i} className="problems-popover-row" onClick={() => onProblem(p.stepIndex)}>
-                <span className="mono">
-                  {p.stepIndex >= 0 ? `${p.stepIndex + 1} · ${steps[p.stepIndex]?.id ?? ""}` : "workflow"}
-                </span>
-                <span className="problems-popover-msg">{p.message}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
-      {disk && !readOnly && (
-        <div className="disk-banner">
-          <span>
-            {workflow.file} changed on disk at {disk.at}. Your working copy has unsaved edits.
-          </span>
-          <button onClick={onCompareDisk}>Compare</button>
-          <button onClick={onLoadDisk}>Load disk version</button>
-          <button className="keep" onClick={onKeepEdits}>
-            Keep my edits
-          </button>
-        </div>
-      )}
+      {diskBanner}
       <div className="toolbar">
         <span className="toolbar-counts">
           {plural(steps.length, "step")} · {plural(artifactCount(steps), "artifact")} ·{" "}
