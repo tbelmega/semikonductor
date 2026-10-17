@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // The bar above every page: the brand and the project Komposer was started
-// on, the page switcher, and the theme button. Present is shown but not
-// built yet, so it cannot be chosen.
+// on, the page switcher, and the theme button.
 
 import { ThemeToggle } from "./ThemeToggle.tsx";
 
@@ -10,7 +9,7 @@ export type Page = "edit" | "compare" | "present" | "workstreams";
 export const PAGES: { id: Page; label: string; built: boolean }[] = [
   { id: "edit", label: "Edit", built: true },
   { id: "compare", label: "Compare", built: true },
-  { id: "present", label: "Present", built: false },
+  { id: "present", label: "Present", built: true },
   { id: "workstreams", label: "Workstreams", built: true },
 ];
 

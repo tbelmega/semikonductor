@@ -2068,3 +2068,126 @@ button.compare-card-title:focus-visible { outline: 2px solid var(--ring); outlin
 .lane-row-tag.is-right { background: var(--surface-sunken); color: var(--accent-text); }
 .lane-as-right { position: absolute; right: 6px; top: 8px; height: 20px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font: 500 10.5px "JetBrains Mono", monospace; color: var(--text-muted); cursor: pointer; }
 .lane-as-right:hover { border-color: var(--accent); color: var(--accent-text); }
+
+/* ------------------------------------------------------------ Present */
+/* A read-only diagram's cards are not controls. */
+.step-card.is-static { cursor: default; }
+.step-card.is-static:hover { border-color: var(--border); }
+.step-card.is-static.is-optional:hover { border-color: var(--border-strong); }
+/* The page: the diagram between two drawers that slide in over it; the
+   main column's side padding keeps the cards clear of the 20px strips. */
+.screen.is-present { position: relative; overflow: hidden; }
+.present-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 0 20px; }
+.present-main > .center-empty { display: flex; flex: 1; }
+.present-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; padding: 36px 0 24px; }
+.present-scroll.has-second { gap: 28px; padding: 36px 12px 24px; }
+.present-scroll > .diagram-inner { flex: 1; min-width: 0; }
+.present-scroll > .diagram-inner.is-second { padding-left: 28px; border-left: 1px solid var(--border); }
+.flow-header { display: flex; flex-direction: column; gap: 4px; }
+.present-title { margin: 0; font: 700 26px "Space Grotesk", sans-serif; letter-spacing: -0.015em; color: var(--text-strong); }
+.present-description { margin: 0; max-width: 70ch; font: 400 15px/1.5 "IBM Plex Sans", sans-serif; color: var(--text-muted); }
+.present-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+}
+.present-drawer.is-left { left: 0; transform: translateX(-240px); }
+.present-drawer.is-right { right: 0; transform: translateX(240px); }
+.present-drawer.is-open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+.present-drawer > .lane { flex: none; width: 240px; }
+.drawer-strip {
+  flex: none;
+  width: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 10px;
+  background: var(--surface);
+}
+.drawer-strip.is-left { border-right: 1px solid var(--border); }
+.drawer-strip.is-right { border-left: 1px solid var(--border); }
+.drawer-pin {
+  width: 18px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.drawer-pin:hover { background: var(--surface-sunken); color: var(--text-strong); }
+.drawer-pin:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.drawer-pin svg { transition: transform 180ms var(--ease-out); }
+.drawer-label {
+  margin-top: 10px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font: 500 10.5px "JetBrains Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.show-panel {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow: auto;
+}
+.show-panel-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.show-panel-title { font: 700 15px "Space Grotesk", sans-serif; color: var(--text-strong); }
+.show-panel-file { font: 400 11.5px "JetBrains Mono", monospace; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.show-panel .compare-picker { gap: 5px; }
+.show-toggles { display: flex; flex-direction: column; gap: 1px; }
+.show-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font: 500 13px "IBM Plex Sans", sans-serif;
+  color: var(--text-strong);
+  text-align: left;
+}
+.show-toggle:hover { background: var(--surface-subtle); }
+.show-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.show-toggle-box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font: 700 11px "IBM Plex Sans", sans-serif;
+}
+.show-toggle.is-on .show-toggle-box { border-color: var(--accent); background: var(--accent); }
+.show-actions { display: flex; gap: 6px; }
+.show-actions button {
+  flex: 1;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-body);
+  font: 500 12px "IBM Plex Sans", sans-serif;
+  cursor: pointer;
+}
+.show-actions button:hover { border-color: var(--border-strong); }

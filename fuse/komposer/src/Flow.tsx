@@ -2,9 +2,11 @@
 // The centre diagram: the workflow's inputs, phase headings, step cards
 // (number tile, title, id, condition row, description, artifact chips, gate
 // pills, error line), Append step, the workflows it hands off to, and the
-// SVG edge overlay.
+// SVG edge overlay. Present shows it read-only: without selection, problem
+// highlights or editing controls, with the element types its Show toggles
+// leave, and next to a second diagram in one scroll area.
 
-import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
+import { useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
 import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
@@ -14,6 +16,7 @@ import { gatesInRunOrder, modeBadge, type ArtifactRole, type StepView, type Work
 import { layoutEdges } from "./layout.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
+import { ALL_SHOWN, legendEntries, type FlowShow } from "./model/present.ts";
 
 type Rect = { t: number; b: number; l: number; r: number };
 
@@ -67,6 +70,7 @@ export function delegationTip(gate: Gate, link: WorkflowLink): string {
 
 const ROLE_PREFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "", updates: "~" };
 const ROLE_SUFFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "?", updates: "" };
+const NO_PROBLEMS = new Map<number, Problem[]>();
 
 export function Flow({
   steps,
@@ -89,25 +93,34 @@ export function Flow({
   handOffs,
   linkTo,
   onOpenWorkflow,
+  show = ALL_SHOWN,
+  scroll = true,
+  header,
+  legend = true,
+  className,
 }: {
   steps: StepView[];
   selectedIndex: number;
-  onSelect: (i: number) => void;
-  problemsByStep: Map<number, Problem[]>;
+  // Selecting a step by clicking its card. Without it, as on Present, a
+  // card is not a control: no click, no pointer cursor, no select button.
+  onSelect?: (i: number) => void;
+  // Without it, as on Present, no step shows a problem.
+  problemsByStep?: Map<number, Problem[]>;
   library: LibraryEntry[];
   showPaths: boolean;
   showDescriptions: boolean;
   hoveredArtifact: string | null;
   onHoverArtifact: (id: string | null) => void;
-  onInsert: (at: number) => void;
-  onMove: (from: number, to: number) => void;
-  onDelete: (index: number) => void;
-  onAppend: () => void;
-  onDropArtifact: (step: number, artifact: string) => void;
+  // The editing actions; a read-only diagram needs none of them.
+  onInsert?: (at: number) => void;
+  onMove?: (from: number, to: number) => void;
+  onDelete?: (index: number) => void;
+  onAppend?: () => void;
+  onDropArtifact?: (step: number, artifact: string) => void;
   // A library entry dropped between steps, or on "Append step", becomes a new step at `at`.
-  onDropArtifactAt: (at: number, artifact: string) => void;
-  // Another project's own workflow: no insert seams,
-  // moves, deletes or Append step, and artifact drops are ignored.
+  onDropArtifactAt?: (at: number, artifact: string) => void;
+  // Another project's own workflow, or Present: no insert seams (a 14px
+  // gap instead), moves, deletes or Append step, and drops are ignored.
   readOnly: boolean;
   // The documents the workflow expects from outside, and the workflows it hands off to.
   inputs: WorkflowInput[];
@@ -115,6 +128,19 @@ export function Flow({
   // Where a workflow reference leads, and opening a listed workflow by key.
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
+  // The element types shown; everything unless given. The Inputs and
+  // Hands-off cards always show. Hidden lines keep their gutters, so the
+  // cards stay where they are.
+  show?: FlowShow;
+  // False renders the diagram without its own scroll area, for a page that
+  // scrolls two diagrams together.
+  scroll?: boolean;
+  // Shown above the diagram, aligned with the card column.
+  header?: ReactNode;
+  // False leaves the legend out, as under Present's second diagram.
+  legend?: boolean;
+  // An extra class on the diagram's column.
+  className?: string;
 }) {
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
@@ -131,7 +157,7 @@ export function Flow({
       if (!artifact) return;
       event.preventDefault();
       event.stopPropagation();
-      onDropArtifactAt(at, artifact);
+      onDropArtifactAt?.(at, artifact);
     },
   });
   const flowRef = useRef<HTMLDivElement>(null);
@@ -141,6 +167,10 @@ export function Flow({
   const leftPad = 24 + 8 * layout.leftLanes;
   const rightPad = 24 + 8 * layout.rightLanes;
   const flowMaxWidth = maxCardWidth + 48 + 8 * layout.leftLanes + 8 * layout.rightLanes;
+  const legendShows = legendEntries(show);
+  const hasLegend = legend && Object.values(legendShows).some(Boolean);
+  // Toggles change card heights, so the edges are measured again after them.
+  const shownKey = `${JSON.stringify(show)}|${showDescriptions}|${showPaths}`;
 
   useLayoutEffect(() => {
     const element = flowRef.current;
@@ -167,11 +197,15 @@ export function Flow({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [steps]);
+  }, [steps, shownKey]);
 
-  return (
-    <div className="diagram-scroll">
-      <div className="diagram-inner" style={{ maxWidth: `${flowMaxWidth}px` }}>
+  const diagram = (
+      <div className={`diagram-inner${className ? ` ${className}` : ""}`} style={{ maxWidth: `${flowMaxWidth}px` }}>
+        {header && (
+          <div className="flow-header" style={{ margin: `0 ${rightPad}px 18px ${leftPad}px` }}>
+            {header}
+          </div>
+        )}
         <div className="flow" ref={flowRef} style={{ padding: `0 ${rightPad}px 0 ${leftPad}px` }}>
           <Edges
             steps={steps}
@@ -179,6 +213,7 @@ export function Flow({
             layout={layout}
             selectedIndex={selectedIndex}
             hoveredArtifact={hoveredArtifact}
+            show={show}
           />
           {inputs.length > 0 && (
             <div className="flow-card workflow-inputs">
@@ -208,13 +243,13 @@ export function Flow({
               ) : (
                 <div
                   className={`step-seam${dropAt === i ? " is-drop-target" : ""}`}
-                  onClick={() => onInsert(i)}
+                  onClick={() => onInsert?.(i)}
                   {...dropProps(i)}
                 >
                   <span>{dropAt === i ? "+ new step" : "+ insert"}</span>
                 </div>
               )}
-              {step.phase && (i === 0 || steps[i - 1].phase !== step.phase) && (
+              {show.phases && step.phase && (i === 0 || steps[i - 1].phase !== step.phase) && (
                 <div className="phase-heading">
                   <span className="phase-pill">{step.phase}</span>
                   <span className="phase-line" />
@@ -224,19 +259,20 @@ export function Flow({
                 step={step}
                 num={i + 1}
                 selected={i === selectedIndex}
-                onSelect={() => onSelect(i)}
-                problems={problemsByStep.get(i) ?? []}
+                onSelect={onSelect && (() => onSelect(i))}
+                problems={(problemsByStep ?? NO_PROBLEMS).get(i) ?? []}
                 library={library}
                 showPaths={showPaths}
                 showDescriptions={showDescriptions}
+                show={show}
                 hoveredArtifact={hoveredArtifact}
                 onHoverArtifact={onHoverArtifact}
                 canMoveUp={i > 0}
                 canMoveDown={i < steps.length - 1}
-                onMoveUp={() => onMove(i, i - 1)}
-                onMoveDown={() => onMove(i, i + 1)}
-                onDelete={() => onDelete(i)}
-                onDropArtifact={(artifact) => onDropArtifact(i, artifact)}
+                onMoveUp={() => onMove?.(i, i - 1)}
+                onMoveDown={() => onMove?.(i, i + 1)}
+                onDelete={() => onDelete?.(i)}
+                onDropArtifact={(artifact) => onDropArtifact?.(i, artifact)}
                 readOnly={readOnly}
                 inputIds={inputs.map((input) => input.artifact)}
                 linkTo={linkTo}
@@ -269,21 +305,31 @@ export function Flow({
             ))}
           </div>
         )}
-        <div className="flow-legend" style={{ margin: `18px ${rightPad}px 0 ${leftPad}px` }}>
-          <span className="flow-legend-item">
-            <span className="flow-legend-line" /> consumes
-          </span>
-          <span className="flow-legend-item">
-            <span className="flow-legend-line-dashed" /> route back
-          </span>
-          <span>~ updates</span>
-          <span>id? may produce</span>
-          <span>G T R guide · template · review</span>
-          <span>↳ child workflow</span>
-        </div>
+        {hasLegend && (
+          <div className="flow-legend" style={{ margin: `18px ${rightPad}px 0 ${leftPad}px` }}>
+            {legendShows.consumes && (
+              <span className="flow-legend-item">
+                <span className="flow-legend-line" /> consumes
+              </span>
+            )}
+            {legendShows.routes && (
+              <span className="flow-legend-item">
+                <span className="flow-legend-line-dashed" /> route back
+              </span>
+            )}
+            {legendShows.artifacts && (
+              <>
+                <span>~ updates</span>
+                <span>id? may produce</span>
+                <span>G T R guide · template · review</span>
+              </>
+            )}
+            {legendShows.gates && <span>↳ child workflow</span>}
+          </div>
+        )}
       </div>
-    </div>
   );
+  return scroll ? <div className="diagram-scroll">{diagram}</div> : diagram;
 }
 
 function StepCard({
@@ -295,6 +341,7 @@ function StepCard({
   library,
   showPaths,
   showDescriptions,
+  show,
   hoveredArtifact,
   onHoverArtifact,
   canMoveUp,
@@ -311,11 +358,12 @@ function StepCard({
   step: StepView;
   num: number;
   selected: boolean;
-  onSelect: () => void;
+  onSelect?: () => void;
   problems: Problem[];
   library: LibraryEntry[];
   showPaths: boolean;
   showDescriptions: boolean;
+  show: FlowShow;
   hoveredArtifact: string | null;
   onHoverArtifact: (id: string | null) => void;
   canMoveUp: boolean;
@@ -339,7 +387,7 @@ function StepCard({
   return (
     <div
       data-node={num}
-      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}`}
+      className={`step-card${step.condition ? " is-optional" : ""}${selected ? " is-selected" : ""}${hasProblems ? " has-problems" : ""}${onSelect ? "" : " is-static"}`}
       onClick={onSelect}
       onDragOver={(event) => {
         if (!readOnly && event.dataTransfer.types.includes(ARTIFACT_DRAG)) event.preventDefault();
@@ -357,18 +405,22 @@ function StepCard({
         <div className="step-title-row">
           {/* The card selects on click; this button is its keyboard control.
               Enter or Space clicks it, and the click reaches the card. */}
-          <button
-            type="button"
-            className="step-title"
-            aria-label={`Select step ${step.id}${step.title ? `: ${step.title}` : ""}`}
-            aria-current={selected ? "true" : undefined}
-          >
-            {step.title || step.id}
-          </button>
+          {onSelect ? (
+            <button
+              type="button"
+              className="step-title"
+              aria-label={`Select step ${step.id}${step.title ? `: ${step.title}` : ""}`}
+              aria-current={selected ? "true" : undefined}
+            >
+              {step.title || step.id}
+            </button>
+          ) : (
+            <span className="step-title">{step.title || step.id}</span>
+          )}
           {step.title && <span className="step-id">{step.id}</span>}
           <ModeBadge mode={step.mode} />
         </div>
-        {step.condition && (
+        {show.conditions && step.condition && (
           <div className="step-condition" title={`${step.condition.kind}: ${step.condition.text}`}>
             <span className="step-condition-label">only if</span>
             <span
@@ -380,8 +432,8 @@ function StepCard({
             <span className="step-condition-text">{step.condition.text || "…"}</span>
           </div>
         )}
-        {showDescriptions && step.description && <div className="step-description">{step.description}</div>}
-        {(step.consumes.length > 0 || step.artifacts.length > 0) && (
+        {showDescriptions && show.descriptions && step.description && <div className="step-description">{step.description}</div>}
+        {show.artifacts && (step.consumes.length > 0 || step.artifacts.length > 0) && (
           <div className="step-chips">
             {step.consumes.map((id) => {
               const bad = badConsumes.has(id);
@@ -432,7 +484,7 @@ function StepCard({
             })}
           </div>
         )}
-        {step.gates.length > 0 && (
+        {show.gates && step.gates.length > 0 && (
           <div className="step-gates">
             {order.map(({ gate }, k) => {
               const style = GATE_STYLE[gate.kind];
@@ -509,13 +561,20 @@ function Edges({
   layout,
   selectedIndex,
   hoveredArtifact,
+  show,
 }: {
   steps: StepView[];
   geo: Rect[];
   layout: ReturnType<typeof layoutEdges>;
   selectedIndex: number;
   hoveredArtifact: string | null;
+  show: FlowShow;
 }) {
+  // Marker ids of this diagram, so two diagrams on a page do not share them.
+  const id = useId().replace(/:/g, "");
+  const arrow = `kp-a-${id}`,
+    arrowSelected = `kp-s-${id}`,
+    arrowBack = `kp-b-${id}`;
   if (geo.length !== steps.length || geo.length === 0) return null;
   const left = geo[0]?.l ?? 0;
   const right = geo[0]?.r ?? 0;
@@ -524,7 +583,7 @@ function Edges({
     <svg className="flow-svg">
       <defs>
         <marker
-          id="kp-a"
+          id={arrow}
           viewBox="0 0 6 6"
           refX={5}
           refY={3}
@@ -536,7 +595,7 @@ function Edges({
           <path d="M0 0 L6 3 L0 6 z" style={{ fill: FWD }} />
         </marker>
         <marker
-          id="kp-s"
+          id={arrowSelected}
           viewBox="0 0 6 6"
           refX={5}
           refY={3}
@@ -548,7 +607,7 @@ function Edges({
           <path d="M0 0 L6 3 L0 6 z" style={{ fill: SEL }} />
         </marker>
         <marker
-          id="kp-b"
+          id={arrowBack}
           viewBox="0 0 6 6"
           refX={5}
           refY={3}
@@ -569,13 +628,13 @@ function Edges({
             key={`seq-${i}`}
             d={`M${x} ${geo[i - 1].b} V${geo[i].t - 1}`}
             fill="none"
-            markerEnd="url(#kp-a)"
+            markerEnd={`url(#${arrow})`}
             style={{ stroke: FWD, strokeWidth: 1.25 }}
           />
         );
       })}
       {/* data-flow buses, left gutter */}
-      {layout.buses.map((bus) => {
+      {show.consumes && layout.buses.map((bus) => {
         const highlighted =
           hoveredArtifact === bus.artifact ||
           bus.producerIndex === selectedIndex ||
@@ -587,7 +646,7 @@ function Edges({
         );
         const color = highlighted ? SEL : FWD;
         const strokeWidth = highlighted ? 1.6 : 1;
-        const marker = highlighted ? "url(#kp-s)" : "url(#kp-a)";
+        const marker = `url(#${highlighted ? arrowSelected : arrow})`;
         return (
           <g key={`bus-${bus.artifact}`}>
             <path d={`M${left} ${y0} H${x} V${Math.max(...ys)}`} fill="none" style={{ stroke: color, strokeWidth }} />
@@ -605,7 +664,7 @@ function Edges({
         );
       })}
       {/* route-back edges, right gutter */}
-      {layout.routes.map((route, k) => {
+      {show.routes && layout.routes.map((route, k) => {
         const highlighted = selectedIndex === route.fromIndex || selectedIndex === route.toIndex;
         const x = right + 14 + route.lane * 8;
         const yOut = geo[route.fromIndex].b - 14;
@@ -615,7 +674,7 @@ function Edges({
             key={`route-${k}`}
             d={`M${right} ${yOut} H${x} V${yIn} H${right + 1}`}
             fill="none"
-            markerEnd="url(#kp-b)"
+            markerEnd={`url(#${arrowBack})`}
             style={{
               stroke: BACK,
               strokeWidth: highlighted ? 1.6 : 1.1,

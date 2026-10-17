@@ -2,7 +2,8 @@
 // The app: the top bar, the page switcher's pages, and the state they share.
 // One workflow is selected for every page; the Edit page edits it, and the
 // Workstreams page shows its workstreams. The Compare page shows it on the
-// left, against any other workflow on the right, and edits it there.
+// left, against any other workflow on the right, and edits it there. The
+// Present page shows it read-only, optionally next to a second workflow.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -46,6 +47,8 @@ import { Flow } from "./Flow.tsx";
 import { RailPanel, RailStrip, type RailTab, type WorkflowView } from "./Inspector.tsx";
 import { TopBar, PAGES, type Page } from "./TopBar.tsx";
 import { Workstreams, type WorkstreamView } from "./Workstreams.tsx";
+import { Present } from "./Present.tsx";
+import { ALL_SHOWN, escapeAction, secondOptions, shownSecond, type FlowShow } from "./model/present.ts";
 import { projectName } from "./runView.ts";
 
 type SaveModal = { type: "save"; asNew: boolean; location: LocationId; folder: string; name: string; error?: string };
@@ -90,6 +93,12 @@ export function App() {
   // repeated picks of the same step apart.
   const [compareReveal, setCompareReveal] = useState<{ index: number; n: number } | null>(null);
   const [allInstructions, setAllInstructions] = useState(false);
+  // The Present page: what its diagrams show, the workflow chosen to show
+  // next to the selected one, and which drawers are pinned open.
+  const [presentShow, setPresentShow] = useState<FlowShow>(ALL_SHOWN);
+  const [presentSecond, setPresentSecond] = useState<string | null>(null);
+  const [leftPinned, setLeftPinned] = useState(false);
+  const [rightPinned, setRightPinned] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(false);
   const [showDescriptions, setShowDescriptions] = useState(true);
@@ -154,21 +163,25 @@ export function App() {
   const localWorkflows = useMemo(() => workflows.filter((w) => w.location !== "run"), [workflows]);
   const selected = selectedIndex !== null && selectedIndex < steps.length ? selectedIndex : null;
 
-  // Keys 1 to 4 switch pages, when focus is not in a field; Escape closes the
-  // rail, and a second Escape clears the step selection. Escape in a field
-  // only leaves the field, so a field that applies its value on blur keeps it
-  // instead of losing it when the rail unmounts.
-  const keyState = useRef({ modal, railOpen, selected, page, goPage: (_: Page) => {} });
-  keyState.current = { modal, railOpen, selected, page, goPage: (next: Page) => goPage(next) };
+  // Keys 1 to 4 switch pages, when focus is not in a field. Escape does what
+  // escapeAction says: leave a field, close the rail, clear the selection,
+  // or on Present un-pin the drawers.
+  const pinned = leftPinned || rightPinned;
+  const keyState = useRef({ modal, railOpen, selected, page, pinned, goPage: (_: Page) => {} });
+  keyState.current = { modal, railOpen, selected, page, pinned, goPage: (next: Page) => goPage(next) };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const now = keyState.current;
       if (now.modal || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") {
-        if (now.page !== "edit" && now.page !== "compare") return;
-        if (typingIn(event.target)) (event.target as HTMLElement).blur();
-        else if (now.railOpen) setRailOpen(false);
-        else if (now.selected !== null) setSelectedIndex(null);
+        const action = escapeAction({ ...now, typing: typingIn(event.target) });
+        if (action === "blur") (event.target as HTMLElement).blur();
+        if (action === "close-rail") setRailOpen(false);
+        if (action === "clear-selection") setSelectedIndex(null);
+        if (action === "unpin") {
+          setLeftPinned(false);
+          setRightPinned(false);
+        }
         return;
       }
       if (typingIn(event.target)) return;
@@ -665,10 +678,34 @@ export function App() {
     </>
   );
 
+  // The Present page's second workflow, while its picker offers it.
+  const presentSecondKey = shownSecond(workflows, currentKey, presentSecond);
+  const presentSecondWorkflow = workflows.find((w) => workflowKey(w) === presentSecondKey) ?? null;
+
   return (
     <div className="app">
       <TopBar project={projectName(session.root)} page={page} onPage={goPage} />
-      {page === "workstreams" ? (
+      {page === "present" ? (
+        <Present
+          lane={lane}
+          workflow={workflow}
+          second={presentSecondWorkflow}
+          secondOptions={secondOptions(workflows, currentKey)}
+          onSecond={setPresentSecond}
+          linkTo={resolveLink}
+          secondLinkTo={(ref) => linkTo(ref, presentSecondWorkflow!, workflows, localLinkDir, unavailable)}
+          onOpenWorkflow={selectWorkflow}
+          library={library}
+          show={presentShow}
+          onShow={setPresentShow}
+          hoveredArtifact={hoveredArtifact}
+          onHoverArtifact={setHoveredArtifact}
+          leftPinned={leftPinned}
+          rightPinned={rightPinned}
+          onLeftPinned={setLeftPinned}
+          onRightPinned={setRightPinned}
+        />
+      ) : page === "workstreams" ? (
         <div className="screen is-workstreams">
           {lane}
           <Workstreams

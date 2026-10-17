@@ -40,7 +40,7 @@ const LOCATION_LABEL: Record<OpenWorkflow["location"], string> = {
 };
 
 // How a workflow is named in the pickers, and the path shown below them.
-const pickerLabel = (w: OpenWorkflow) => `${LOCATION_LABEL[w.location]} · ${w.dir ? `${w.dir}/` : ""}${stem(w.file)}`;
+export const pickerLabel = (w: OpenWorkflow) => `${LOCATION_LABEL[w.location]} · ${w.dir ? `${w.dir}/` : ""}${stem(w.file)}`;
 const pickerPath = (w: OpenWorkflow) => `${LOCATION_ROOT[w.location]}${w.dir ? `${w.dir}/` : ""}${w.file}`;
 
 const ROW: Record<RowKind, { mark: string; label: string; tip: string }> = {
