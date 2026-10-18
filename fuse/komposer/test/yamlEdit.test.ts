@@ -7,7 +7,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "n
 import { join, resolve } from "node:path";
 import { parseWorkflowText } from "../../flow/src/parse.ts";
 import YAML from "yaml";
-import { applyEdit, verifyEdit, type Edit } from "../src/model/yamlEdit.ts";
+import { applyEdit, instructionTakesBlock, verifyEdit, type Edit } from "../src/model/yamlEdit.ts";
 
 const WORKFLOWS_DIR = resolve(import.meta.dir, "..", "..", "flow", "workflows");
 
@@ -1670,8 +1670,9 @@ steps:
     expect(consumes).toBe(flowStep.replace("instruction: y }", "instruction: y, consumes: [x] }"));
   });
 
-  test("a block instruction inside a flow step throws instead of corrupting the file", () => {
-    expect(() => applyEdit(flowStep, { op: "setInstruction", step: 1, text: "new", style: ">" })).toThrow(/flow mapping/);
+  test("an instruction inside a flow step is written inside its braces, as a flow scalar", () => {
+    const out = applyEdit(flowStep, { op: "setInstruction", step: 1, text: "new", style: ">" });
+    expect(out).toBe(flowStep.replace("instruction: y }", "instruction: new }"));
   });
 
   test("a condition, an output or a gate is added inside a flow step's braces", () => {
@@ -2046,5 +2047,186 @@ steps:
         { artifact: "p", path: "a, b.md", description: "A folded description.\n" },
       ],
     });
+  });
+});
+
+describe("bug bash: steps fuse-flow accepts and Komposer could not edit", () => {
+  const ok = (out: string) => {
+    const parsed = parseWorkflowText(out);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    return parsed.workflow;
+  };
+
+  test("an instruction in a step written in braces is edited there, also with several lines", () => {
+    const t = "version: 1\nname: flow-step\nsteps:\n  - { id: a, instruction: Do it. }\n";
+    for (const style of [">", "|"] as const) {
+      const out = applyEdit(t, { op: "setInstruction", step: 0, text: "Do it again.", style });
+      expect(out).toBe(t.replace("Do it.", "Do it again."));
+    }
+    const lines = applyEdit(t, { op: "setInstruction", step: 0, text: "Write the note.\nWrite the extra.", style: "|" });
+    expect(ok(lines).steps[0].instruction).toBe("Write the note.\nWrite the extra.");
+    expect(lines.split("\n").slice(0, 3).join("\n")).toBe(t.split("\n").slice(0, 3).join("\n"));
+    expect(applyEdit(t, { op: "setInstruction", step: 0, text: "Do it. ", style: "|" })).toBe(t);
+  });
+
+  test("a step list written in brackets takes an instruction edit too", () => {
+    const t = 'version: 1\nname: flow-instruction\nsteps: [{id: write, instruction: "Write the bash-note.", produces: {artifact: bash-note, path: note.md}}]\n';
+    const out = applyEdit(t, { op: "setInstruction", step: 0, text: "Write the bash-note.\nWrite the bash-extra.", style: "|" });
+    expect(ok(out).steps[0].instruction).toBe("Write the bash-note.\nWrite the bash-extra.");
+  });
+
+  test("whether an instruction can be a block is told apart", () => {
+    expect(instructionTakesBlock("version: 1\nname: a\nsteps:\n  - id: a\n    instruction: x\n", 0)).toBe(true);
+    expect(instructionTakesBlock("version: 1\nname: a\nsteps:\n  - { id: a, instruction: x }\n", 0)).toBe(false);
+    expect(instructionTakesBlock("version: 1\nname: a\nsteps: [{ id: a, instruction: x }]\n", 0)).toBe(false);
+  });
+
+  const dash = "version: 1\nname: dash-lines\nsteps:\n  -\n    id: a\n    instruction: Do it.\n  - id: b\n    instruction: Then this.\n";
+
+  test("a step whose dash stands on its own line is edited, and so is the rest of the file", () => {
+    expect(ok(dash).steps.map((s) => s.id)).toEqual(["a", "b"]);
+    const name = applyEdit(dash, { op: "setWorkflowField", key: "name", value: "renamed" });
+    expect(name).toBe(dash.replace("name: dash-lines", "name: renamed"));
+    const title = applyEdit(dash, { op: "setStepField", step: 0, key: "title", value: "A" });
+    expect(ok(title).steps[0]).toMatchObject({ id: "a", title: "A", instruction: "Do it." });
+    expect(title.endsWith("  - id: b\n    instruction: Then this.\n")).toBe(true);
+    const other = applyEdit(dash, { op: "setStepField", step: 1, key: "title", value: "B" });
+    expect(other.startsWith("version: 1\nname: dash-lines\nsteps:\n  -\n    id: a\n    instruction: Do it.\n")).toBe(true);
+    expect(ok(other).steps[1]).toMatchObject({ id: "b", title: "B" });
+    const moved = applyEdit(dash, { op: "moveStep", from: 0, to: 1 });
+    expect(ok(moved).steps.map((s) => s.id)).toEqual(["b", "a"]);
+  });
+
+  // An anchor, a tag or a comment between a step's dash and its first key
+  // stands between the two in the text; the dash is still the step's.
+  const between: [string, string][] = [
+    ["an anchor on the dash line", "  - &first id: a\n"],
+    ["a tag on the dash line", "  - !!map id: a\n"],
+    ["an anchor alone on the dash line", "  - &first\n    id: a\n"],
+    ["a comment on the dash line", "  - # first step\n    id: a\n"],
+    ["a comment between the dash and the first key", "  -\n    # first step\n    id: a\n"],
+  ];
+  for (const [what, head] of between) {
+    const t = `version: 1\nname: between\nsteps:\n${head}    instruction: Do it.\n  - id: b\n    instruction: Then this.\n`;
+    test(`a step with ${what} is edited, and so is the step after it`, () => {
+      expect(ok(t).steps.map((s) => s.id)).toEqual(["a", "b"]);
+      const first = applyEdit(t, { op: "setStepField", step: 0, key: "title", value: "A" });
+      expect(first).toBe(t.replace("id: a\n", "id: a\n    title: A\n"));
+      const second = applyEdit(t, { op: "setStepField", step: 1, key: "title", value: "B" });
+      expect(second).toBe(t.replace("id: b\n", "id: b\n    title: B\n"));
+      const moved = applyEdit(t, { op: "moveStep", from: 1, to: 0 });
+      expect(ok(moved).steps.map((s) => s.id)).toEqual(["b", "a"]);
+      expect(moved).toContain(`${head}    instruction: Do it.\n`);
+    });
+  }
+
+  test("a step in braces rendered again keeps the comment between its dash and its braces, above the dash", () => {
+    const t = "version: 1\nname: between\nsteps:\n  -\n    # first step\n    { id: a, instruction: x }\n  - id: b\n    instruction: Then this.\n";
+    const out = applyEdit(t, { op: "setStepField", step: 0, key: "title", value: "A" });
+    expect(out).toBe("version: 1\nname: between\nsteps:\n  # first step\n  - { id: a, title: A, instruction: x }\n  - id: b\n    instruction: Then this.\n");
+  });
+});
+
+describe("bug bash: an edit to one key of a step keeps the layout of its other keys", () => {
+  const t = `version: 1
+name: indent
+steps:
+  - id: a
+    title: Old
+    instruction   : Do it.
+    description: >2
+        Indented further.
+    produces:
+        - artifact: note
+          path: note.md
+    gates:
+        - check: default
+  - id: b
+    instruction: Then.
+`;
+
+  test("setting the title changes the title line only", () => {
+    const out = applyEdit(t, { op: "setStepField", step: 0, key: "title", value: "New" });
+    expect(out).toBe(t.replace("title: Old", "title: New"));
+  });
+
+  test("adding and removing a key adds and removes its line only", () => {
+    const phase = applyEdit(t, { op: "setStepField", step: 0, key: "phase", value: "Build" });
+    expect(phase).toBe(t.replace("    title: Old\n", "    title: Old\n    phase: Build\n"));
+    const noTitle = applyEdit(t, { op: "setStepField", step: 0, key: "title", value: null });
+    expect(noTitle).toBe(t.replace("    title: Old\n", ""));
+    const gate = applyEdit(t, { op: "addGate", step: 1, gate: { kind: "check", text: "default" } });
+    expect(gate).toBe(`${t}    gates:\n      - check: default\n`);
+  });
+
+  test("changing one list writes that list and leaves the others", () => {
+    const out = applyEdit(t, { op: "addGate", step: 0, gate: { kind: "agent", text: "review it" } });
+    expect(out.startsWith(t.slice(0, t.indexOf("    gates:")))).toBe(true);
+    expect(YAML.parse(out).steps[0].gates).toEqual([{ check: "default" }, { agent: "review it" }]);
+  });
+
+  test("renaming the id on the dash line keeps the step's other lines", () => {
+    const out = applyEdit(t, { op: "setStepField", step: 0, key: "id", value: "first" });
+    expect(out).toBe(t.replace("  - id: a\n", "  - id: first\n"));
+  });
+});
+
+describe("bug bash: an edit to one item of a step's list keeps the list's other items", () => {
+  const t = `version: 1
+name: indent
+steps:
+  - id: a
+    instruction: Do it.
+    produces:
+        - artifact: note
+          path: note.md
+        # the plan
+        - artifact: plan
+          path:   plan.md
+    gates:
+        - check: default
+        # run the tests
+        - script: bun   test
+        - agent: look at it
+          max_rounds: 2
+    consumes: [
+      x, # first
+      y
+    ]
+  - id: b
+    instruction: Then.
+`;
+  const steps0 = (out: string) => YAML.parse(out).steps[0];
+
+  test("adding a gate keeps the gates there and writes the new one at their column", () => {
+    const out = applyEdit(t, { op: "addGate", step: 0, gate: { kind: "agent", text: "review it" } });
+    expect(out).toBe(t.replace("          max_rounds: 2\n", "          max_rounds: 2\n        - agent: review it\n"));
+  });
+
+  test("editing one gate writes that gate only", () => {
+    const out = applyEdit(t, { op: "setGate", step: 0, index: 2, fields: { text: "look again" } });
+    expect(out).toBe(t.replace("- agent: look at it", "- agent: look again"));
+  });
+
+  test("removing a gate takes out its lines and the comment lines above it, and leaves the others", () => {
+    const out = applyEdit(t, { op: "removeGate", step: 0, index: 1 });
+    expect(out).toBe(t.replace("        # run the tests\n        - script: bun   test\n", ""));
+    expect(steps0(out).gates).toHaveLength(2);
+  });
+
+  test("editing one output writes that output only", () => {
+    const out = applyEdit(t, { op: "setOutput", step: 0, mode: "produces", index: 0, fields: { path: "notes.md" } });
+    expect(out).toBe(t.replace("path: note.md", "path: notes.md"));
+  });
+
+  test("adding an output keeps the outputs there", () => {
+    const out = applyEdit(t, { op: "addOutput", step: 0, mode: "produces", artifact: "log", path: "log.md" });
+    expect(out).toBe(t.replace("          path:   plan.md\n", "          path:   plan.md\n        - artifact: log\n          path: log.md\n"));
+  });
+
+  test("removing a gate from a flow list keeps the step's other flow list, comments on its brackets included", () => {
+    const flow = "version: 1\nname: a\nsteps:\n  - id: a\n    instruction: Do it.\n    consumes: [ # on open\n      x,\n      y\n    ] # on close\n    gates: [\n      { check: default },\n      { script: bun test }\n    ]\n";
+    const out = applyEdit(flow, { op: "removeGate", step: 0, index: 1 });
+    expect(out).toBe("version: 1\nname: a\nsteps:\n  - id: a\n    instruction: Do it.\n    consumes: [ # on open\n      x,\n      y\n    ] # on close\n    gates: [{ check: default }]\n");
   });
 });

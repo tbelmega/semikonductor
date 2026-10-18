@@ -29,7 +29,8 @@
 //    whole file is never written again. Instead, only the parts that changed
 //    are rendered by `yaml` and spliced into the original text: a top-level
 //    key (name, description, ...) as a whole, and in a block `steps` list each
-//    step on its own. Every other step and key keeps its bytes, and moving a
+//    step on its own, or, in a step written as a block mapping, each of its
+//    keys that changed. Every other step and key keeps its bytes, and moving a
 //    step moves its text. Inside a rendered part, every scalar and every
 //    one-line flow collection that did not change is written as its source
 //    text, so quoting, escapes and line breaks stay as they were, and `yaml`
@@ -170,8 +171,9 @@ function toData(doc: Document, node: unknown): unknown {
   return isNode(node) ? node.toJS(doc, { maxAliasCount: -1 }) : node;
 }
 
+// The source tokens are kept so a step's dash can be found (stepLines).
 function parseDoc(text: string): Document.Parsed {
-  const doc = YAML.parseDocument(text);
+  const doc = YAML.parseDocument(text, { keepSourceTokens: true });
   if (doc.errors.length) fail(`not valid YAML: ${doc.errors[0].message}`);
   return doc;
 }
@@ -418,8 +420,13 @@ function renameRoutes(step: unknown, from: string, to: string): unknown {
 
 // The edit applied to a copy of `before`. `styleAt` tells the current scalar
 // style at a path, so an instruction already written in the requested style
-// is left alone.
-function editModel(before: unknown, edit: Edit, styleAt: (path: (string | number)[]) => Scalar.Type | undefined): Model {
+// is left alone; `inFlow` tells whether a path is inside a flow collection.
+function editModel(
+  before: unknown,
+  edit: Edit,
+  styleAt: (path: (string | number)[]) => Scalar.Type | undefined,
+  inFlow: (path: (string | number)[]) => boolean,
+): Model {
   if (!isObj(before)) fail("workflow file does not have a top-level mapping");
   let root = copyData(before) as Obj;
   const styles: StyleHint[] = [];
@@ -454,6 +461,15 @@ function editModel(before: unknown, edit: Edit, styleAt: (path: (string | number
       const step = stepAt(steps, edit.step);
       if (step.instruction === undefined || step.instruction === null) fail("step has no instruction to edit");
       const path = ["steps", edit.step, "instruction"];
+      // A step written in braces, or in a list written in brackets, cannot
+      // hold a block scalar: its instruction is written as a flow scalar,
+      // quoted where it has to be, and the block style asked for does not
+      // apply. The engine trims the text, so the same text is left alone.
+      if (inFlow(path)) {
+        if (text(step.instruction).trim() === edit.text.trim()) break;
+        steps[edit.step] = { ...step, instruction: edit.text.replace(/\n+$/, "") };
+        break;
+      }
       const type = edit.style === ">" ? Scalar.BLOCK_FOLDED : Scalar.BLOCK_LITERAL;
       // The same text in the same style is left as written, chomping included.
       if (styleAt(path) === type && text(step.instruction).trim() === edit.text.trim()) break;
@@ -1035,14 +1051,16 @@ function dropTrailingComments(src: Source, node: unknown): void {
 
 // One part of the file rendered by yaml at column `shift`: a top-level pair
 // (`key: value`) or a step (`- id: ...`), without a trailing newline.
-function render(src: Source, w: Writer, unit: Pair | unknown, shift: number, indentSeq: boolean): string {
+// `before`: comments of the part's own text to write above it, such as those
+// between a step's dash and its content.
+function render(src: Source, w: Writer, unit: Pair | unknown, shift: number, indentSeq: boolean, before?: string): string {
   const node = asRendered(src, w, unit, false);
   const wrapper = isPair(node) ? new YAMLMap() : new YAMLSeq();
   (wrapper.items as unknown[]) = [node];
   // The comment lines above the part stay in the file where they are.
   const lead = isPair(node) ? node.key : node;
   if (isNode(lead)) {
-    lead.commentBefore = undefined;
+    lead.commentBefore = before;
     lead.spaceBefore = false;
   }
   dropTrailingComments(src, isPair(node) ? node.value : node);
@@ -1125,16 +1143,35 @@ interface StepLines {
   next: number;
   // The column of the "- ".
   dash: number;
+  // The comments between the dash and the step's content, without "#".
+  between: string | undefined;
 }
 
-function stepLines(text: string, items: unknown[], regionEnd: number): StepLines[] {
+// The source tokens of a block list's items, one per item: comment lines
+// after the last item make a token of their own, which has no dash.
+function itemTokens(seq: YAMLSeq): { start: { type: string; offset: number; source: string }[] }[] | undefined {
+  const token = seq.srcToken;
+  if (token?.type !== "block-seq") return undefined;
+  return token.items.filter((item) => item.start.some((t) => t.type === "seq-item-ind"));
+}
+
+// `seq` is the steps' list as the file has it, `items` its items before the
+// edit.
+function stepLines(text: string, seq: YAMLSeq, items: unknown[], regionEnd: number): StepLines[] {
+  const tokens = itemTokens(seq);
   const lines = items.map((item, i) => {
     const range = (item as { range?: Range }).range;
     if (!range) fail(`internal error: step ${i} has no source range`);
-    const start = lineStartOf(text, range[0]);
-    const prefix = /^([ \t]*)-(?:[ \t]|$)/.exec(text.slice(start, range[0]));
-    if (!prefix) fail(`step ${i} does not start a line with "- "; write it on its own line to edit it`);
-    return { head: headStart(text, start, prefix[1].length), start, end: contentEnd(text, item), next: 0, dash: prefix[1].length };
+    // The item's dash, from the source tokens: anchors, tags and comments
+    // may stand between it and the item's content, on its line or on lines
+    // after it.
+    const itemStart = tokens?.[i]?.start ?? [];
+    const dashAt = itemStart.find((t) => t.type === "seq-item-ind")?.offset;
+    const comments = itemStart.filter((t) => t.type === "comment" && dashAt !== undefined && t.offset > dashAt).map((t) => t.source.slice(1));
+    const start = dashAt === undefined ? -1 : lineStartOf(text, dashAt);
+    const prefix = dashAt === undefined ? null : /^[ \t]*$/.exec(text.slice(start, dashAt));
+    if (dashAt === undefined || !prefix) fail(`step ${i} does not start a line with "- "; write it on its own line to edit it`);
+    return { head: headStart(text, start, prefix[0].length), start, end: contentEnd(text, item), next: 0, dash: prefix[0].length, between: comments.length ? comments.join("\n") : undefined };
   });
   lines.forEach((l, i) => (l.next = i + 1 < lines.length ? lines[i + 1].head : regionEnd));
   return lines;
@@ -1165,8 +1202,122 @@ function nodesAlong(root: YAMLMap, path: (string | number)[]): unknown[] {
   return nodes;
 }
 
+// A key of a block step as the file has it, before the edit.
+interface KeyBefore {
+  pair: Pair;
+  key: string | undefined;
+  value: unknown;
+  // A list's items, before the edit changes them in place.
+  items?: unknown[];
+}
+
+// A changed block list of a block step's key (gates, produces and so on)
+// that stays that list: only its new and changed items are rendered again,
+// at the column of its dashes, a changed one between its comment lines; the
+// others keep their bytes, with the comment lines above them, and a removed
+// one's lines go, with those comment lines but for the first item's. null when the list is not laid out so (each dash starting
+// a line, all at one column), or when the edit replaced the list; the whole
+// key is then rendered.
+function listSplice(src: Source, w: Writer, pair: Pair, b: KeyBefore, value: unknown, indentSeq: boolean): Splice | null {
+  const { text } = src;
+  const seq = pair.value;
+  const before = b.items;
+  if (!isSeq(seq) || seq !== b.value || seq.flow || !before?.length || !Array.isArray(value) || seq.items.length === 0) return null;
+  const tokens = itemTokens(seq);
+  if (!tokens || tokens.length !== before.length) return null;
+  const old: { head: number; start: number; end: number; next: number }[] = [];
+  let col = -1;
+  for (let i = 0; i < before.length; i++) {
+    const dashAt = tokens[i].start.find((t) => t.type === "seq-item-ind")?.offset;
+    if (dashAt === undefined || !(before[i] as { range?: Range }).range) return null;
+    const start = lineStartOf(text, dashAt);
+    if (text.slice(start, dashAt).trim() || (col >= 0 && dashAt - start !== col)) return null;
+    col = dashAt - start;
+    // The comment lines above the first item are the list's, as yaml reads
+    // them: they stay where they are.
+    old.push({ head: i === 0 ? start : headStart(text, start, col), start, end: contentEnd(text, before[i]), next: 0 });
+  }
+  old.forEach((o, i) => (o.next = i + 1 < old.length ? old[i + 1].head : o.end));
+  const withNewline = (t: string) => (t.endsWith("\n") ? t : `${t}\n`);
+  const insert = seq.items
+    .map((item, j) => {
+      const i = before.indexOf(item);
+      // A new item, or one the edit moved here from another list, with its
+      // comments.
+      if (i < 0) return `${render(src, w, item, col, indentSeq, isNode(item) ? (item.commentBefore ?? undefined) : undefined)}\n`;
+      const o = old[i];
+      if (deepEqual(w.dataOf(item), value[j])) return withNewline(text.slice(o.head, o.next));
+      return withNewline(`${text.slice(o.head, o.start)}${render(src, w, item, col, indentSeq)}\n${text.slice(o.end, o.next)}`);
+    })
+    .join("");
+  return { start: old[0].head, end: old[old.length - 1].end, insert };
+}
+
+// A changed step's text, from its comment lines to the next step's, with
+// only the keys that changed rendered again, at the column of its keys:
+// a changed key from its key to the end of its value, a removed key's lines
+// taken out (comment lines above it stay), a new key before the next key
+// that stays, with that key's comment lines, or after the step's last line.
+// Every other key keeps its bytes, layout included. null when the step's
+// keys are not laid out so (all at one column, each starting a line but the
+// first, which may follow the dash), or when the edit would need the dash
+// line itself rewritten or kept keys reordered; the whole step is then
+// rendered.
+function stepKeySplices(src: Source, w: Writer, node: unknown, before: KeyBefore[], value: unknown, l: StepLines, dirty: WeakSet<object>, indentSeq: boolean): string | null {
+  const { text } = src;
+  if (!isMap(node) || node.flow || !isObj(value) || before.length === 0) return null;
+  const info: (KeyBefore & { key: string; at: number; lineStart: number; col: number; starts: boolean; end: number })[] = [];
+  for (const b of before) {
+    const key = b.pair.key;
+    if (!isScalar(key) || !key.range || b.key === undefined) return null;
+    const at = key.range[0];
+    const lineStart = lineStartOf(text, at);
+    const valueNode = isNode(b.value) && b.value.range ? b.value : key;
+    info.push({ ...b, key: b.key, at, lineStart, col: at - lineStart, starts: !text.slice(lineStart, at).trim(), end: contentEnd(text, valueNode) });
+  }
+  const col = info[0].col;
+  if (info.some((k, i) => k.col !== col || (i > 0 && !k.starts))) return null;
+  const onDash = !info[0].starts;
+  const index = new Map(before.map((b, i) => [b.pair as object, i]));
+  const pairs = node.items as Pair[];
+  const splices: Splice[] = [];
+  const kept = new Set<number>();
+  let last = -1;
+  for (const pair of pairs) {
+    const i = index.get(pair);
+    if (i === undefined) continue;
+    if (i < last) return null;
+    last = i;
+    kept.add(i);
+    const k = info[i];
+    const key = keyOf(pair);
+    if (key !== undefined && key === k.key && !dirty.has(pair) && deepEqual(w.dataOf(k.value), value[key])) continue;
+    const list = key !== undefined && key === k.key && !dirty.has(pair) ? listSplice(src, w, pair, k, value[key], indentSeq) : null;
+    splices.push(list ?? { start: k.at, end: k.end, insert: `${render(src, w, pair, col, indentSeq).slice(col)}\n` });
+  }
+  for (let i = 0; i < info.length; i++) {
+    if (kept.has(i)) continue;
+    if (i === 0 && onDash) return null;
+    splices.push({ start: info[i].lineStart, end: info[i].end, insert: "" });
+  }
+  for (let j = 0; j < pairs.length; j++) {
+    if (index.has(pairs[j])) continue;
+    const next = pairs.slice(j + 1).find((p) => index.has(p));
+    const n = next ? index.get(next)! : undefined;
+    if (n === 0 && onDash) return null;
+    const at = n !== undefined ? headStart(text, info[n].lineStart, col) : l.end;
+    splices.push({ start: at, end: at, insert: `${render(src, w, pairs[j], col, indentSeq)}\n` });
+  }
+  return applySplices(
+    text.slice(l.head, l.next),
+    splices.map((s) => ({ ...s, start: s.start - l.head, end: s.end - l.head })),
+  );
+}
+
 // The writer, end to end: the new text for `after`, the model's data.
-function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
+// `byKey`: a changed step written as a block mapping has only its changed
+// keys rendered again (stepKeySplices); off, the whole step is.
+function writeData(src: Source, after: Obj, styles: StyleHint[], byKey: boolean): string {
   const { text, doc } = src;
   const root = doc.contents;
   if (!isMap(root) || root.flow) fail("the workflow must be a block mapping at the top level to be edited");
@@ -1199,7 +1350,17 @@ function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
     pair.value = w.reconcile(pair.value, after[key], false);
     changed.add(pair);
   }
+  // Each block step's keys as the file has them, before the edit, and the
+  // keys whose text an alias copy or a style change makes stale.
+  const stepPairsBefore = new Map<object, KeyBefore[]>();
+  const dirtyPairs = new WeakSet<object>();
+  // Steps that must be rendered whole: a style change moved comments from
+  // inside a key's lines to above it.
+  const wholeSteps = new WeakSet<object>();
   if (byStep && stepsSeq) {
+    for (const item of stepsSeq.items) {
+      if (isMap(item) && !item.flow) stepPairsBefore.set(item, (item.items as Pair[]).map((pair) => ({ pair, key: keyOf(pair), value: pair.value, items: isSeq(pair.value) ? [...pair.value.items] : undefined })));
+    }
     oldSteps = stepsSeq.items;
     const newSteps = after.steps as unknown[];
     stepPlan = matchItems(oldSteps.map((s) => w.dataOf(s)), newSteps);
@@ -1246,6 +1407,7 @@ function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
         },
       });
       touchPath(path);
+      if (byStep && path[2] === stepsPair && isPair(path[5])) dirtyPairs.add(path[5]);
       const part = partOf(path);
       if (part) changed.add(part);
       return copy as never;
@@ -1276,9 +1438,13 @@ function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
       node.comment = header.length ? ` ${header.join(" # ")}` : undefined;
       key.comment = undefined;
       node.commentBefore = undefined;
-      if (before.length) key.commentBefore = [key.commentBefore, ...before].filter((c) => c !== undefined).join("\n");
+      if (before.length) {
+        key.commentBefore = [key.commentBefore, ...before].filter((c) => c !== undefined).join("\n");
+        if (byStep && nodes[0] === stepsPair && isMap(nodes[2])) wholeSteps.add(nodes[2]);
+      }
     }
     touchPath(nodes);
+    if (byStep && nodes[0] === stepsPair && isPair(nodes[3])) dirtyPairs.add(nodes[3]);
     const part = partOf([doc, root, ...nodes]);
     if (part) changed.add(part);
   }
@@ -1308,11 +1474,13 @@ function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
   }
 
   if (byStep && stepsSeq) {
-    const regionEnd = blockEnd(text, stepsSeq);
-    const lines = stepLines(text, oldSteps, regionEnd);
-    const shift = lines[0].dash;
+    // The steps' lines are found only when a step changed, so a step layout
+    // that cannot be edited does not stop edits elsewhere in the file.
     const anyChange = stepsSeq.items.some((node, i) => changed.has(node as object) || !stepPlan[i] || stepPlan[i]!.from !== i) || stepPlan.length !== oldSteps.length;
     if (anyChange) {
+      const regionEnd = blockEnd(text, stepsSeq);
+      const lines = stepLines(text, stepsSeq, oldSteps, regionEnd);
+      const shift = lines[0].dash;
       const withNewline = (s: string) => (s.endsWith("\n") ? s : `${s}\n`);
       let region = "";
       stepsSeq.items.forEach((node, i) => {
@@ -1323,7 +1491,11 @@ function writeData(src: Source, after: Obj, styles: StyleHint[]): string {
         }
         const l = lines[match.from];
         if (!changed.has(node as object)) region += withNewline(text.slice(l.head, l.next));
-        else region += withNewline(text.slice(l.head, l.start) + render(src, w, node, shift, indentSeq) + "\n" + text.slice(l.end, l.next));
+        else {
+          const before = node === oldSteps[match.from] ? stepPairsBefore.get(node as object) : undefined;
+          const keys = byKey && before && !wholeSteps.has(node as object) ? stepKeySplices(src, w, node, before, (after.steps as unknown[])[i], l, dirtyPairs, indentSeq) : null;
+          region += withNewline(keys ?? text.slice(l.head, l.start) + render(src, w, node, shift, indentSeq, l.between) + "\n" + text.slice(l.end, l.next));
+        }
       });
       if (!text.slice(lines[0].head, regionEnd).endsWith("\n")) region = region.replace(/\n$/, "");
       splices.push({ start: lines[0].head, end: regionEnd, insert: region });
@@ -1349,6 +1521,21 @@ export function verifyEdit(out: string, expected: unknown): void {
 // ---------------------------------------------------------------------------
 // Dispatch
 
+// Whether the node at `path` is inside a flow collection, where a block
+// scalar cannot be written.
+function inFlowAt(doc: Document, path: (string | number)[]): boolean {
+  const root = doc.contents;
+  if (!isMap(root)) return false;
+  return !!root.flow || nodesAlong(root, path).some((n) => isCollection(n) && !!n.flow);
+}
+
+// Whether a step's instruction can be written as a block scalar (> or |):
+// not when the step is written in braces or its list in brackets.
+export function instructionTakesBlock(text: string, step: number): boolean {
+  const doc = YAML.parseDocument(text);
+  return !doc.errors.length && !inFlowAt(doc, ["steps", step, "instruction"]);
+}
+
 export function applyEdit(text: string, edit: Edit): string {
   const src = readSource(text);
   const before = src.doc.toJS({ maxAliasCount: -1 });
@@ -1356,9 +1543,19 @@ export function applyEdit(text: string, edit: Edit): string {
     const node = src.doc.getIn(path, true);
     return isScalar(node) ? node.type : undefined;
   };
-  const { data, styles } = editModel(before, edit, styleAt);
+  const { data, styles } = editModel(before, edit, styleAt, (path) => inFlowAt(src.doc, path));
   if (deepEqual(before, data) && styles.every((s) => styleAt(s.path) === s.type)) return text;
-  const out = writeData(src, data, styles);
-  verifyEdit(out, data);
-  return out;
+  // A changed step has only its changed keys written again. Should that text
+  // not mean the model's data, or the step not be laid out for it, the step
+  // is written whole, from the file read afresh, as the writer did before.
+  try {
+    const out = writeData(src, data, styles, true);
+    verifyEdit(out, data);
+    return out;
+  } catch (e) {
+    if (!(e instanceof EditError)) throw e;
+    const out = writeData(readSource(text), data, styles, false);
+    verifyEdit(out, data);
+    return out;
+  }
 }

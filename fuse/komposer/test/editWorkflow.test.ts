@@ -2,7 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { copyStepEdits } from "../src/model/compare.ts";
-import { editedWorkflow } from "../src/model/editWorkflow.ts";
+import { editedWorkflow, shownText } from "../src/model/editWorkflow.ts";
+import type { Edit } from "../src/model/yamlEdit.ts";
 import { openWorkflow, stepViews, type OpenWorkflow } from "../src/workflowView.ts";
 
 const open = (text: string, path = "/target.yml"): OpenWorkflow =>
@@ -67,5 +68,54 @@ describe("editedWorkflow", () => {
     const target = open(TARGET);
     const same = editedWorkflow(target, [{ op: "setStepField", step: 0, key: "title", value: null }]);
     expect(same.workingCopy).toBeUndefined();
+  });
+});
+
+// Typing into a field one character at a time, as the Inspector does: each
+// keystroke is an edit, and the field shows shownText of what was typed and
+// the value the engine reads back.
+describe("typing into a field the engine trims", () => {
+  const TEXT = `version: 1
+name: typing
+steps:
+  - id: a
+    instruction: Do it.
+    condition:
+      agent: when needed
+    gates:
+      - script: bun test
+`;
+  const type = (start: string, typed: string, edit: (value: string) => Edit, read: (w: OpenWorkflow) => string) => {
+    let w = open(TEXT);
+    let shown = start;
+    for (const ch of typed) {
+      const draft = shown + ch;
+      w = editedWorkflow(w, [edit(draft)]);
+      shown = shownText(draft, read(w));
+    }
+    return { shown, value: read(w) };
+  };
+
+  test("spaces and line breaks typed at the end of the instruction stay", () => {
+    const out = type("Do it.", " More work.\nAnd then.", (text) => ({ op: "setInstruction", step: 0, text, style: ">" }), (w) => stepViews(w)[0].instruction ?? "");
+    expect(out).toEqual({ shown: "Do it. More work.\nAnd then.", value: "Do it. More work.\nAnd then." });
+  });
+
+  test("in a gate's text and a condition's text too", () => {
+    const gate = type("bun test", " --bail", (text) => ({ op: "setGate", step: 0, index: 0, fields: { text } }), (w) => stepViews(w)[0].gates[0].text);
+    expect(gate).toEqual({ shown: "bun test --bail", value: "bun test --bail" });
+    const condition = type(
+      "when needed",
+      " most",
+      (text) => ({ op: "setCondition", step: 0, condition: { kind: "agent", text } }),
+      (w) => stepViews(w)[0].condition?.text ?? "",
+    );
+    expect(condition).toEqual({ shown: "when needed most", value: "when needed most" });
+  });
+
+  test("the value wins once it is something else", () => {
+    expect(shownText("Do it. ", "Do it.")).toBe("Do it. ");
+    expect(shownText("Do it. ", "Other text.")).toBe("Other text.");
+    expect(shownText(null, "Do it.")).toBe("Do it.");
   });
 });

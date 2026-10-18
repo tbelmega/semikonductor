@@ -241,3 +241,16 @@ describe("which entry's description is used", () => {
     expect(filled((root) => entry(root, "design"), "design")).toBe("Write the design.");
   });
 });
+
+describe("a step written in braces", () => {
+  test("adding an artifact extends its generated instruction inside the braces", () => {
+    const text = 'version: 1\nname: flow-instruction\nsteps: [{id: write, instruction: "Write the bash-note.", produces: {artifact: bash-note, path: note.md}}]\n';
+    valid(text);
+    const out = applyAll(text, addArtifactEdits(text, 0, "optional_produces", "bash-extra", "extra.md", () => undefined));
+    valid(out);
+    const parsed = parseWorkflowText(out);
+    if (!parsed.ok) throw new Error("invalid");
+    expect(parsed.workflow.steps[0].optional_produces).toEqual([{ artifact: "bash-extra", path: "extra.md" }]);
+    expect(parsed.workflow.steps[0].instruction).toBe("Write the bash-note.\nWrite the bash-extra.");
+  });
+});

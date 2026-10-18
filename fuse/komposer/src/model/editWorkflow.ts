@@ -29,3 +29,13 @@ export function editedWorkflow(target: OpenWorkflow, list: Edit[]): OpenWorkflow
   }
   return openWorkflow({ ...target, stepKeys, workingCopy: nextText === target.text ? undefined : nextText });
 }
+
+// The text a field bound to an engine-read value shows while it is typed in.
+// The engine trims instructions, gate and condition texts and guides, so a
+// space or line break typed at the end of one would vanish as soon as the
+// edit is read back. The typed draft is shown while, trimmed, it is the
+// value; once the value is something else (an edit elsewhere, another step
+// selected, an edit refused) the value is shown.
+export function shownText(draft: string | null, value: string): string {
+  return draft !== null && draft.trim() === value.trim() ? draft : value;
+}

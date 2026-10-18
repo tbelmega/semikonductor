@@ -4,7 +4,8 @@
 // between the diagram and the strip. The panel is closed until a button or a
 // click on a step opens it.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { shownText } from "./model/editWorkflow.ts";
 import YAML, { Scalar } from "yaml";
 import { BookOpen, Captions, Plus, Settings2, X } from "lucide-react";
 import type { FileRef, LibraryEntry, ReviewGuides, WorkstreamSummary } from "./api.ts";
@@ -14,7 +15,7 @@ import { winningEntry } from "./model/artifactInstruction.ts";
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
 import { CHECK_KIND } from "../../flow/src/schemas/gate.ts";
-import type { Edit, GateKind, OutputMode } from "./model/yamlEdit.ts";
+import { instructionTakesBlock, type Edit, type GateKind, type OutputMode } from "./model/yamlEdit.ts";
 import {
   delegationOf,
   gatesInRunOrder,
@@ -303,6 +304,7 @@ function StepTab({
   const gateOrder = gatesInRunOrder(step.gates);
   const differs = gateOrder.some((g, i) => g.fileIndex !== i);
   const style = instructionStyle(text, selectedIndex);
+  const blockInstruction = instructionTakesBlock(text, selectedIndex);
   const setStep = (key: "id" | "title" | "phase" | "mode" | "description", value: string) =>
     onEdit({ op: "setStepField", step: selectedIndex, key, value: value || null });
   const setCondition = (kind: GateKind, value: string, description?: string) =>
@@ -408,6 +410,8 @@ function StepTab({
             <select
               className="mode-select"
               value={style}
+              disabled={!blockInstruction}
+              title={blockInstruction ? undefined : "The step is written in braces or its list in brackets, where the instruction is a flow scalar, not a block"}
               onChange={(e) =>
                 onEdit({
                   op: "setInstruction",
@@ -424,11 +428,11 @@ function StepTab({
               Expand
             </button>
           </div>
-          <textarea
+          <DraftTextarea
             className="field-textarea"
             rows={clampRows(step.instruction)}
             value={step.instruction ?? ""}
-            onChange={(e) => onEdit({ op: "setInstruction", step: selectedIndex, text: e.target.value, style })}
+            onValue={(value) => onEdit({ op: "setInstruction", step: selectedIndex, text: value, style })}
             data-error={!!err("instr")}
           />
           {err("instr") && <div className="field-error">{err("instr")}</div>}
@@ -459,11 +463,11 @@ function StepTab({
           </div>
           {step.condition && (
             <>
-              <input
+              <DraftInput
                 className="field-input"
                 value={step.condition.text}
                 placeholder={conditionPlaceholder(step.condition.kind)}
-                onChange={(e) => setCondition(step.condition!.kind, e.target.value, step.condition!.description)}
+                onValue={(value) => setCondition(step.condition!.kind, value, step.condition!.description)}
                 data-error={!!err("cond")}
               />
               <label className="mini-field">
@@ -764,11 +768,11 @@ function StepTab({
                       {gateTextLabel(gate.kind)} <span className="field-tag is-required">required</span>
                       <InfoTip doc={GATE_KIND_DOCS[gate.kind]} />
                     </span>
-                    <input
+                    <DraftInput
                       className="field-input"
                       value={gate.text}
-                      onChange={(e) =>
-                        onEdit({ op: "setGate", step: selectedIndex, index: fileIndex, fields: { text: e.target.value } })
+                      onValue={(value) =>
+                        onEdit({ op: "setGate", step: selectedIndex, index: fileIndex, fields: { text: value } })
                       }
                       data-error={!!gateTextErr}
                     />
@@ -801,15 +805,15 @@ function StepTab({
                           guide <FieldLabel label="" doc={GATE_FIELD_DOCS.guide} />
                         </span>
                         <span className="input-with-button">
-                          <input
+                          <DraftInput
                             className="field-input"
                             value={gate.guide ?? ""}
-                            onChange={(e) =>
+                            onValue={(value) =>
                               onEdit({
                                 op: "setGate",
                                 step: selectedIndex,
                                 index: fileIndex,
-                                fields: { guide: e.target.value || null },
+                                fields: { guide: value || null },
                               })
                             }
                           />
@@ -934,10 +938,10 @@ function StepTab({
                 <X />
               </button>
             </div>
-            <textarea
+            <DraftTextarea
               autoFocus
               value={step.instruction ?? ""}
-              onChange={(e) => onEdit({ op: "setInstruction", step: selectedIndex, text: e.target.value, style })}
+              onValue={(value) => onEdit({ op: "setInstruction", step: selectedIndex, text: value, style })}
             />
             <div className="expand-meta">
               {(step.instruction ?? "").trim().split(/\s+/).filter(Boolean).length} words ·{" "}
@@ -1462,6 +1466,28 @@ function LibraryTab({
       )}
     </div>
   );
+}
+
+// A text field bound to a value the engine trims: it shows what is typed
+// while that is the value, trimmed (shownText), so spaces and line breaks
+// typed at the end stay, and the value once focus leaves it.
+function useDraft(value: string, onValue: (value: string) => void) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return {
+    value: shownText(draft, value),
+    onChange: (event: { target: { value: string } }) => {
+      setDraft(event.target.value);
+      onValue(event.target.value);
+    },
+    onBlur: () => setDraft(null),
+  };
+}
+type DraftProps<T> = Omit<T, "value" | "onChange" | "onBlur"> & { value: string; onValue: (value: string) => void };
+function DraftInput({ value, onValue, ...rest }: DraftProps<InputHTMLAttributes<HTMLInputElement>>) {
+  return <input {...rest} {...useDraft(value, onValue)} />;
+}
+function DraftTextarea({ value, onValue, ...rest }: DraftProps<TextareaHTMLAttributes<HTMLTextAreaElement>>) {
+  return <textarea {...rest} {...useDraft(value, onValue)} />;
 }
 
 function instructionStyle(text: string, step: number): ">" | "|" {
