@@ -44,6 +44,7 @@ import {
   firstUnfinished,
   isComplete,
   links,
+  recordedFolder,
   refuseCycle,
   untouched,
   whereIs,
@@ -173,18 +174,28 @@ const declaredOf = (c: Ctx, step: Step) => place(c, [...step.produces, ...step.o
 const holders = (c: Ctx, step: Step, file: string) =>
   unique(declaredOf(c, step).filter((a) => contains(a.path, file)).map((a) => a.artifact.artifact));
 
+// How the agent names a file it writes in a folder artifact: by the file
+// alone, or, where the folder lies inside another declared path, with the
+// artifact it counts for.
+const fileFlag = (c: Ctx, step: Step, a: Placed) =>
+  declaredOf(c, step).some((o) => o.artifact.artifact !== a.artifact.artifact && contains(o.path, a.path))
+    ? `--updated ${a.artifact.artifact}=<file>`
+    : "--updated <file>";
+
 const isUpdates = (step: Step, id: string | undefined) => step.updates.some((a) => a.artifact === id);
 
 // Whether a library entry gives the artifact a guide of its own.
 const hasGuide = (c: Ctx, id: string | undefined) => (id === undefined ? false : Boolean(libraryEntry(c.p, id)?.guide));
 
+// Whether a skipped step was passed over when the owner started later or
+// jumped forward, rather than skipped for a reason of its own.
+const passedOver = (state: StepState) =>
+  Boolean(state.skip_reason?.startsWith(SKIP_REASON.startedAt("")) || state.skip_reason?.startsWith(SKIP_REASON.jumpedForward("")));
+
 // Whether a skipped step was skipped because it was not needed: its condition
 // did not hold, or the owner answered it no. A step passed over when the
 // owner started later or jumped forward may still have work to restore.
-const notNeeded = (step: Step, state: StepState) =>
-  step.condition !== undefined &&
-  !state.skip_reason?.startsWith(SKIP_REASON.startedAt("")) &&
-  !state.skip_reason?.startsWith(SKIP_REASON.jumpedForward(""));
+const notNeeded = (step: Step, state: StepState) => step.condition !== undefined && !passedOver(state);
 
 // ------------------------------------------------------------------ commands
 
@@ -304,11 +315,18 @@ function handOut(c: Ctx): void {
       state.status = "IN_PROGRESS";
       // A later pass keeps what the first pass found: by now the workstream
       // has recorded files of its own in a folder that existed before it.
+      // A folder that another artifact of this workstream recorded, such as
+      // an index updated in a shared reports folder, still holds none of this
+      // artifact's files, so it counts as existing for this one.
       if (!state.pass) {
         const recorded = recordedPaths(ws2);
+        const ownRecord = (a: Placed) =>
+          isFolder(c, a.path)
+            ? Object.values(ws2.steps).some((s) => s.artifacts.some((r) => r.path === a.path && r.artifact === a.artifact.artifact))
+            : recorded.has(a.path);
         const existed = place(c, [...step.produces, ...step.optional_produces])
-          .map((a) => a.path)
-          .filter((path) => onDisk(c, path) && !recorded.has(path));
+          .filter((a) => onDisk(c, a.path) && !ownRecord(a))
+          .map((a) => a.path);
         if (existed.length) state.existed = existed;
         else delete state.existed;
       }
@@ -412,7 +430,10 @@ function inputLine(c: Ctx, ws: Workstream, id: string): string {
 function returnedLine(c: Ctx, ws: Workstream, source: Step, id: string, childId: string): string {
   const state = stateOf(ws, source.id);
   if (state.status === "SKIPPED") {
-    return `READ ${id}: step ${source.id} was skipped (${state.skip_reason ?? "no reason recorded"}), so no child workstream returned it and there is nothing to read.`;
+    const why = `READ ${id}: step ${source.id} was skipped (${state.skip_reason ?? "no reason recorded"}), so no child workstream returned it`;
+    // Passed over when the owner started later or jumped forward, the step's
+    // work may still be needed.
+    return passedOver(state) ? `${why}. ${RESTORE}` : `${why} and there is nothing to read.`;
   }
   const child = state.children?.at(-1)?.slug;
   if (!child) return `READ ${id}: step ${source.id} has no child workstream, so there is nothing to read.`;
@@ -590,9 +611,20 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
 
   for (const id of step.consumes) {
     const before = c.wf.steps.slice(0, c.wf.steps.indexOf(step)).reverse();
-    const source = before.find(
+    const writers = before.filter(
       (s) => [...s.produces, ...s.optional_produces, ...s.updates].some((a) => a.artifact === id) || has(childGate(s)?.returns, id),
     );
+    // A step that was skipped as not needed, or that finished without
+    // recording the document, such as one that reported it not produced or an
+    // optional producer that wrote nothing, wrote nothing: the document of an
+    // earlier step that declares it stands, as for a later workstream. A
+    // returned id is never passed over, since the newest child decides.
+    const wroteNothing = (s: Step) => {
+      if (has(childGate(s)?.returns, id)) return false;
+      const st = stateOf(ws, s.id);
+      return (st.status === "SKIPPED" && notNeeded(s, st)) || (st.status === "COMPLETED" && !st.artifacts.some((a) => a.artifact === id));
+    };
+    const source = writers.find((s) => !wroteNothing(s)) ?? writers[0];
     if (!source) {
       lines.push(inputLine(c, ws, id));
       continue;
@@ -606,22 +638,35 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
     const path = artifactPath(c.p, artifact, c.slug, c.date);
     const sourceState = stateOf(ws, source.id);
     // The files the step recorded inside a folder artifact, which may be
-    // shared with other work.
-    const files = sourceState.artifacts.filter((a) => a.artifact === id && a.path !== path && contains(path, a.path)).map((a) => a.path);
+    // shared with other work, also when an edit of the workflow has since
+    // moved the folder.
+    const records = sourceState.artifacts.filter((a) => a.artifact === id);
+    const folder = sourceState.status === "COMPLETED" ? recordedFolder(records, path) : path;
+    const files = records.filter((a) => a.path !== folder && contains(folder, a.path)).map((a) => a.path);
     if (sourceState.status === "SKIPPED" && notNeeded(source, sourceState)) {
       lines.push(`READ ${id}: step ${source.id} was skipped (${sourceState.skip_reason}), so there is nothing from it to read.`);
     } else if (sourceState.status === "COMPLETED" && own(sourceState.not_produced, id)) {
       lines.push(`READ ${id}: step ${source.id} did not produce it (${own(sourceState.not_produced, id)}), so there is nothing from it to read.`);
     } else if (files.length) {
-      lines.push(`READ ${files.join(", ")} (from step ${source.id}).`);
+      const gone = files.filter((f) => !onDisk(c, f));
+      lines.push(
+        `READ ${files.join(", ")} (from step ${source.id}).` +
+          (gone.length ? ` Of these, ${gone.join(", ")} ${gone.length > 1 ? "do" : "does"} not exist, ${RESTORE.slice(RESTORE.indexOf("for example"))}` : ""),
+      );
     } else if (sourceState.status === "COMPLETED" && (sourceState.existed ?? []).includes(path) && isFolder(c, path)) {
       // A folder shared with other work, in which the step recorded nothing.
       lines.push(`READ ${id}: step ${source.id} wrote nothing in ${path}, so there is nothing from it to read.`);
+    } else if (sourceState.status === "COMPLETED" && !records.length && source.optional_produces.some((a) => a.artifact === id)) {
+      // An optional producer that wrote nothing, with no earlier writer.
+      lines.push(`READ ${id}: step ${source.id} wrote none, so there is nothing from it to read.`);
     } else {
+      // The document the step recorded, as a later workstream reads it, also
+      // when an edit of the workflow has since moved the artifact's path.
+      const at = sourceState.status === "COMPLETED" && records.length === 1 ? records[0].path : path;
       lines.push(
-        onDisk(c, path)
-          ? `READ ${path} (from step ${source.id}).`
-          : `READ ${path} (from step ${source.id}). ${RESTORE}`,
+        onDisk(c, at)
+          ? `READ ${at} (from step ${source.id}).`
+          : `READ ${at} (from step ${source.id}). ${RESTORE}`,
       );
     }
   }
@@ -633,7 +678,9 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
       const path = complete ? documentOf(c.root, child, childId) : undefined;
       lines.push(
         path
-          ? `READ ${path} (${id}, returned by workstream ${child}).`
+          ? onDisk(c, path)
+            ? `READ ${path} (${id}, returned by workstream ${child}).`
+            : `READ ${path} (${id}, returned by workstream ${child}). ${RESTORE}`
           : complete
             ? `RETURNS ${id}: workstream ${child} recorded no ${childId}, so there is nothing to read.`
             : `RETURNS ${id}: workstream ${child}'s ${childId}, once ${child} is complete; read it then.`,
@@ -642,7 +689,9 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
   }
 
   const existed = new Set(state.existed ?? []);
-  const earlierFiles = (state.files ?? []).filter((f) => f.pass === "earlier");
+  // An updates folder recorded whole is named on its UPDATE line; only the
+  // files named in it say what the earlier pass wrote.
+  const earlierFiles = (state.files ?? []).filter((f) => f.pass === "earlier" && !(f.kind === "whole" && isUpdates(step, f.artifact) && isFolder(c, f.path)));
   const earlier = unique(earlierFiles.map((f) => f.path));
   const artifactLine = (label: string, a: Placed, missingNote?: string) => {
     let line = `${label} ${a.path} (${a.artifact.artifact}).`;
@@ -661,22 +710,31 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
     if (missingNote) line += ` ${missingNote}`;
     return line;
   };
+  const declared = declaredOf(c, step);
+  const nameFlag = (a: Placed) => fileFlag(c, step, a);
   for (const a of place(c, step.produces)) {
     let note: string | undefined;
+    const folder = isFolder(c, a.path);
     if (existed.has(a.path) && earlierFiles.some((f) => f.artifact === a.artifact.artifact)) {
       note = `${a.path} existed before this workstream; the files this workstream wrote in it are listed under EARLIER PASS.`;
+      if (folder) note += ` Name each file you write in it with ${nameFlag(a)}.`;
+    } else if (existed.has(a.path) && folder) {
+      // A folder that existed, such as a research folder shared with other
+      // work: the step adds files of its own to it.
+      note =
+        `${a.path} already existed when the step was handed out, and may hold other work. Write the step's files in ` +
+        `it, and name each file you write in it with ${nameFlag(a)}.`;
     } else if (existed.has(a.path)) {
       note =
         `${a.path} already existed when the step was handed out, and this workstream did not write it. Do what ` +
         "the instruction or the guide says about it; if they say nothing, judge whether to ask the owner to " +
         "update it, replace it, or use a different path.";
     }
-    if (existed.has(a.path) && isFolder(c, a.path)) note += " Name each file you write in it with --updated <file>.";
     lines.push(artifactLine("PRODUCE", a, note));
   }
   for (const a of place(c, step.optional_produces)) {
     const shared = existed.has(a.path) && isFolder(c, a.path);
-    lines.push(artifactLine("PRODUCE (optional)", a, shared ? `${a.path} existed before the step; name each file you write in it with --updated <file>.` : undefined));
+    lines.push(artifactLine("PRODUCE (optional)", a, shared ? `${a.path} existed before the step; name each file you write in it with ${nameFlag(a)}.` : undefined));
   }
   for (const a of place(c, step.updates)) {
     lines.push(
@@ -684,7 +742,6 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState): string
     );
   }
   // A file in the paths of two artifacts does not say which it counts for.
-  const declared = declaredOf(c, step);
   const nested = declared.flatMap((inner, i) =>
     declared
       .filter((outer, j) => outer.artifact.artifact !== inner.artifact.artifact && contains(outer.path, inner.path) && (j < i || tidy(outer.path) !== tidy(inner.path)))
@@ -1088,11 +1145,25 @@ function producedLine(c: Ctx, step: Step, state: StepState): string {
     files.push(f.artifact === undefined ? `${f.path} (updated, outside the declared paths)` : `${f.path} (updated)`);
   }
   const parts: string[] = [];
-  if (files.length >= 5) {
-    const dirs = files.map((f) => dirname(f.split(" (")[0]));
-    let common = dirs[0];
-    while (common !== "." && !dirs.every((d) => d === common || d.startsWith(`${common}/`))) common = dirname(common);
-    parts.push(`${files.length} files${common === "." ? "" : ` under ${common}/`}; summarize them, for example "12 files under src/checkout/, with their tests"`);
+  // A folder recorded whole is listed by name and not counted as a file.
+  const pathOf = (entry: string) => entry.split(" (")[0];
+  const plain = files.filter((f) => !isFolder(c, pathOf(f)));
+  if (plain.length >= 5) {
+    // The deepest folder that holds them all, or none: files outside the
+    // repository are shown absolute, so a mix of those and repository files
+    // has no common folder, and the ascent stops at the filesystem root.
+    const dirs = plain.map((f) => dirname(pathOf(f)));
+    const holdsAll = (dir: string) => dirs.every((d) => d === dir || d.startsWith(dir.endsWith("/") ? dir : `${dir}/`));
+    let common: string | undefined = dirs[0];
+    while (common !== undefined && common !== "." && !holdsAll(common)) {
+      const up = dirname(common);
+      common = up === common ? undefined : up;
+    }
+    const under = common === undefined || common === "." ? "" : ` under ${common.endsWith("/") ? common : `${common}/`}`;
+    parts.push(
+      ...files.filter((f) => !plain.includes(f)),
+      `${plain.length} files${under}; summarize them, for example "12 files under src/checkout/, with their tests"`,
+    );
   } else {
     parts.push(...files);
   }
@@ -1424,6 +1495,9 @@ export interface Continue {
 export interface Named {
   artifact?: string;
   file: string;
+  // When the file is on disk neither under the current directory nor under
+  // the root, as a deleted one is: the other of the two paths.
+  alternative?: string;
 }
 
 export function continueWorkstream(root: string, slug: string, input: Continue): string[] {
@@ -1487,8 +1561,15 @@ function byArtifactId(c: Ctx, flag: string, verb: string, artifacts: Artifact[],
   for (const [name, why] of Object.entries(given)) {
     let id = placed.find((a) => a.artifact.artifact === name)?.artifact.artifact;
     if (id === undefined) {
-      const rel = relative(c.p.root, resolve(name));
-      const matches = isAbsolute(rel) || rel === ".." || rel.startsWith("../") ? [] : placed.filter((a) => tidy(a.path) === tidy(rel));
+      const at = (path: string) => {
+        const rel = relative(c.p.root, path);
+        return isAbsolute(rel) || rel === ".." || rel.startsWith("../") ? [] : placed.filter((a) => tidy(a.path) === tidy(rel));
+      };
+      // A relative path is read from the current directory, else from the
+      // repository root, as the step block prints it; an artifact the step
+      // did not produce is found nowhere on disk, so its declared path decides.
+      let matches = at(resolve(name));
+      if (!matches.length && !isAbsolute(name)) matches = at(resolve(c.p.root, name));
       if (matches.length > 1) {
         throw new FlowError(`--${flag} "${name}" is the path of ${matches.map((a) => a.artifact.artifact).join(" and ")}; name the artifact by its id`);
       }
@@ -1534,12 +1615,14 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   }
 
   const produced = place(c, step.produces);
-  const missing = produced.filter((a) => !onDisk(c, a.path) && !has(input.notProduced, a.artifact.artifact));
+  // An empty folder holds no work yet.
+  const empty = (a: Placed) => isDirectory(resolve(c.root, a.path)) && readdirSync(resolve(c.root, a.path)).length === 0;
+  const missing = produced.filter((a) => (!onDisk(c, a.path) || empty(a)) && !has(input.notProduced, a.artifact.artifact));
   if (missing.length) {
     throw refuse(
       c,
       step,
-      `missing artifact(s): ${missing.map((a) => `${a.path} (${a.artifact.artifact})`).join(", ")}. Write each, or report one ` +
+      `missing artifact(s): ${missing.map((a) => `${a.path} (${a.artifact.artifact})${empty(a) ? ", an empty folder" : ""}`).join(", ")}. Write each, or report one ` +
         `the step rightly does not produce with --not-produced <artifact> "<reason>".`,
     );
   }
@@ -1599,7 +1682,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
         .map(
           (a) =>
             `${a.path} (${a.artifact.artifact}) existed before the step: name each file the step wrote in it with ` +
-            `--updated <file>, or report it with --not-produced ${a.artifact.artifact} "<reason>".`,
+            `${fileFlag(c, step, a)}, or report it with --not-produced ${a.artifact.artifact} "<reason>".`,
         )
         .join(" "),
     );
@@ -1656,7 +1739,9 @@ const shared = (c: Ctx, state: StepState, a: Placed) => (state.existed ?? []).in
 // declared path counts for none.
 function namedFiles(c: Ctx, step: Step, given: Named[]): Written[] {
   const declared = declaredOf(c, step);
-  return given.map(({ artifact, file }) => {
+  const state = stateOf(readWorkstream(c.root, c.slug), step.id);
+  return given.map(({ artifact, file: chosen, alternative }) => {
+    const file = alternative === undefined ? chosen : meant(c, step, artifact, chosen, alternative);
     const path = display(c.p, file);
     const ids = holders(c, step, path);
     if (artifact !== undefined && !ids.includes(artifact)) {
@@ -1671,8 +1756,35 @@ function namedFiles(c: Ctx, step: Step, given: Named[]): Written[] {
       );
     }
     const id = artifact ?? ids[0];
-    return { ...(id === undefined ? {} : { artifact: id }), path, kind: "file", pass: "this", status: "draft" };
+    // A declared folder named itself stands for the whole folder, unless it
+    // existed before the step and may hold other work.
+    const folder = declared.find((a) => a.artifact.artifact === id && isFolder(c, a.path) && tidy(a.path) === tidy(path));
+    if (folder && !isUpdates(step, id) && shared(c, state, folder)) {
+      throw new FlowError(
+        `--updated ${folder.path}: ${folder.path} is the folder of ${id} itself, which existed before the step and may hold other ` +
+          `work; name each file the step wrote in it, with ${fileFlag(c, step, folder).replace("<file>", `${tidy(folder.path)}/<file>`)}`,
+      );
+    }
+    if (folder && !isUpdates(step, id)) return { artifact: id!, path: folder.path, kind: "whole", pass: "this", status: "draft" };
+    return { ...(id === undefined ? {} : { artifact: id }), path: folder?.path ?? path, kind: "file", pass: "this", status: "draft" };
   });
+}
+
+// Which of two absent paths the agent meant by a file it named: the one a
+// path of the step holds, for the artifact named if one is; where both or
+// neither are held, the one git knows, in the index or in the history of
+// HEAD, where a deletion staged or committed leaves it; else `chosen`.
+function meant(c: Ctx, step: Step, artifact: string | undefined, chosen: string, alternative: string): string {
+  const held = (file: string) => {
+    const ids = holders(c, step, display(c.p, file));
+    return artifact === undefined ? ids.length > 0 : ids.includes(artifact);
+  };
+  if (held(chosen) !== held(alternative)) return held(chosen) ? chosen : alternative;
+  const git = (...args: string[]) => spawnSync("git", ["-C", c.root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const tracked = (file: string) =>
+    git("ls-files", "--error-unmatch", "--", relative(c.root, file)).status === 0 ||
+    Boolean(git("log", "-1", "--format=%H", "--", relative(c.root, file)).stdout?.trim());
+  return !tracked(chosen) && tracked(alternative) ? alternative : chosen;
 }
 
 // Whether an entry still stands: the agent's report of a file it revised for
@@ -1731,7 +1843,14 @@ const once = (files: Written[]) => files.filter((f, i) => files.findIndex((o) =>
 function recordsOf(c: Ctx, step: Step, files: Written[]): StepState["artifacts"] {
   const order = declaredOf(c, step).map((a) => a.artifact.artifact);
   const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
-  const records = files.filter((f): f is Written & { artifact: string } => f.artifact !== undefined && (f.kind === "whole" || !isUpdates(step, f.artifact)));
+  // An artifact this pass recorded whole replaces the whole record an earlier
+  // pass left at another path, as when the owner moved a file and sent the
+  // step back: the earlier file stays in the step's files as history, but
+  // later steps read the rewritten one alone, not a folder of both.
+  const rewritten = (f: Written) => f.kind === "whole" && f.pass === "earlier" && files.some((o) => o.kind === "whole" && o.pass === "this" && o.artifact === f.artifact);
+  const records = files.filter(
+    (f): f is Written & { artifact: string } => f.artifact !== undefined && (f.kind === "whole" || !isUpdates(step, f.artifact)) && !rewritten(f),
+  );
   // A file named for an updates artifact stands for its declared path, even
   // where nothing recorded the path whole, as after a send-back of a step
   // that was blocked or awaiting the owner.

@@ -6,7 +6,7 @@
 // waits for it, and later steps read the documents the child returns.
 
 import { existsSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { posix, resolve } from "node:path";
 import { FlowError } from "./errors.ts";
 import { has, own } from "./own.ts";
 import { artifactPath, loadProject } from "./policy.ts";
@@ -73,6 +73,21 @@ export function whereIs(root: string, slug: string): string {
 // Whether nothing has happened in the workstream since it was created.
 export const untouched = (ws: Workstream) => Object.values(ws.steps).every((s) => s.history.length === 0);
 
+// The folder that holds the files a step recorded for one artifact: the
+// declared path while every record lies at or below it, else the folder
+// the records have in common, as when an edit of the workflow moved the
+// artifact after the step wrote it. Records are relative to the repository
+// root, so with no deeper folder in common that folder is the root, ".".
+export function recordedFolder(records: { path: string }[], declared: string): string {
+  const dir = (p: string) => p.replace(/\/+$/, "");
+  const inside = (p: string) => p === declared || dir(p) === dir(declared) || p.startsWith(`${dir(declared)}/`);
+  if (records.every((r) => inside(r.path))) return declared;
+  const folders = records.map((r) => (r.path.endsWith("/") ? dir(r.path) : posix.dirname(r.path)).split("/"));
+  const common: string[] = [];
+  for (let i = 0; folders.every((f) => f[i] !== undefined && f[i] !== "" && f[i] !== "." && f[i] === folders[0][i]); i++) common.push(folders[0][i]);
+  return common.length ? `${common.join("/")}/` : ".";
+}
+
 // The path of the workstream's document `id`: the latest step, before `before`
 // when it is given, that recorded it or returned it from its child, or else
 // the input bound under that id. A step counts once its work is recorded.
@@ -97,8 +112,7 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
     if (records.length > 1) {
       // A folder recorded file by file stands for the folder.
       const declared = [...step.produces, ...step.optional_produces, ...step.updates].find((a) => a.artifact === id);
-      if (declared) return artifactPath(loadProject(root), declared, slug, startedOn(ws));
-      return records[0].path;
+      return recordedFolder(records, declared ? artifactPath(loadProject(root), declared, slug, startedOn(ws)) : records[0].path);
     }
     // A returned id stops the search here: the newest child decides, even
     // when it recorded nothing, so an older document of that id never stands in.

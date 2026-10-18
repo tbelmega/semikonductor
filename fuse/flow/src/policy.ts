@@ -8,7 +8,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
 import { own } from "./own.ts";
@@ -224,8 +224,10 @@ export function artifactPath(p: Project, artifact: Artifact, slug: string, date:
   const override = projectLayers(p)
     .map((l) => own(l.policy.artifacts, artifact.artifact))
     .find((o) => o !== undefined);
-  const path = override?.path ?? artifact.path;
-  return path.replaceAll("{slug}", slug).replaceAll("{date}", date);
+  const path = (override?.path ?? artifact.path).replaceAll("{slug}", slug).replaceAll("{date}", date);
+  // In the form the agent's files are reported in, so docs/../src/ holds
+  // src/a.ts. normalize keeps a trailing slash.
+  return posix.normalize(path);
 }
 
 function existing(path: string): string | undefined {

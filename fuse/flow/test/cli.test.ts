@@ -161,3 +161,92 @@ test("a command waits for another process's lock, and names the file if it never
   expect(out).toContain("feat.yml.lock; if none is running, delete that file");
   expect(repo.status("feat", "only")).toBe("IN_PROGRESS");
 });
+
+test("from a subdirectory, a deleted file and an absent artifact path are read from the repository root, as the step block prints them", () => {
+  repo.write("src/deleted.ts");
+  repo.start(
+    "feat",
+    `version: 1
+name: w
+steps:
+  - id: build
+    instruction: x
+    updates:
+      - artifact: code
+        path: src/
+    produces:
+      - artifact: report
+        path: reports/
+`,
+  );
+  rmSync(join(repo.root, "src/deleted.ts"));
+  mkdirSync(join(repo.root, "sub"));
+  const r = repo.run(["continue", "feat", "--updated", "src/deleted.ts", "--not-produced", "reports/", "Not needed."], join(repo.root, "sub"));
+  expect(r.out).not.toContain("REFUSED");
+  expect(r.code).toBe(0);
+  const state = repo.state("feat").steps.build;
+  expect(state.files.map((f: { path: string }) => f.path)).toContain("src/deleted.ts");
+  expect(state.not_produced).toEqual({ report: "Not needed." });
+});
+
+test("from a subdirectory, a deleted root file and a file whose folder was removed are read from the root, where the step's paths hold them", () => {
+  repo.write("package-lock.json");
+  repo.write("src/deleted.ts");
+  repo.start(
+    "feat",
+    `version: 1
+name: w
+steps:
+  - id: build
+    instruction: x
+    updates:
+      - artifact: lock
+        path: package-lock.json
+      - artifact: code
+        path: src/
+`,
+  );
+  rmSync(join(repo.root, "package-lock.json"));
+  rmSync(join(repo.root, "src"), { recursive: true });
+  mkdirSync(join(repo.root, "sub"));
+  const r = repo.run(["continue", "feat", "--updated", "package-lock.json", "--updated", "code=src/deleted.ts"], join(repo.root, "sub"));
+  expect(r.out).not.toContain("REFUSED");
+  expect(r.code).toBe(0);
+  const paths = repo.state("feat").steps.build.files.map((f: { path: string }) => f.path);
+  expect(paths).toContain("package-lock.json");
+  expect(paths).toContain("src/deleted.ts");
+});
+
+test("from a subdirectory, a deleted root file in a step that updates the whole repository is read from the root when git tracks it there", () => {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, ...args], { env: repo.env });
+  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
+  expect(git("init", "-q").exitCode).toBe(0);
+  repo.write("package-lock.json");
+  repo.write("sub/keep.md");
+  expect(git("add", "package-lock.json").exitCode).toBe(0);
+  repo.start("feat", "version: 1\nname: w\nsteps:\n  - id: build\n    instruction: x\n    updates:\n      - artifact: code\n        path: .\n");
+  rmSync(join(repo.root, "package-lock.json"));
+  const r = repo.run(["continue", "feat", "--updated", "package-lock.json"], join(repo.root, "sub"));
+  expect(r.out).not.toContain("REFUSED");
+  expect(r.code).toBe(0);
+  const paths = repo.state("feat").steps.build.files.map((f: { path: string }) => f.path);
+  expect(paths).toContain("package-lock.json");
+  expect(paths).not.toContain("sub/package-lock.json");
+});
+
+test("from a subdirectory, a committed root file whose deletion is staged is read from the root in a step that updates the whole repository", () => {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { env: repo.env });
+  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
+  expect(git("init", "-q").exitCode).toBe(0);
+  repo.write("package-lock.json");
+  repo.write("sub/keep.md");
+  expect(git("add", "package-lock.json", "sub/keep.md").exitCode).toBe(0);
+  expect(git("commit", "-q", "-m", "init").exitCode).toBe(0);
+  repo.start("feat", "version: 1\nname: w\nsteps:\n  - id: build\n    instruction: x\n    updates:\n      - artifact: code\n        path: .\n");
+  expect(git("rm", "-q", "package-lock.json").exitCode).toBe(0);
+  const r = repo.run(["continue", "feat", "--updated", "package-lock.json"], join(repo.root, "sub"));
+  expect(r.code).toBe(0);
+  const paths = repo.state("feat").steps.build.files.map((f: { path: string }) => f.path);
+  expect(paths).toContain("package-lock.json");
+  expect(paths).not.toContain("sub/package-lock.json");
+});

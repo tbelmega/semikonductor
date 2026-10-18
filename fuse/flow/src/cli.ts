@@ -3,7 +3,7 @@
 // commands.ts, print its lines. Exit codes: 0 success, 1 refused, 64 usage.
 
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import * as commands from "./commands.ts";
 import { FlowError, UsageError } from "./errors.ts";
@@ -140,12 +140,32 @@ function parse(command: Command, args: string[]) {
 // A file the agent names, as an absolute path. A relative path is read from
 // the current directory; when nothing is there but there is at the
 // repository root, it is read from the root, since the step block prints
-// paths relative to the root.
+// paths relative to the root. A file found in neither place, such as one the
+// step deleted, is read where more of its path is still there: a deleted
+// file's folder usually is.
 function fromHere(root: string, path: string): string {
   const here = resolve(path);
   if (isAbsolute(path) || existsSync(here)) return here;
   const atRoot = resolve(root, path);
-  return existsSync(atRoot) ? atRoot : here;
+  if (existsSync(atRoot)) return atRoot;
+  return missingParts(atRoot) < missingParts(here) ? atRoot : here;
+}
+
+// A file the agent named with --updated, as fromHere finds it. When it is in
+// neither place, the other place is passed on too, so the step's declared
+// paths, which the CLI does not know, can decide which one the agent meant.
+function namedHere(root: string, path: string, artifact?: string): commands.Named {
+  const file = fromHere(root, path);
+  const other = [resolve(path), resolve(root, path)].find((p) => p !== file);
+  const absent = !isAbsolute(path) && !existsSync(file) && other !== undefined && !existsSync(other);
+  return { ...(artifact === undefined ? {} : { artifact }), file, ...(absent ? { alternative: other } : {}) };
+}
+
+// How many trailing parts of `path` are not on disk.
+function missingParts(path: string): number {
+  let n = 0;
+  for (let p = path; !existsSync(p) && dirname(p) !== p; p = dirname(p)) n += 1;
+  return n;
 }
 
 // The artifact names given with --unchanged and --not-produced. A name that
@@ -243,7 +263,7 @@ function run(argv: string[]): string[] {
         updated: ((values.updated as string[] | undefined) ?? []).map((value) => {
           // --updated <artifact>=<file> names the artifact the file counts for.
           const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(value);
-          return m ? { artifact: m[1], file: fromHere(root, m[2]) } : { file: fromHere(root, value) };
+          return m ? namedHere(root, m[2], m[1]) : namedHere(root, value);
         }),
         unchanged: namesFromHere(root, unchanged),
         notProduced: namesFromHere(root, notProduced),

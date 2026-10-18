@@ -123,14 +123,25 @@ The step fields have these effects:
   condition asks the owner. A step without a condition is mandatory.
 - `consumes` lists artifact identifiers from earlier steps. The step block prints each resolved
   input as `READ`, including the source step. A missing input is reported rather than refused, so
-  the agent can recover it after a jump. An input from a step that was skipped because it was not
-  needed is reported as nothing to read. For a folder artifact, `READ` lists the files the source
-  step recorded in it rather than the whole folder.
+  the agent can recover it after a jump. A step that was skipped because it was not needed, or
+  that finished without recording the artifact, such as one that reported it not produced or an
+  optional producer that wrote nothing, wrote nothing: `READ` then names the document of the
+  nearest earlier step that declares the artifact, as a later workstream's input does, and
+  reports nothing to read only when there is none. For a folder artifact, `READ` lists the files the source step recorded in it rather than
+  the whole folder. `READ` names the document, or the files in a folder, that the source step
+  recorded, also after an edit moved the artifact's path, as a later workstream's input does; a
+  later workstream's input is then the folder that holds the recorded files. Each document read, also a file
+  recorded in a folder and a document the step's own child returned, is reported when it is no
+  longer on disk.
 - `produces` contains one artifact mapping or a list. Each mapping has an `artifact` identifier,
-  a `path`, and an optional `description`. Completion requires the path to exist or the agent to
-  report `--not-produced <artifact> <reason>`. When the path is a folder that existed before the
-  step, such as a research folder shared with other work, the agent names each file it wrote in
-  it with `--updated <file>`, and the engine records the files one by one.
+  a `path`, and an optional `description`. Completion requires the path to exist, and a folder
+  to hold something, or the agent to report `--not-produced <artifact> <reason>`. When the path is
+  a folder that existed before the step, such as a research folder shared with other work, the
+  agent writes the step's files in it and names each with `--updated <file>`, or with
+  `--updated <artifact>=<file>` when the folder lies inside another declared path; the engine
+  records the files one by one. A folder that another artifact of the workstream recorded, such
+  as an index updated in a shared reports folder, counts as existing for a later producer. Naming such a folder itself is refused. A declared folder the step
+  created, named itself, stands for the whole folder.
 - `optional_produces` has the same mapping shape. Existing paths are recorded, but missing paths
   never refuse completion.
 - `updates` has the same mapping shape for artifacts that usually exist before the step, such as
@@ -145,7 +156,8 @@ The step fields have these effects:
   flag for each artifact the file counts for. The step block lists such paths under
   `FILES IN TWO ARTIFACTS`.
 - `--unchanged` and `--not-produced` name an artifact by its identifier or by its path, relative
-  to the current directory. An identifier wins when a name is both. A path that several of the
+  to the current directory, else to the repository root, as the step block prints it. An
+  identifier wins when a name is both. A path that several of the
   step's artifacts share is refused, and the artifact must then be named by its identifier.
 - `{slug}` in an artifact path is replaced with the workstream slug, and `{date}` with the local date
   the workstream started (YYYY-MM-DD), which stays the same for the whole workstream.
@@ -239,7 +251,9 @@ steps:
   as in `returns: { system-design: design }`. A returned id resolves to the newest child's
   recorded document. Only the listed ids come back; nothing is copied. When the newest child
   recorded nothing under the id, there is nothing to read, even if an earlier step wrote a
-  document with the same id.
+  document with the same id. A delegating step that was skipped returns nothing; when the owner
+  jumped past it or started the workstream after it, the step block says to restore what the
+  child would have returned.
 - When the owner sends the work back past a delegating step, its next pass gets a fresh child
   with a pass suffix, such as `review-adversarial-2`, and the earlier child stays as history.
   The step's state records which child belongs to which pass. Skipping a delegating step removes
@@ -325,7 +339,8 @@ owner's last decision:
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or
   `workflow complete`.
 - `PRODUCED:` new and updated files, or a compact summary for five or more files, plus reasons for
-  artifacts reported unchanged or not produced.
+  artifacts reported unchanged or not produced. A folder recorded whole is listed by name and does
+  not count as a file.
 - `VERIFICATION:` mechanical gate results, review rounds used and required fixes still open, or
   `none`.
 - `NEXT STEP:` the owner's options, with the recommendation first and its reason.

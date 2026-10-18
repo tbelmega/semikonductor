@@ -4,7 +4,9 @@
 // it changed.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Repo } from "./helpers";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { FLOW_DIR, Repo } from "./helpers";
 
 const CHANGE = `version: 1
 name: change
@@ -55,6 +57,24 @@ test("continue is refused until every updates artifact is reported as updated or
   expect(state.unchanged).toEqual({ changelog: "nothing user-facing" });
 });
 
+test("a declared path with parent segments stands for the path it leads to", () => {
+  const W = "version: 1\nname: w\nsteps:\n  - id: build\n    instruction: x\n    updates:\n      - artifact: code\n        path: docs/../src/\n";
+  expect(repo.start("feat", W)).toContain("UPDATE src/ (code).");
+  repo.ok("continue", "feat", "--updated", "src/a.ts");
+  expect(repo.state("feat").steps.build.files).toContainEqual({ artifact: "code", path: "src/a.ts", kind: "file", pass: "this", status: "approved" });
+  repo.start("other", W);
+  repo.ok("continue", "other", "--updated", "code=docs/../src/a.ts");
+  expect(repo.state("other").steps.build.files[0].path).toBe("src/a.ts");
+});
+
+test("an empty folder is not a produced folder artifact", () => {
+  repo.start("feat", "version: 1\nname: w\nsteps:\n  - id: research\n    instruction: x\n    produces: { artifact: notes, path: research/ }\n");
+  mkdirSync(join(repo.root, "research"));
+  expect(repo.refused("continue", "feat")).toContain("REFUSED: missing artifact(s): research/ (notes), an empty folder.");
+  repo.write("research/a.md");
+  repo.ok("continue", "feat");
+});
+
 test("a missing updates path is reported when the step is handed out, not refused", () => {
   repo.cleanupPath("CHANGELOG.md");
   expect(repo.start("feat", CHANGE)).toContain("UPDATE CHANGELOG.md (changelog). CHANGELOG.md does not exist yet; create it and report it with --updated.");
@@ -71,6 +91,31 @@ test("--updated paths are relative to the current directory, and five or more fi
   expect(r.out).toContain('PRODUCED: 5 files under src/checkout/; summarize them, for example "12 files under src/checkout/, with their tests"; changelog unchanged (x)');
   const named = repo.state("feat").steps.change.files.filter((f: { kind: string }) => f.kind === "file");
   expect(named.map((f: { artifact: string; path: string }) => [f.artifact, f.path])).toEqual(files.map((f) => ["patch", f]));
+});
+
+test("five files summarized with one outside the repository have no common folder, and the summary does not hang", () => {
+  const outside = new Repo();
+  try {
+    const build = outside.write("build/output.txt");
+    repo.start("feat", CHANGE);
+    const files = ["a", "b", "c", "d"].map((n) => `src/${n}.ts`);
+    for (const f of files) repo.write(f);
+    // A hang would block the test itself, so the command runs with its own timeout.
+    const args = ["continue", "feat", "--updated", build, ...files.flatMap((f) => ["--updated", f]), "--unchanged", "changelog", "x"];
+    const proc = Bun.spawnSync([process.execPath, "run", join(FLOW_DIR, "src", "cli.ts"), ...args], {
+      cwd: repo.root,
+      env: repo.env,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 4_000,
+    });
+    const out = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.signalCode ?? null).toBeNull();
+    expect(proc.exitCode).toBe(0);
+    expect(out).toContain('PRODUCED: 5 files; summarize them, for example "12 files under src/checkout/, with their tests"; changelog unchanged (x)');
+  } finally {
+    outside.cleanup();
+  }
 });
 
 test("--updated, --unchanged and --not-produced report the agent's work, so no owner decision goes with them", () => {
@@ -291,7 +336,7 @@ test("after a send-back, the earlier record of the updated folder does not stand
   repo.ok("continue", "feat", "--back-to", "notes", "--note", "write the notes after all");
   repo.ok("start", "feat");
   expect(repo.refused("continue", "feat", "--unchanged", "index", "nothing to index")).toContain(
-    "REFUSED: notes/ (notes) existed before the step: name each file the step wrote in it with --updated <file>",
+    "REFUSED: notes/ (notes) existed before the step: name each file the step wrote in it with --updated notes=<file>",
   );
 });
 
