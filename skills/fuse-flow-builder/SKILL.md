@@ -134,11 +134,14 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      `test -z "$(git status --porcelain)"` for a clean tree. Keep it portable, and never put a
      project's build command here.
    - **`agent: <what to review>`.** The maker obtains an independent review, classifies each
-     finding as a required fix or a false positive, fixes what is required and reviews again.
-     `max_rounds` (default 2) caps the rounds that end with a required fix; at the cap the agent
-     reports the step blocked and the owner decides. `guide:` names a review guide relative to the
-     workflow file. The guide decides what counts as a required fix and when a round passes; the
-     cap and the blocked exit still apply.
+     finding as a required fix, optional or a false positive, fixes what is required and reviews
+     again. A round with no required fix passes and ends the review; fixing its optional findings
+     starts no further round. `max_rounds` (default 2) caps the rounds that end with a required
+     fix; at the cap the agent reports the step blocked and the owner decides. `guide:` names a
+     review guide relative to the workflow file. The guide decides what counts as a required fix
+     and when a round passes; where it does not say, or without a guide, P0 and P1 findings are
+     required and P2 and P3 findings optional, fixed when cheap or listed as deferred. The cap and
+     the blocked exit still apply.
    - **`workflow: <name>`.** The step waits for a child workstream that follows another workflow,
      for a procedure that has its own steps, gates and owner decisions, such as an adversarial
      review inside a code review. fuse-flow creates the child when the step is handed out and
@@ -190,7 +193,7 @@ the agent at the guide and template; the engine never copies or edits them.
   without fuse-flow see where it stands. The engine only reminds the agent; its own record is the
   state file.
 - A guide may be a relative symlink to a skill in the clone's `skills/` folder, as in
-  `library/artifacts/code/review.md`. Do that only for skills that ship with fuse-konductor; a
+  `library/artifacts/doc-accuracy/guide.md`. Do that only for skills that ship with fuse-konductor; a
   link to a skill that is not installed is a missing guide, and the agent then has to ask the
   owner.
 
@@ -405,7 +408,8 @@ next edit.
   artifact and its gates, and for each gate what it prevents. Agree on it before you write details.
 - **Write the file early** and suggest the user opens it in Komposer while you iterate. If it is not
   running, offer to start it on their project (`bun run start -- <project>` in `<clone>/fuse/komposer`,
-  after `bun install && bun run build` the first time) and give them the URL. Komposer reloads a
+  after `bun install --cwd ../flow && bun install && bun run build` the first time) and give them
+  the URL. Komposer reloads a
   file that changes on disk while it has no unsaved edits, so the user sees each of your changes in
   the diagram. Ask them not to edit in Komposer while you edit the file, or to tell you when they
   have, and read the file again before your next change.

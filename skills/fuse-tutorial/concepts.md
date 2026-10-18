@@ -109,10 +109,12 @@ Menu: an independent review by another agent, repeated until it finds nothing th
 
 - Short: an agent gate asks for an independent review. The working agent fixes what must be fixed
   and asks again, up to a limit.
-- Normal: the working agent classifies each finding as a required fix or a false positive, with the
-  reason, and fixes the required ones. `max_rounds` (2 by default) caps the rounds that end with a
-  required fix; at the cap the step is blocked and you decide. A review guide sets what counts as a
-  required fix.
+- Normal: the working agent classifies each finding as a required fix, optional or a false
+  positive, with the reason, and fixes the required ones. A round with no required fix passes and
+  ends the review; fixing its optional findings starts no further round. `max_rounds` (2 by
+  default) caps the rounds that end with a required fix; at the cap the step is blocked and you
+  decide. A review guide sets what counts as a required fix; where it does not say, P0 and P1
+  findings are required and P2 and P3 findings optional, fixed when cheap or listed as deferred.
 - Deep: which review guide applies, from the most specific: your local project policy, the team's
   policy, the project library's `review.md` for the artifact, the gate's own `guide`, your policy,
   your library, the shipped library. Without any, the agent reviews against the artifact's own

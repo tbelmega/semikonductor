@@ -30,8 +30,9 @@ repeat it later without you:
 1. Create the playground once: `git init` in `~/.konductor/tutorials/<run>/playground`, add a
    one-line `README.md`, and commit it. When the run works on a real project instead, use that
    project's directory below and skip this step.
-2. Build Komposer: in `<clone>/fuse/komposer`, run `bun install`, then `bun run build`. If either
-   fails, show the user the error and stop; do not try to repair the clone.
+2. Build Komposer: in `<clone>/fuse/komposer`, run `bun install --cwd ../flow` (Komposer uses
+   fuse-flow's own source), then `bun install`, then `bun run build`. If any of them fails, show
+   the user the error and stop; do not try to repair the clone.
 3. Start the server in the background on the playground, so it keeps running while you talk:
    `bun run start -- ~/.konductor/tutorials/<run>/playground --port <port>`, with its output going
    to `~/.konductor/tutorials/<run>/komposer.log`. Use port 4807 for the first run. If the log says
@@ -41,10 +42,10 @@ repeat it later without you:
    of it, so give the whole URL.
 
 Then tell the user, in one short paragraph, how to do it themselves in any project: from
-`<clone>/fuse/komposer`, `bun install && bun run build` once (and again after pulling changes),
-then `bun run start -- <project directory>`, and open the URL it prints. The server stops when they
-stop the command. Hold back the token's purpose (it keeps other web pages in their browser from
-using the server) for "more".
+`<clone>/fuse/komposer`, `bun install --cwd ../flow && bun install && bun run build` once (and
+again after pulling changes), then `bun run start -- <project directory>`, and open the URL it
+prints. The server stops when they stop the command. Hold back the token's purpose (it keeps
+other web pages in their browser from using the server) for "more".
 
 **Third message: open it.** Hand the URL to the user:
 
