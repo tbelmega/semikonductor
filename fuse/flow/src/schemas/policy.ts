@@ -5,6 +5,7 @@
 // policy.schema.json.
 
 import { z } from "zod";
+import { idRecord } from "./id-record.ts";
 import { CHECK_KIND } from "./gate.ts";
 import { ARTIFACT_ID } from "./step.ts";
 
@@ -34,11 +35,10 @@ const ReviewerSchema = z
 
 export const PolicySchema = z
   .object({
-    checks: z
-      .record(
-        z.string().regex(CHECK_KIND, "a kind of check is a single lower-case word, such as default"),
-        z.string().trim().min(1),
-      )
+    checks: idRecord(
+      z.string().regex(CHECK_KIND, "a kind of check is a single lower-case word, such as default"),
+      z.string().trim().min(1),
+    )
       .optional()
       .meta({
         description:
@@ -61,8 +61,7 @@ export const PolicySchema = z
           description: "Who reviews, in words, such as a model or a harness. Engine effect: printed with the gate.",
           examples: ["a different model from the one that did the work"],
         }),
-        reviewers: z
-          .record(z.string().min(1), ReviewerSchema)
+        reviewers: idRecord(z.string().min(1), ReviewerSchema)
           .optional()
           .meta({
             description:
@@ -100,8 +99,7 @@ export const PolicySchema = z
           "specific file's last. Engine effect: printed with every step.",
         examples: [["In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill."]],
       }),
-    artifacts: z
-      .record(ARTIFACT_ID, z.object({ path: z.string().min(1) }).strict())
+    artifacts: idRecord(ARTIFACT_ID, z.object({ path: z.string().min(1) }).strict())
       .optional()
       .meta({
         description:

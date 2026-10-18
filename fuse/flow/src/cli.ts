@@ -2,11 +2,16 @@
 // fuse-flow command line: parse the arguments, run one command from
 // commands.ts, print its lines. Exit codes: 0 success, 1 refused, 64 usage.
 
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import * as commands from "./commands.ts";
 import { FlowError, UsageError } from "./errors.ts";
 import { checkSlug, findRepoRoot, isDirectory, isWorkflowPath } from "./project.ts";
+
+// The most review rounds one --more-rounds grants, so that the rounds a step
+// is granted in total stay a number the state file can hold.
+const MAX_MORE_ROUNDS = 100;
 
 const USAGE = `usage:
   fuse-flow start <slug> [--workflow <name or path>] [--from <step>]
@@ -15,7 +20,9 @@ const USAGE = `usage:
                                                 prints what to do now. --from starts a new workstream at a
                                                 later step, as the owner's decision. --after binds the
                                                 workflow's inputs to the earlier workstream's documents of
-                                                the same id; --input binds one to a file, and wins
+                                                the same id; --input binds one to a file, and wins.
+                                                A relative path is read from the current directory, else
+                                                from the repository root
   fuse-flow continue <slug> [--updated [<artifact>=]<file>]... [--unchanged <artifact> <reason>]...
                             [--not-produced <artifact> <reason>]...
                                                 the current step's work is done: refused until every artifact
@@ -23,7 +30,9 @@ const USAGE = `usage:
                                                 artifact it updates is accounted for, and its checks pass.
                                                 An <artifact> is its id or its path. --updated names a file
                                                 the step wrote; a file in the paths of two of its artifacts
-                                                takes the id of the one it counts for, <artifact>=<file>
+                                                takes the id of the one it counts for, <artifact>=<file>.
+                                                A relative path is read from the current directory, else
+                                                from the repository root, as the step block prints it
   fuse-flow continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...
                                                 the agent cannot finish the step, for example at the review
                                                 round cap; the owner decides. --gate names the review it is
@@ -37,7 +46,8 @@ const USAGE = `usage:
                                                 blocked at, and the step goes back to the agent for the gates
                                                 still ahead
   fuse-flow continue <slug> --more-rounds <n> [--note <text>]
-                                                the owner grants the step's agent gates n more review rounds
+                                                the owner grants the step's agent gates n more review rounds,
+                                                1 to 100 at a time
   fuse-flow continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]
                                                 the owner sends the work back from the current step, whatever
                                                 its status, to <step>, it or an earlier one. --updated records
@@ -53,7 +63,8 @@ const USAGE = `usage:
   fuse-flow validate <name, file or directory>...
                                                 check workflows without starting a workstream; a
                                                 directory stands for every .yml and .yaml file below
-                                                it, so \`fuse-flow validate .\` checks them all
+                                                it, so \`fuse-flow validate .konductor/workflows\` checks
+                                                the project's workflows
 
 workflows: a name is looked up as <name>.yml in .konductor/workflows/, ~/.konductor/workflows/,
            then the workflows that ship with fuse-flow; in each, at any depth (examples/,
@@ -84,12 +95,13 @@ const OPTIONS = {
 } as const;
 
 // Remove every `--<name> <artifact> <reason>` from args, and return them by
-// artifact.
+// artifact. A reason that is a lone option, such as --owner-approved, is that
+// option given without the reason, not the reason.
 function takePairs(args: string[], name: string): Record<string, string> {
   const pairs: Record<string, string> = {};
   for (let i = args.indexOf(`--${name}`); i >= 0; i = args.indexOf(`--${name}`)) {
     const [artifact, reason] = [args[i + 1], args[i + 2]];
-    if (!artifact || !reason || artifact.startsWith("--") || !reason.trim()) {
+    if (!artifact || !reason || artifact.startsWith("--") || !reason.trim() || /^--[a-z][a-z-]*(=.*)?$/.test(reason)) {
       throw new UsageError(`--${name} takes an artifact and a reason, for example --${name} code "only the docs changed"`);
     }
     pairs[artifact] = reason.trim();
@@ -103,16 +115,47 @@ type Command = keyof typeof OPTIONS;
 function parse(command: Command, args: string[]) {
   let parsed;
   try {
-    parsed = parseArgs({ args, options: OPTIONS[command], allowPositionals: true, strict: true });
+    parsed = parseArgs({ args, options: OPTIONS[command], allowPositionals: true, strict: true, tokens: true });
   } catch (e) {
     throw new UsageError((e as Error).message);
   }
   if (parsed.positionals.length !== 1) throw new UsageError(`${command} takes <slug>`);
   checkSlug(parsed.positionals[0]);
+  // parseArgs keeps the last of a repeated option; one that takes a single
+  // value is refused instead, so a second value is never silently dropped.
+  const options = OPTIONS[command] as Record<string, { type: string; multiple?: boolean }>;
+  const seen = new Set<string>();
+  for (const token of parsed.tokens as { kind: string; name?: string }[]) {
+    if (token.kind !== "option" || token.name === undefined || options[token.name]?.multiple) continue;
+    if (seen.has(token.name)) throw new UsageError(`--${token.name} is given twice; give it once`);
+    seen.add(token.name);
+  }
   for (const [name, value] of Object.entries(parsed.values)) {
     if (value === "" || (Array.isArray(value) && value.includes(""))) throw new UsageError(`--${name} needs a value`);
   }
   return { slug: parsed.positionals[0], values: parsed.values as Record<string, string | string[] | boolean> };
+}
+
+// A file the agent names, as an absolute path. A relative path is read from
+// the current directory; when nothing is there but there is at the
+// repository root, it is read from the root, since the step block prints
+// paths relative to the root.
+function fromHere(root: string, path: string): string {
+  const here = resolve(path);
+  if (isAbsolute(path) || existsSync(here)) return here;
+  const atRoot = resolve(root, path);
+  return existsSync(atRoot) ? atRoot : here;
+}
+
+// The artifact names given with --unchanged and --not-produced. A name that
+// can only be a path, as an artifact id holds no "/" or ".", is found as
+// fromHere finds a file; one found nowhere is passed on as it was given.
+function namesFromHere(root: string, given: Record<string, string>): Record<string, string> {
+  const named = (name: string) => {
+    const found = fromHere(root, name);
+    return /^[a-z0-9][a-z0-9-]*$/.test(name) || !existsSync(found) ? name : found;
+  };
+  return Object.fromEntries(Object.entries(given).map(([name, why]) => [named(name), why]));
 }
 
 function run(argv: string[]): string[] {
@@ -132,9 +175,10 @@ function run(argv: string[]): string[] {
   switch (command as Command) {
     case "start": {
       // A path is made absolute here, so the workstream still finds it when
-      // a later command runs from another directory.
+      // a later command runs from another directory. A relative path is read
+      // as continue reads one: from the current directory, else from the root.
       const workflow = values.workflow as string | undefined;
-      const resolved = workflow && isWorkflowPath(workflow) ? resolve(workflow) : workflow;
+      const resolved = workflow && isWorkflowPath(workflow) ? fromHere(root, workflow) : workflow;
       const after = values.after as string | undefined;
       if (after !== undefined) checkSlug(after);
       const inputs: Record<string, string> = {};
@@ -142,7 +186,7 @@ function run(argv: string[]): string[] {
         const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(pair);
         if (!m) throw new UsageError(`--input takes <artifact-id>=<path>, for example --input product-brief=docs/brief.md; got "${pair}"`);
         if (Object.hasOwn(inputs, m[1])) throw new UsageError(`--input ${m[1]} is given twice`);
-        inputs[m[1]] = resolve(m[2]);
+        inputs[m[1]] = fromHere(root, m[2]);
       }
       return commands.start(root, slug, resolved, values.from as string | undefined, { ...(after !== undefined ? { after } : {}), inputs });
     }
@@ -180,7 +224,9 @@ function run(argv: string[]): string[] {
         throw new UsageError("--gate goes with --blocked or --owner-approved");
       }
       if (gate !== undefined && !/^[1-9][0-9]*$/.test(gate)) throw new UsageError("--gate takes the number of a gate in the step's list, 1 or more");
-      if (moreRounds !== undefined && !/^[1-9][0-9]*$/.test(moreRounds)) throw new UsageError("--more-rounds takes a whole number of rounds, 1 or more");
+      if (moreRounds !== undefined && !(/^[1-9][0-9]*$/.test(moreRounds) && Number(moreRounds) <= MAX_MORE_ROUNDS)) {
+        throw new UsageError(`--more-rounds takes a whole number of rounds, 1 or more and at most ${MAX_MORE_ROUNDS}`);
+      }
       return commands.continueWorkstream(root, slug, {
         ownerApproved,
         note: values.note as string | undefined,
@@ -193,10 +239,10 @@ function run(argv: string[]): string[] {
         updated: ((values.updated as string[] | undefined) ?? []).map((value) => {
           // --updated <artifact>=<file> names the artifact the file counts for.
           const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(value);
-          return m ? { artifact: m[1], file: resolve(m[2]) } : { file: resolve(value) };
+          return m ? { artifact: m[1], file: fromHere(root, m[2]) } : { file: fromHere(root, value) };
         }),
-        unchanged,
-        notProduced,
+        unchanged: namesFromHere(root, unchanged),
+        notProduced: namesFromHere(root, notProduced),
       });
     }
     case "status":
@@ -214,7 +260,7 @@ function validate(args: string[]): string[] {
   } catch (e) {
     throw new UsageError((e as Error).message);
   }
-  if (refs.length === 0) throw new UsageError("validate takes workflow names, files or directories, for example: validate .");
+  if (refs.length === 0) throw new UsageError("validate takes workflow names, files or directories, for example: validate .konductor/workflows");
   const root = findRepoRoot(process.cwd());
   return commands.validate(root, refs.map((ref) => (isWorkflowPath(ref) || isDirectory(ref) ? resolve(ref) : ref)));
 }

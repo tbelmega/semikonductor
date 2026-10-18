@@ -61,11 +61,13 @@ export function isDirectory(path: string): boolean {
 }
 
 // Every .yml and .yaml file below `dir`, in nested folders too, following
-// symlinks. Skips node_modules, .git, the project's workstream state files and
-// the user's projects list, which are YAML but not workflows.
+// symlinks. Skips node_modules, .git and fuse-flow's own YAML files that are
+// not workflows: the project's workstream state files, the libraries of
+// artifact guides, the policy files and the user's projects list.
 export function workflowFilesBelow(root: string, dir: string): string[] {
-  const skip = new Set([join(root, ".git"), workstreamsDir(root)].filter(existsSync).map((p) => realpathSync(p)));
-  const notWorkflows = new Set([projectsFile()].filter(existsSync).map((p) => realpathSync(p)));
+  const libraries = Object.values(libraryDirs(root));
+  const skip = new Set([join(root, ".git"), workstreamsDir(root), ...libraries].filter(existsSync).map((p) => realpathSync(p)));
+  const notWorkflows = new Set([projectsFile(), ...Object.values(policyFiles(root))].filter(existsSync).map((p) => realpathSync(p)));
   const files: string[] = [];
   const walk = (folder: string) => {
     const real = realpathSync(folder);

@@ -11,8 +11,8 @@ Menu: the process a piece of work follows, as an ordered list of steps.
 
 - Short: a workflow is a YAML file listing steps in order. fuse-flow reads it and tells the agent
   which step comes next.
-- Normal: `version: 1`, a `name` matching the file name, a `description` an agent shows when it
-  offers workflows, and `steps`. Steps run one at a time, in file order; there are no loops and no
+- Normal: `version: 1`, a `name` matching the file name, which is what fuse-flow finds it by, a
+  `description` an agent shows when it offers workflows, and `steps`. Steps run one at a time, in file order; there are no loops and no
   parallel steps. A workflow lives in one of three places: the project's `.konductor/workflows/`,
   your `~/.konductor/workflows/`, or the official ones in the clone. A name is looked up in that
   order, at any depth.

@@ -16,11 +16,12 @@
           "test": "none"
         }
       ],
-      "type": "object",
       "propertyNames": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*$"
       },
+      "type": "object",
+      "properties": {},
       "additionalProperties": {
         "type": "string",
         "minLength": 1
@@ -62,11 +63,12 @@
               }
             }
           ],
-          "type": "object",
           "propertyNames": {
             "type": "string",
             "minLength": 1
           },
+          "type": "object",
+          "properties": {},
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -164,11 +166,12 @@
           }
         }
       ],
-      "type": "object",
       "propertyNames": {
         "type": "string",
         "pattern": "^[a-z0-9][a-z0-9-]*$"
       },
+      "type": "object",
+      "properties": {},
       "additionalProperties": {
         "type": "object",
         "properties": {

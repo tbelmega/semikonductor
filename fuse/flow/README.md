@@ -117,8 +117,10 @@ The step fields have these effects:
 - `instruction` opens the step block and says what the step must achieve.
 - `condition` makes the step optional. It is written as one `owner-action`, `check`, `script` or
   `agent` mapping. A `check` or `script` condition runs when the engine reaches the step: exit 0
-  runs it and another result skips it. An `agent` condition is judged by the agent. An
-  `owner-action` condition asks the owner. A step without a condition is mandatory.
+  runs it and another result skips it. A `check` condition whose kind the policy binds to `none`
+  counts as passed, as a `check` gate does, so the step runs, and the `CONDITION` line says the
+  check is not configured. An `agent` condition is judged by the agent. An `owner-action`
+  condition asks the owner. A step without a condition is mandatory.
 - `consumes` lists artifact identifiers from earlier steps. The step block prints each resolved
   input as `READ`, including the source step. A missing input is reported rather than refused, so
   the agent can recover it after a jump. An input from a step that was skipped because it was not
@@ -134,6 +136,8 @@ The step fields have these effects:
 - `updates` has the same mapping shape for artifacts that usually exist before the step, such as
   code. The agent accounts for every updated artifact with one or more `--updated <file>` flags,
   or with `--unchanged <artifact> <reason>`. A missing update path is reported and may be created.
+  `--unchanged` is refused for an artifact whose files this command, or an earlier command in the
+  same pass such as a blocked report, names as updated.
 - `--updated <file>` counts for the artifact whose declared path holds the file, and the engine
   fixes that artifact when the file is named. A file outside every declared path counts for no
   artifact. A file inside the paths of two artifacts, such as a report inside the code at `.`, is
@@ -163,7 +167,10 @@ The step fields have these effects:
   same step or an earlier step. It suggests routes for the owner's `--back-to` decision and does
   not create automatic control flow. A mapping may also have an informational `description`.
 - `workflow: <name or path>` makes the step wait for a child workstream that follows that
-  workflow. It is described under "Workflows that work together" below.
+  workflow. A path is relative to the workflow file, as a gate's `guide` is, while
+  `start --workflow <path>` reads a path from the current directory, else from the repository
+  root. It is described under
+  "Workflows that work together" below.
 
 ### Workflows that work together
 
@@ -207,10 +214,11 @@ steps:
 - `start --after <earlier slug>` binds each input to the earlier workstream's latest recorded
   document with the same id, or to that workstream's own input of that id. `start --input
   <id>=<path>` binds one input to a file and wins over `--after`. `start` refuses a required
-  input that stays unbound, and an `--input` the workflow does not declare. An input path that
-  does not exist is reported in the step block, as a missing artifact is.
-- `hands_off_to` is one workflow or a list, each a name or a `{ workflow, when }` mapping. The
-  completion block names each one with its `when` text and the exact `start ... --after <slug>`
+  input that stays unbound, and an `--input` the workflow does not declare. A relative input path
+  is read from the current directory, else from the repository root, as `continue` reads one. An
+  input path that does not exist is reported in the step block, as a missing artifact is.
+- `hands_off_to` is one workflow or a list, each a name or a `{ workflow, when }` mapping; a
+  path is relative to the workflow file. The completion block names each one with its `when` text and the exact `start ... --after <slug>`
   command. Nothing starts on its own: the agent offers the next workflow to the owner where its
   `when` applies, and does not mention it where it does not, so a `when` can rule a hand-off out,
   such as a pull request workflow in a project without pull requests. When one workstream leads
@@ -240,6 +248,9 @@ steps:
   target resolves, a gate's `inputs` name inputs the child declares and give every required one,
   its `returns` name documents the child has, and no chain of workflow gates leads back to the
   workflow. A hand-off target that takes none of this workflow's documents is only a warning.
+  So is a `name` that differs from the file name; the warning names the reference
+  `start --workflow` takes: the file name where a lookup by it finds the file, else the path, as
+  for a `.yaml` file, which is never found by name.
   At run time, a child whose chain of parents already follows its workflow is refused.
 - `status` and `list` show the workstream a workstream was started after, its parent, the
   workstreams started after it, and the child a waiting step waits for. Komposer draws hand-offs
@@ -270,7 +281,9 @@ steps:
 The owner decision flags are mutually exclusive. `--blocked` and `--skip` are mutually exclusive
 reports, and artifact-reporting flags do not accompany either kind, except `--updated` with
 `--back-to` and `--blocked`. Exit codes are 0 for success,
-1 for a refusal, and 64 for a usage error.
+1 for a refusal, and 64 for a usage error. The `fuse-flow` launcher exits 69 before the engine
+runs when it finds neither bun nor a recent enough node with npm, or cannot install the
+dependencies.
 
 ## Output contract
 
@@ -280,6 +293,8 @@ the tests and this section.
 When it is the agent's turn, the step block uses these labels:
 
 - `STEP` gives the step identifier, position and instruction.
+- `RULINGS` lists the owner's rulings from the policy files, where they set any.
+- `OWNER SAID` quotes the owner's note with each decision that led into this pass.
 - `CONDITION` explains why an optional step runs or how to skip it.
 - `MODE` says whether the step is attended or unattended, what that asks of the agent and the
   owner, and where the agent records its decisions.
@@ -289,15 +304,22 @@ When it is the agent's turn, the step block uses these labels:
 - `PRODUCE` gives a required artifact path, identifier, guide and template information.
 - `PRODUCE (optional)` gives an optional artifact in the same form.
 - `UPDATE` gives an artifact path the step changes and reports when the path is missing.
+- `FILES IN TWO ARTIFACTS` names the declared paths that lie inside another artifact's path, where
+  a file needs `--updated <artifact>=<file>`.
+- `EARLIER PASS` lists what the step wrote before the owner sent the work back, to keep, update or
+  redo.
+- `GUIDES` says how the step's instruction and the artifact guides rank where they differ.
 - `WHEN THE WORK IS DONE` gives numbered gate and completion instructions.
 - `IF YOU STOP BEFORE THE STEP IS DONE` gives the five hand-back lines below, pre-filled with the
   workstream, the step and any skipped steps, for a message that waits on the owner while the step
   is in progress.
 - `REFUSED` gives the reason completion was refused, followed by the step block again.
 
-When the owner acts next, output begins with `OWNER'S TURN` and ends with a pre-filled hand-over
-block. The agent replaces placeholders, preserves the order, and ends its own message with these
-five lines, and a sixth when the agent has finished work since the owner's last decision:
+When the owner acts next, `continue` first prints a line with what it recorded, such as
+`build: COMPLETED`. Then come `OWNER'S TURN`, with what the agent does with the block, and the
+pre-filled hand-over block. The agent replaces placeholders, preserves the order, and ends its
+own message with these five lines, and a sixth when the agent has finished work since the
+owner's last decision:
 
 - `SUMMARY:` the task, workstream slug and step position.
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or
@@ -314,9 +336,12 @@ five lines, and a sixth when the agent has finished work since the owner's last 
   changes, so the gates run again, or after `workflow complete` into a new workstream; the
   `decision-log` guide gives the agent the commands.
 
-fuse-flow pre-fills the block for `awaiting owner action`, `blocked` and `workflow complete`. On
-`workflow complete`, the lines after the block name the workflows this one hands off to, with
-their start commands, and for a child workstream the parent step that waits for it. For
+fuse-flow pre-fills the block for `awaiting owner action`, `blocked` and `workflow complete`. The
+output ends with `FOR YOU, NOT FOR THE OWNER:`, which the agent keeps out of its message. For a
+step that waits for the owner, it gives the command for each of the owner's options. On
+`workflow complete`, present when there is something to say, it names the workflows this one
+hands off to, with their start commands, and for a child workstream the parent step that waits
+for it. For
 `needs input` or `paused`, the agent fills in the lines the step block printed under
 `IF YOU STOP BEFORE THE STEP IS DONE`.
 
@@ -375,7 +400,7 @@ checks:
   test: none
 review:
   max_rounds: 3
-  guide: reviews/default.md
+  guide: review-guides/default.md
   reviewer: a different model from the maker
   launch: subagent                 # or a command, below
   reviewers:                       # the reviewer's model, by the author's model
@@ -398,7 +423,8 @@ starts the reviewer the way the house rules ask, and else as a subagent. In the 
 `{model}`, `{effort}`, `{prompt_file}` and `{findings_file}` are replaced. Whichever way it is
 started, the reviewer writes its findings to `.konductor/reviews/<slug>/<step>-round-<n>.json`,
 following `workflows/schemas/review-findings.schema.json`, and the agent reads them from there; the
-directory is gitignored. A row of `reviewers` may carry its own `launch`, for a reviewer model the
+directory is gitignored, so a review guide does not belong there; `review.guide` is relative to
+the policy file that sets it. A row of `reviewers` may carry its own `launch`, for a reviewer model the
 author's harness cannot run. `rulings` are the owner's decisions where fuse-flow and the house rules,
 such as another installed skill or always-on instruction, overlap; fuse-flow prints them with every step.
 

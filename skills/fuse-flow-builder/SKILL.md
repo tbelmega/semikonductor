@@ -69,8 +69,9 @@ steps:
     instruction: Implement the agreed change test-first and run the project's checks.
 ```
 
-- `version` is always `1`. `name` matches the file name. `description` is what an agent shows the
-  owner when it offers workflows, so write it for that reader.
+- `version` is always `1`. `name` matches the file name: fuse-flow finds a workflow by its file
+  name, and `validate` warns when the two differ. `description` is what an agent shows the owner
+  when it offers workflows, so write it for that reader.
 - Steps run one at a time, in file order. There is no parallel execution and no automatic jump.
   The current step is the first one that is neither `COMPLETED` nor `SKIPPED`.
 - Step identifiers are lower-case letters, digits and hyphens, and unique. A workstream's state is
@@ -150,6 +151,7 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      back to. It is a suggestion printed for the owner, not automatic control flow.
 7. **`condition`.** Makes the step optional, written as one gate-kind mapping. A `script` or
    `check` condition runs when the step is reached: exit 0 runs the step, anything else skips it.
+   A `check` condition whose kind the project binds to `none` counts as passed, so the step runs.
    An `agent` condition is judged by the agent, and an `owner-action` condition asks the owner. A
    skipped step records its reason. Prefer a condition to a second copy of the workflow.
 8. **`optional_produces`.** An artifact the step may write. It is recorded when it exists and

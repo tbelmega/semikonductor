@@ -4,6 +4,7 @@
 // way. `bun run schema` writes the gate schema to gate.schema.json.
 
 import { z } from "zod";
+import { idRecord } from "./id-record.ts";
 
 export const GATE_KINDS = ["owner-action", "check", "script", "agent", "workflow"] as const;
 export type GateKind = (typeof GATE_KINDS)[number];
@@ -132,6 +133,7 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
     if (typeof slug !== "string" || !slug.includes("{slug}") || !ID.test(sample)) {
       return `slug is a template that contains {slug}, with lowercase letters, digits, hyphens and {step}; got ${JSON.stringify(slug)}`;
     }
+    if (slug === "{slug}") return "slug must add to {slug}, such as {slug}-review, or the child would take the parent's own slug";
     gate.slug = slug;
   }
   if (inputs !== undefined) {
@@ -227,19 +229,19 @@ const SHAPES = [
       workflow: z.string().meta({ description: KIND_DOCS.workflow }),
       slug: z.string().optional().meta({
         description:
-          "The child workstream's slug, a template that contains {slug}, the parent's slug, and may contain " +
-          `{step}, this step's id; ${DEFAULT_CHILD_SLUG} unless set. Engine effect: the child is created under ` +
+          "The child workstream's slug, a template that contains {slug}, the parent's slug, and something more, " +
+          `and may contain {step}, this step's id; ${DEFAULT_CHILD_SLUG} unless set. Engine effect: the child is created under ` +
           "this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
         examples: ["{slug}-adversarial"],
       }),
-      inputs: z.record(z.string(), z.string()).optional().meta({
+      inputs: idRecord(z.string(), z.string()).optional().meta({
         description:
           "The documents the child is given: child input id -> artifact id in this workflow, available before " +
           "this step. Engine effect: each binds the child's declared input to this workstream's document.",
         examples: [{ "review-diff": "review-diff" }],
       }),
       returns: z
-        .union([z.array(z.string()), z.record(z.string(), z.string())])
+        .union([z.array(z.string()), idRecord(z.string(), z.string())])
         .optional()
         .meta({
           description:

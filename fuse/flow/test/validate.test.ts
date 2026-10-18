@@ -77,8 +77,42 @@ test("validate at the repository root skips the workstream state files", () => {
   expect(out).toContain(`valid:   ${join(repo.root, ".konductor/workflows/named.yml")}`);
 });
 
+test("validate at the repository root skips fuse-flow's own files that are not workflows", () => {
+  repo.write(".konductor/workflows/named.yml", VALID);
+  repo.write(".konductor/policy-overrides.yml", "checks:\n  default: none\n");
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.write(".konductor/library/artifacts/spec/entry.yml", "description: A spec.\n");
+  repo.write("home/.konductor/policy-overrides.yml", "checks:\n  default: none\n");
+
+  const out = repo.ok("validate", ".");
+  expect(out).toContain(`valid:   ${join(repo.root, ".konductor/workflows/named.yml")}`);
+  expect(out).toContain("1 workflow valid");
+});
+
 test("validate needs at least one reference, and a directory without workflows is reported", () => {
   expect(repo.usage("validate")).toContain("validate takes workflow names, files or directories");
   mkdirSync(join(repo.root, "empty"));
   expect(repo.refused("validate", "empty")).toContain(`no .yml or .yaml files in ${join(repo.root, "empty")}`);
+});
+
+test("a workflow whose name differs from its file name is valid, with a warning that names the name start takes", () => {
+  repo.write("flows/review.yml", VALID.replace("name: ok", "name: code-review"));
+  const out = repo.ok("validate", "flows/review.yml");
+  expect(out).toContain(`valid:   ${join(repo.root, "flows/review.yml")}`);
+  // flows/ is not a folder fuse-flow looks names up in, so start takes this one by its path.
+  expect(out).toContain(`  warning: name "code-review" differs from the file name; start this workflow by its path, ${join(repo.root, "flows/review.yml")}`);
+});
+
+test("the name warning names the reference start takes: the file name in a workflows folder, else the path", () => {
+  repo.write(".konductor/workflows/review.yml", VALID.replace("name: ok", "name: code-review"));
+  const named = repo.ok("validate", ".konductor/workflows/review.yml");
+  expect(named).toContain('  warning: name "code-review" differs from the file name; fuse-flow finds the workflow by its file name, review');
+  repo.ok("start", "s", "--workflow", "review");
+
+  // Only .yml files are found by name.
+  repo.write(".konductor/workflows/actual.yaml", VALID.replace("name: ok", "name: different"));
+  const yaml = repo.ok("validate", ".konductor/workflows/actual.yaml");
+  const path = join(repo.root, ".konductor/workflows/actual.yaml");
+  expect(yaml).toContain(`  warning: name "different" differs from the file name; start this workflow by its path, ${path}; only .yml files are found by name`);
+  repo.ok("start", "t", "--workflow", path);
 });

@@ -54,7 +54,10 @@ export function readWorkstream(root: string, slug: string): Workstream {
     throw new FlowError(`${path} is not valid YAML: ${(e as Error).message}`);
   }
   const parsed = WorkstreamSchema.safeParse(yaml);
-  if (!parsed.success) throw new FlowError(`${path} is not a valid workstream file; it is written by fuse-flow only`);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `  ${i.path.join(".") || "(top level)"}: ${i.message}`);
+    throw new FlowError(`${path} is not a valid workstream file; it is written by fuse-flow only:\n${issues.join("\n")}`);
+  }
   return parsed.data;
 }
 

@@ -601,4 +601,25 @@ steps:
     const out = repo.start("x", `version: 1\nname: w\nsteps:\n  - id: a\n    instruction: Build it.\n    gates:\n      - check: constructor\n`);
     expect(out).toContain("  1. This project has no command for the constructor check yet.");
   });
+
+  test("an artifact named constructor can be reported not produced, and unchanged", () => {
+    repo.start(
+      "x",
+      `version: 1\nname: w\nsteps:\n  - id: a\n    instruction: Write it.\n    produces: { artifact: constructor, path: c.md }\n  - id: b\n    instruction: Revise it.\n    updates: { artifact: constructor, path: c.md }\n`,
+    );
+    repo.ok("continue", "x", "--not-produced", "constructor", "nothing to write");
+    expect(repo.state("x").steps.a.not_produced).toEqual({ constructor: "nothing to write" });
+    repo.ok("continue", "x", "--unchanged", "constructor", "nothing to revise");
+    expect(repo.state("x").steps.b.unchanged).toEqual({ constructor: "nothing to revise" });
+    expect(repo.status("x", "b")).toBe("COMPLETED");
+  });
+
+  test("a policy can bind a check kind named constructor and place an artifact named constructor", () => {
+    repo.write(".konductor/policy-overrides.yml", 'checks:\n  constructor: "true"\nartifacts:\n  constructor:\n    path: docs/c.md\n');
+    const out = repo.start("x", `version: 1\nname: w\nsteps:\n  - id: a\n    instruction: Write it.\n    produces: { artifact: constructor, path: c.md }\n    gates:\n      - check: constructor\n`);
+    expect(out).toContain("PRODUCE docs/c.md (constructor)");
+    repo.write("docs/c.md");
+    repo.ok("continue", "x");
+    expect(repo.state("x").steps.a.verification).toEqual(["check constructor (`true`): passed"]);
+  });
 });

@@ -405,3 +405,30 @@ test("an old state file's named document inside the code it updates still counts
     status: "draft",
   });
 });
+
+test("one continue cannot report an artifact as updated and as unchanged", () => {
+  repo.start("feat", CHANGE);
+  repo.write("src/a.ts", "changed\n");
+  const out = repo.refused("continue", "feat", "--updated", "src/a.ts", "--unchanged", "patch", "no code changes", "--unchanged", "changelog", "no entry");
+  expect(out).toContain("REFUSED: --unchanged patch contradicts --updated src/a.ts, which this command names for patch; report one or the other.");
+  expect(repo.status("feat", "change")).toBe("IN_PROGRESS");
+  repo.ok("continue", "feat", "--updated", "src/a.ts", "--unchanged", "changelog", "no entry");
+});
+
+test("an artifact reported updated earlier in the pass cannot be reported unchanged when the step finishes", () => {
+  repo.start(
+    "feat",
+    "version: 1\nname: f\nsteps:\n  - id: build\n    instruction: Update code.\n    updates: { artifact: code, path: src/ }\n" +
+      "    gates:\n      - agent: review code\n      - owner-action: approve code\n",
+  );
+  repo.write("src/a.ts", "changed\n");
+  repo.ok("continue", "feat", "--blocked", "needs more rounds", "--gate", "1", "--updated", "src/a.ts");
+  repo.ok("continue", "feat", "--more-rounds", "1");
+  const out = repo.refused("continue", "feat", "--unchanged", "code", "no code changes");
+  expect(out).toContain(
+    "REFUSED: --unchanged code contradicts src/a.ts, which an earlier command in this pass of the step recorded as updated for code; " +
+      "the step finishes with that update when you run continue without --unchanged code.",
+  );
+  expect(repo.status("feat", "build")).toBe("IN_PROGRESS");
+  expect(repo.ok("continue", "feat")).toContain("PRODUCED: src/a.ts (updated)\n");
+});

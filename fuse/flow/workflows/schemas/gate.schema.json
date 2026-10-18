@@ -186,7 +186,7 @@
           "type": "string"
         },
         "slug": {
-          "description": "The child workstream's slug, a template that contains {slug}, the parent's slug, and may contain {step}, this step's id; {slug}-{step} unless set. Engine effect: the child is created under this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
+          "description": "The child workstream's slug, a template that contains {slug}, the parent's slug, and something more, and may contain {step}, this step's id; {slug}-{step} unless set. Engine effect: the child is created under this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
           "examples": [
             "{slug}-adversarial"
           ],
@@ -199,10 +199,11 @@
               "review-diff": "review-diff"
             }
           ],
-          "type": "object",
           "propertyNames": {
             "type": "string"
           },
+          "type": "object",
+          "properties": {},
           "additionalProperties": {
             "type": "string"
           }
@@ -225,10 +226,11 @@
               }
             },
             {
-              "type": "object",
               "propertyNames": {
                 "type": "string"
               },
+              "type": "object",
+              "properties": {},
               "additionalProperties": {
                 "type": "string"
               }

@@ -5,6 +5,7 @@
 // migrated, so a workstream started with an earlier fuse-flow can continue.
 
 import { z } from "zod";
+import { idRecord } from "./id-record.ts";
 
 export const STEP_STATES = ["PENDING", "IN_PROGRESS", "AWAITING_OWNER", "BLOCKED", "COMPLETED", "SKIPPED"] as const;
 export type StepStatus = (typeof STEP_STATES)[number];
@@ -87,10 +88,10 @@ export const StepStateSchema = z
         updated: z.array(z.string()).optional().meta({
           description: "Before `files`: the files the agent reported with --updated. Converted to `files` by the next command.",
         }),
-        unchanged: z.record(z.string(), z.string()).optional().meta({
+        unchanged: idRecord(z.string(), z.string()).optional().meta({
           description: "Updates artifacts the agent left as they were, with the reason, by artifact id.",
         }),
-        not_produced: z.record(z.string(), z.string()).optional().meta({
+        not_produced: idRecord(z.string(), z.string()).optional().meta({
           description: "Produces artifacts the agent did not write, with the reason, by artifact id.",
         }),
         existed: z.array(z.string()).optional().meta({

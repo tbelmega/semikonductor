@@ -9,7 +9,7 @@
 // owner's.
 
 import { spawnSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readSync, rmSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { currentBase, resolveBase } from "./base.ts";
@@ -1323,6 +1323,11 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
     root,
     slug,
     (ws) => {
+      // Another start may have minted the workstream since it was found
+      // missing, perhaps with another workflow; resuming happens only above.
+      if (!resumed && workstreamExists(root, slug)) {
+        throw new FlowError(`workstream ${slug} was started by another fuse-flow command meanwhile; run fuse-flow start ${slug} to resume it`);
+      }
       // List every step in the state file, so it reads as a complete checklist.
       wf.steps.forEach((step, i) => {
         const state = stateOf(ws, step.id);
@@ -1545,6 +1550,39 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
       step,
       `not accounted for: ${unaccounted.map((a) => `${a.artifact.artifact} (${a.path})`).join(", ")}. Report each file you ` +
         `revised with --updated <file>, or an artifact you left as it was with --unchanged <artifact> "<reason>".`,
+    );
+  }
+  // An artifact this command names files for was not left unchanged, nor
+  // left unwritten.
+  const contradicted = [...Object.keys(input.unchanged).map((id) => ["unchanged", id]), ...Object.keys(input.notProduced).map((id) => ["not-produced", id])]
+    .map(([flag, id]) => ({ flag, id, files: named.filter((f) => f.artifact === id).map((f) => f.path) }))
+    .filter((x) => x.files.length);
+  if (contradicted.length) {
+    throw refuse(
+      c,
+      step,
+      contradicted
+        .map((x) => `--${x.flag} ${x.id} contradicts --updated ${x.files.join(", ")}, which this command names for ${x.id}; report one or the other.`)
+        .join(" "),
+    );
+  }
+  // Nor was an artifact left unchanged that an earlier command in this pass,
+  // such as a blocked report, recorded as updated. Files an earlier pass
+  // updated do not count: a new pass may rightly leave the artifact as it is.
+  const recordedEarlier = Object.keys(input.unchanged)
+    .map((id) => ({ id, files: unique((before.files ?? []).filter((f) => f.artifact === id && f.pass === "this" && f.kind === "file").map((f) => f.path)) }))
+    .filter((x) => x.files.length);
+  if (recordedEarlier.length) {
+    throw refuse(
+      c,
+      step,
+      recordedEarlier
+        .map(
+          (x) =>
+            `--unchanged ${x.id} contradicts ${x.files.join(", ")}, which an earlier command in this pass of the step recorded as updated for ${x.id}; ` +
+            `the step finishes with that update when you run continue without --unchanged ${x.id}.`,
+        )
+        .join(" "),
     );
   }
   // A folder that existed before the step, such as a research folder shared
@@ -2087,6 +2125,28 @@ export function validate(root: string, refs: string[]): string[] {
           lines.push(`valid:   ${file}`);
         }
         lines.push(...warnings.map((w) => `  warning: ${w}`));
+        // A workflow is found by its file name, so a different `name` is one
+        // that start --workflow cannot take. The warning names the reference
+        // start does take: the file name where a lookup by it finds this
+        // file, else the path.
+        const fileName = basename(file).replace(/\.ya?ml$/, "");
+        if (wf.name !== fileName) {
+          let found: string | undefined;
+          let why = "names are looked up only in the workflows folders";
+          try {
+            found = realpathSync(findWorkflow(root, fileName));
+            why = `the name ${fileName} finds ${found}`;
+          } catch (e) {
+            if (!(e instanceof FlowError)) throw e;
+            if (e.message.includes("ambiguous")) why = e.message;
+          }
+          if (file.endsWith(".yaml")) why = "only .yml files are found by name";
+          lines.push(
+            found === realpathSync(file)
+              ? `  warning: name "${wf.name}" differs from the file name; fuse-flow finds the workflow by its file name, ${fileName}`
+              : `  warning: name "${wf.name}" differs from the file name; start this workflow by its path, ${file}; ${why}`,
+          );
+        }
       } catch (e) {
         if (!(e instanceof FlowError)) throw e;
         invalid += 1;
