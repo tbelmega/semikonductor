@@ -195,7 +195,7 @@ export function WorkflowList({
                   const steps = stepViews(w);
                   const problemCount = readOnly ? 0 : problemsForText(w.openText).length;
                   const dirty = !readOnly && (!w.onDisk || w.openText !== w.text);
-                  const counted = mode === "workstreams" ? laneCount(w.path, workstreams) : null;
+                  const counted = mode === "workstreams" ? laneCount(w, workstreams) : null;
                   const meta = counted
                     ? `${counted.text}${readOnly && w.project ? ` · ${projectName(w.project)}` : ""}`
                     : `${plural(steps.length, "step")} · ${plural(gateCount(steps), "gate")}`;

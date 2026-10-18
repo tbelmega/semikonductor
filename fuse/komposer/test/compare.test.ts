@@ -22,6 +22,7 @@ import {
   type CompareRow,
 } from "../src/model/compare.ts";
 import { lineDiff, wordDiff } from "../src/diff.ts";
+import { isWorkflowPath as engineReadsAsPath } from "../../flow/src/project.ts";
 import { applyEdit, type Edit } from "../src/model/yamlEdit.ts";
 import { openWorkflow, readsCompletely, stepViews, type StepView } from "../src/workflowView.ts";
 
@@ -250,16 +251,25 @@ steps:
     expect(hasDifferences(stepDiff(steps(a)[0], steps(b)[0]))).toBe(false);
   });
 
-  test("whitespace inside an instruction does not count; the words do", () => {
-    // Agent decision of the v3 spec, as in the design's prototype: an
-    // instruction's whitespace is normalised before comparing.
+  test("an instruction is compared as fuse-flow reads it: trimmed, its line breaks and indentation kept", () => {
+    // The v3 spec's earlier agent decision normalised all whitespace, which
+    // labelled instructions whose code differs only in indentation as
+    // identical (c-k-docs2-2). Only the scalar style and the trailing line
+    // break, which the YAML parser and the engine's trim remove, do not count.
     const a = `version: 1\nname: a\nsteps:\n  - id: s\n    instruction: >-\n      Do it.\n`;
-    const b = `version: 1\nname: b\nsteps:\n  - id: s\n    instruction: >\n      Do it.\n`;
+    const b = `version: 1\nname: b\nsteps:\n  - id: s\n    instruction: >\n      Do\n      it.\n`;
     const c = `version: 1\nname: c\nsteps:\n  - id: s\n    instruction: |\n      Do\n      it.\n`;
     const d = `version: 1\nname: d\nsteps:\n  - id: s\n    instruction: Do that.\n`;
     expect(stepDiff(steps(a)[0], steps(b)[0]).instruction).toBe(false);
-    expect(stepDiff(steps(a)[0], steps(c)[0]).instruction).toBe(false);
+    expect(stepDiff(steps(a)[0], steps(c)[0]).instruction).toBe(true);
     expect(stepDiff(steps(a)[0], steps(d)[0]).instruction).toBe(true);
+  });
+
+  test("instructions whose code differs only in indentation differ", () => {
+    const code = (indent: string) =>
+      `version: 1\nname: w\nsteps:\n  - id: task\n    instruction: |\n      def clean(enabled):\n          if enabled:\n              log_action()\n      ${indent}delete_file()\n`;
+    expect(stepDiff(steps(code("        "))[0], steps(code("    "))[0]).instruction).toBe(true);
+    expect(stepDiff(steps(code("    "))[0], steps(code("    "))[0]).instruction).toBe(false);
   });
 });
 
@@ -315,11 +325,17 @@ describe("gates with the same kind and text", () => {
     `version: 1\nname: r\nsteps:\n  - id: s\n    instruction: x\n    gates:\n${rounds.map((n) => `      - agent: Review.\n        max_rounds: ${n}\n`).join("")}`;
   const roundsOf = (text: string) => steps(text)[0].gates.map((g) => g.max_rounds);
 
-  test("identical same-text gates with distinct settings compare as the same, in either order", () => {
-    for (const right of [reviews(2, 3), reviews(3, 2)]) {
-      const [x, y] = [steps(reviews(2, 3))[0], steps(right)[0]];
-      expect({ right, differs: hasDifferences(stepDiff(x, y)), lines: differences(x, y, 0).length }).toEqual({ right, differs: false, lines: 0 });
-    }
+  test("identical same-text gates with distinct settings compare as the same in the same order, and as reordered in the other", () => {
+    // fuse-flow runs reviews in file order and numbers them so: review 1
+    // gets the first gate's rounds. Swapped, the step runs differently.
+    const [x, same] = [steps(reviews(2, 3))[0], steps(reviews(2, 3))[0]];
+    expect({ differs: hasDifferences(stepDiff(x, same)), lines: differences(x, same, 0).length }).toEqual({ differs: false, lines: 0 });
+    const swapped = steps(reviews(3, 2))[0];
+    expect(differences(x, swapped, 0).map((d) => d.label)).toEqual(["gate order (agent reviews) → Review., Review."]);
+    // Copying the step makes the left run as the right does.
+    const out = run(reviews(2, 3), copyStepEdits([swapped], 0, [x]));
+    expect(roundsOf(out)).toEqual([3, 2]);
+    expect(hasDifferences(stepDiff(steps(out)[0], swapped))).toBe(false);
   });
 
   test("a change in the second same-text gate's settings is one difference, applied to that gate", () => {
@@ -348,6 +364,40 @@ describe("gates with the same kind and text", () => {
   test("a removed duplicate is the left gate that has no match, not the first with its text", () => {
     const list = differences(steps(reviews(3, 2))[0], steps(reviews(2))[0], 0);
     expect(list.map((d) => d.edits)).toEqual([[{ op: "removeGate", step: 0, index: 0 }]]);
+  });
+
+  // Gates of one rank run in file order, so an added gate that the right
+  // step runs before a gate both steps have cannot be appended after it.
+  const scripts = (list: string[]) =>
+    `version: 1\nname: w\nsteps:\n  - id: s\n    instruction: x\n    gates:\n${list.map((s) => `      - script: ${s}\n`).join("")}`;
+  const gateTexts = (text: string) => steps(text)[0].gates.map((g) => g.text);
+
+  test("an added gate that runs before a gate both steps have is refused, pointing to the whole-step copy", () => {
+    for (const [left, right] of [
+      [["test -f marker"], ["touch marker", "test -f marker"]],
+      [["a", "c"], ["a", "b", "c"]],
+    ]) {
+      const list = differences(steps(scripts(left))[0], steps(scripts(right))[0], 0);
+      expect(list.length).toBe(1);
+      expect(list[0].edits).toEqual([]);
+      expect(list[0].refused).toMatch(/Make the left step match/);
+    }
+  });
+
+  test("an added gate whose place is the end of its rank is applied there", () => {
+    const left = scripts(["a"]);
+    const right = scripts(["a", "b"]);
+    const [d] = differences(steps(left)[0], steps(right)[0], 0);
+    expect(d.refused).toBeUndefined();
+    expect(gateTexts(run(left, d.edits))).toEqual(["a", "b"]);
+  });
+
+  test("an added gate before a gate of another rank is applied, since ranks run in their own order", () => {
+    const left = "version: 1\nname: w\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - agent: Review.\n";
+    const right = "version: 1\nname: w\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - script: bun test\n      - agent: Review.\n";
+    const [d] = differences(steps(left)[0], steps(right)[0], 0);
+    expect(d.refused).toBeUndefined();
+    expect(gateTexts(run(left, d.edits))).toEqual(["Review.", "bun test"]);
   });
 });
 
@@ -877,5 +927,121 @@ describe("comparePair, with the left side following the selected workflow", () =
     // Picking the right side's workflow for the left trades the two.
     expect(comparePick(["a", "c"], "left", "c")).toEqual({ select: "c", right: "a" });
     expect(comparePick(["a", "c"], "swap")).toEqual({ select: "c", right: "a" });
+  });
+});
+
+describe("gate order as fuse-flow runs it", () => {
+  const step = (...gates: string[]) =>
+    `version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n    gates:\n${gates.map((g) => `      - ${g}\n`).join("")}`;
+
+  test("reordered reviews are a difference", () => {
+    const [left, right] = [step("agent: first review", "agent: second review"), step("agent: second review", "agent: first review")];
+    const rows = alignSteps(steps(left), steps(right));
+    expect(rows.map((r) => r.kind)).toEqual(["changed"]);
+    const list = differences(steps(left)[0], steps(right)[0], 0);
+    expect(list.map((d) => [d.mark, d.label])).toEqual([["chg", "gate order (agent reviews) → second review, first review"]]);
+  });
+
+  // rvk-views-7: the edits cannot move a gate, and recreating the gates
+  // dropped their comments, which Komposer promises to keep.
+  test("a gate order difference is refused rather than applied by recreating the gates without their comments", () => {
+    const left = step("script: exit 0 # first policy comment", "check: lint", "script: exit 1 # last policy comment");
+    const right = step("script: exit 1", "check: lint", "script: exit 0");
+    const list = differences(steps(left)[0], steps(right)[0], 0);
+    expect(list.map((d) => d.label)).toEqual(["gate order (checks and scripts) → exit 1, lint, exit 0"]);
+    expect(list[0].edits).toEqual([]);
+    expect(list[0].refused).toMatch(/cannot move gates without losing their comments/);
+  });
+
+  test("reordered checks and scripts are a difference, as one runs before the other", () => {
+    const [left, right] = [step("script: touch marker", "script: test -f marker"), step("script: test -f marker", "script: touch marker")];
+    expect(hasDifferences(stepDiff(steps(left)[0], steps(right)[0]))).toBe(true);
+    const [mixed, swapped] = [step("check: lint", "script: make test"), step("script: make test", "check: lint")];
+    expect(hasDifferences(stepDiff(steps(mixed)[0], steps(swapped)[0]))).toBe(true);
+  });
+
+  test("a move between kinds that keeps the order fuse-flow runs them in is no difference", () => {
+    const [left, right] = [step("owner-action: Approve.", "agent: Review.", "check: lint"), step("check: lint", "agent: Review.", "owner-action: Approve.")];
+    expect(hasDifferences(stepDiff(steps(left)[0], steps(right)[0]))).toBe(false);
+  });
+});
+
+describe("relative references in two folders", () => {
+  const at = (path: string, text: string) =>
+    stepViews(openWorkflow({ location: "project", dir: "", file: path.split("/").pop()!, path, onDisk: true, text, hash: "" }));
+  const guided = (guide: string) =>
+    `version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - agent: Review.\n        guide: ${guide}\n`;
+  const delegating = (child: string) => `version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - workflow: ${child}\n`;
+  const plain = "version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n";
+
+  test("the same guide text in two folders names two files, and a rewritten one names the same file", () => {
+    const a = at("/p/a/w.yml", guided("review.md"))[0];
+    expect(hasDifferences(stepDiff(a, at("/p/b/w.yml", guided("review.md"))[0], { left: "/p/a/w.yml", right: "/p/b/w.yml" }))).toBe(true);
+    expect(hasDifferences(stepDiff(a, at("/p/b/w.yml", guided("../a/review.md"))[0], { left: "/p/a/w.yml", right: "/p/b/w.yml" }))).toBe(false);
+  });
+
+  test("a gate's guide applied into another folder is rewritten to name the same file", () => {
+    const files = { left: "/p/destination/left.yml", right: "/p/source/right.yml" };
+    const x = at(files.left, plain)[0];
+    const y = at(files.right, guided("review.md"))[0];
+    const [d] = differences(x, y, 0, files);
+    const out = run(plain, d.edits);
+    expect(at(files.left, out)[0].gates[0].guide).toBe("../source/review.md");
+    expect(hasDifferences(stepDiff(at(files.left, out)[0], y, files))).toBe(false);
+  });
+
+  test("a step copied into another folder keeps the files its guide and child workflow name", () => {
+    const files = { left: "/p/destination/left.yml", right: "/p/source/right.yml" };
+    for (const [text, read] of [
+      [guided("review.md"), (s: StepView) => s.gates[0].guide],
+      [delegating("child.yml"), (s: StepView) => s.gates[0].text],
+    ] as const) {
+      const out = run(plain, copyStepEdits(at(files.right, text), 0, at(files.left, plain), undefined, files));
+      expect(read(at(files.left, out)[0])).toMatch(/^\.\.\/source\//);
+    }
+    // In one folder nothing is rewritten.
+    const same = { left: "/p/source/left.yml", right: "/p/source/right.yml" };
+    const out = run(plain, copyStepEdits(at(same.right, guided("review.md")), 0, at(same.left, plain), undefined, same));
+    expect(at(same.left, out)[0].gates[0].guide).toBe("review.md");
+  });
+});
+
+describe("gate references as the files they name", () => {
+  const at = (path: string, text: string) =>
+    stepViews(openWorkflow({ location: "project", dir: "", file: path.split("/").pop()!, path, onDisk: true, text, hash: "" }));
+  const delegating = (child: string) => `version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - workflow: ${child}\n`;
+  const guided = (guide: string) =>
+    `version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - agent: Review.\n        guide: ${guide}\n`;
+  const plain = "version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n";
+  const W = "/p/.konductor/workflows";
+
+  // rvk-views-1: fuse-flow reads a reference without "/" and without a YAML
+  // extension as a name, so ../child rebased next to child must stay a path.
+  test("an extensionless child path copied into the child's folder stays a path to that file", () => {
+    const files = { left: `${W}/copy-left.yml`, right: `${W}/sub/copy-right.yml` };
+    const out = run(plain, copyStepEdits(at(files.right, delegating("../child")), 0, at(files.left, plain), undefined, files));
+    expect(at(files.left, out)[0].gates[0].text).toBe("./child");
+    // fuse-flow reads it as a path, not as the name of child.yml.
+    expect(engineReadsAsPath(at(files.left, out)[0].gates[0].text)).toBe(true);
+    expect(hasDifferences(stepDiff(at(files.left, out)[0], at(files.right, delegating("../child"))[0], files))).toBe(false);
+    const [d] = differences(at(files.left, plain)[0], at(files.right, delegating("../child"))[0], 0, files);
+    expect(run(plain, d.edits)).toContain("workflow: ./child");
+  });
+
+  // rvk-views-8: an absolute reference names the same file however it is spelled.
+  test("absolute and relative references to one file compare as the same gate", () => {
+    const file = `${W}/w.yml`;
+    const files = { left: file, right: file };
+    const same = (a: string, b: string, make: (ref: string) => string) =>
+      hasDifferences(stepDiff(at(file, make(a))[0], at(file, make(b))[0], files));
+    expect(same("./child.yml", `${W}/./child.yml`, delegating)).toBe(false);
+    expect(same("child.yml", `${W}//child.yml`, delegating)).toBe(false);
+    expect(same(`${W}/sub/../child.yml`, `${W}/child.yml`, delegating)).toBe(false);
+    expect(same("review.md", `${W}/./review.md`, guided)).toBe(false);
+    expect(same("./child.yml", `${W}/other.yml`, delegating)).toBe(true);
+    // An absolute reference is copied as it is written.
+    const other = { left: "/q/left.yml", right: file };
+    const out = run(plain, copyStepEdits(at(file, delegating(`${W}/./child.yml`)), 0, at(other.left, plain), undefined, other));
+    expect(at(other.left, out)[0].gates[0].text).toBe(`${W}/./child.yml`);
   });
 });

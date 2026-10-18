@@ -9,9 +9,10 @@ import { shownText } from "./model/editWorkflow.ts";
 import YAML, { Scalar } from "yaml";
 import { BookOpen, Captions, Plus, Settings2, X } from "lucide-react";
 import type { FileRef, LibraryEntry, ReviewGuides, WorkstreamSummary } from "./api.ts";
-import { dateTime, projectName, RUN_STATE, runState } from "./runView.ts";
+import { dateTime, projectName, RUN_STATE } from "./runView.ts";
+import { followsWorkflow, stateOf } from "./model/workstreams.ts";
 import { ARTIFACT_DRAG, resolveLibrary, runKey, suggestPath } from "./api.ts";
-import { winningEntry } from "./model/artifactInstruction.ts";
+import { entryFileNames, libraryUse, winningEntry } from "./model/artifactInstruction.ts";
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
 import { CHECK_KIND } from "../../flow/src/schemas/gate.ts";
@@ -38,7 +39,6 @@ import { reviewInEffectRows } from "./model/reviewInEffect.ts";
 import { DOCS, GATE_FIELD_DOCS, GATE_KIND_DOCS } from "./docs.ts";
 import { FieldLabel, InfoTip } from "./InfoTip.tsx";
 import { lineDiff, visibleDiff } from "./diff.ts";
-import { plural } from "./model/workstreams.ts";
 
 const LEVELS: LibraryEntry["level"][] = ["project", "user", "package"];
 const LEVEL_LABEL: Record<LibraryEntry["level"], string> = { project: "Project", user: "Personal", package: "fuse-flow" };
@@ -1023,7 +1023,7 @@ function WorkflowTab({
   const description = workflow.parsed?.description ?? workflow.rawWorkflow.description ?? "";
   const inputs = workflowInputs(workflow);
   const handOffs = workflowHandOffs(workflow);
-  const own = workstreams.filter((w) => w.workflowPath === workflow.path);
+  const own = workstreams.filter((w) => followsWorkflow(w, workflow));
   return (
     <>
       {!readOnly && (
@@ -1123,7 +1123,7 @@ function WorkflowTab({
             <div className="field-block">
               <span className="field-label-row">Workstreams · {own.length}</span>
               {own.map((w) => {
-                const state = RUN_STATE[runState(w.summary?.status)];
+                const state = RUN_STATE[stateOf(w)];
                 return (
                   <button key={runKey(w)} className="rail-workstream-row" onClick={() => onOpenWorkstream(w)}>
                     <span className="rail-workstream-main">
@@ -1188,7 +1188,7 @@ function LibraryTab({
   };
   const openEntry = (entry: LibraryEntry) => {
     setOpen(entry);
-    setFile(Object.keys(entry.files)[0] ?? "");
+    setFile(entryFileNames(entry)[0] ?? "");
     setPath(suggestPath(entry.id));
   };
   // A G T R badge opens the entry its artifact resolves to, or searches for an id with none.
@@ -1217,6 +1217,7 @@ function LibraryTab({
   const folderOpen = (lv: LibraryEntry["level"], prefix: string, name: string) =>
     searching || folders.isOpen(`${lv}:${prefix}`, name);
   const renderRow = (entry: LibraryEntry, depth: number) => {
+    const names = entryFileNames(entry);
     const used = usage(entry.id);
     const workflows = new Set(used.map((item) => item.candidate.path)).size;
     const hidden = !!entry.hiddenBy;
@@ -1231,11 +1232,11 @@ function LibraryTab({
       >
         <span className="mono library-row-id">{entry.id}</span>
         <span className="chip-gtr">
-          <span className={entry.files["guide.md"] ? "lit" : "dim"}>G</span>
-          <span className={Object.keys(entry.files).some((name) => name.startsWith("template.")) ? "lit" : "dim"}>
+          <span className={names.includes("guide.md") ? "lit" : "dim"}>G</span>
+          <span className={names.some((name) => name.startsWith("template.")) ? "lit" : "dim"}>
             T
           </span>
-          <span className={entry.files["review.md"] ? "lit" : "dim"}>R</span>
+          <span className={names.includes("review.md") ? "lit" : "dim"}>R</span>
         </span>
         <span className="library-level-pill">{levelLabel(entry.level)}</span>
         {entry.description ? (
@@ -1250,7 +1251,7 @@ function LibraryTab({
             </span>
           )}
           <span className="library-used">
-            {used.length ? `${plural(used.length, "step")} · ${plural(workflows, "workflow")}` : "unused"}
+            {libraryUse(library, entry, used.length, workflows)}
           </span>
         </span>
         <button
@@ -1270,7 +1271,7 @@ function LibraryTab({
   };
 
   if (open) {
-    const files = Object.keys(open.files);
+    const files = entryFileNames(open);
     const shownFile = files.includes(file) ? file : files[0];
     const used = usage(open.id);
     const others = library.filter((entry) => entry.id === open.id && entry.level !== open.level);
@@ -1323,12 +1324,21 @@ function LibraryTab({
                 </button>
               ))}
             </div>
-            {open.links?.[shownFile] && (
-              <div className="library-link" title={open.links[shownFile].path}>
-                {shownFile} is a link to <span className="mono">{open.links[shownFile].display}</span>
+            {Object.hasOwn(open.files, shownFile) ? (
+              <>
+                {open.links?.[shownFile] && (
+                  <div className="library-link" title={open.links[shownFile].path}>
+                    {shownFile} is a link to <span className="mono">{open.links[shownFile].display}</span>
+                  </div>
+                )}
+                <pre className="library-file">{open.files[shownFile]}</pre>
+              </>
+            ) : (
+              <div className="library-link" title={open.links?.[shownFile]?.path}>
+                {shownFile} leads to <span className="mono">{open.links?.[shownFile]?.display}</span>, outside the folders
+                Komposer reads, so its text is not shown.
               </div>
             )}
-            <pre className="library-file">{open.files[shownFile]}</pre>
           </>
         )}
         <div className="field-block">

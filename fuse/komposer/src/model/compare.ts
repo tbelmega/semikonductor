@@ -9,6 +9,7 @@ import type { Gate } from "../../../flow/src/schemas/gate.ts";
 import { lcsDiff } from "../diff.ts";
 import { readsCompletely, type ArtifactRole, type ArtifactView, type OpenWorkflow, type StepView } from "../workflowView.ts";
 import type { Edit } from "./yamlEdit.ts";
+import { isWorkflowPath, normalizePath } from "./workflowLinks.ts";
 
 // --------------------------------------------------------- the two workflows
 
@@ -65,9 +66,11 @@ function canonical(value: unknown): string {
   );
 }
 
-// Whitespace inside an instruction does not change what it says: runs of it
-// count as one space, and leading and trailing whitespace not at all.
-export const normalInstruction = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim();
+// An instruction as fuse-flow reads it: trimmed, everything inside kept. The
+// YAML parser has already folded a folded scalar; the line breaks and
+// indentation of a literal one (code, Markdown structure) are part of what
+// it says, so they count.
+export const normalInstruction = (text: string | undefined) => (text ?? "").trim();
 
 // An output is matched by its mode and artifact, a gate by its kind and text.
 export const outputKey = (a: Pick<ArtifactView, "role" | "artifact">) => `${a.role}:${a.artifact}`;
@@ -85,6 +88,72 @@ const gateSettings = (g: Gate) =>
   });
 const conditionValue = (c: StepView["condition"]) => (c ? canonical({ kind: c.kind, text: c.text, description: c.description }) : "");
 
+// ------------------------------------------------- relative references
+
+// The workflow files of the two sides. A gate's review guide, and a workflow
+// gate that names its child by a path, are relative to the workflow file
+// that names them, as fuse-flow's loadWorkflow reads them; so equal text in
+// two folders can name two files, and a copy into another folder has to be
+// rewritten to name the same file.
+export interface CompareFiles {
+  left: string;
+  right: string;
+}
+
+const folderOf = (file: string) => {
+  const slash = file.lastIndexOf("/");
+  return slash > 0 ? file.slice(0, slash) : slash === 0 ? "/" : ".";
+};
+const relativeRef = (ref: string) => !ref.startsWith("/");
+// The file a reference written in workflow file `file` names, as one
+// normalized absolute path, however it is spelled.
+const resolveFrom = (ref: string, file: string) => normalizePath(relativeRef(ref) ? `${folderOf(file)}/${ref}` : ref);
+
+// A relative reference written in workflow file `from`, rewritten so that
+// it names the same file when written in workflow file `to`. An absolute one
+// is kept.
+export function rebaseRef(ref: string, from: string, to: string): string {
+  if (!relativeRef(ref) || folderOf(from) === folderOf(to)) return ref;
+  const target = resolveFrom(ref, from).split("/").filter(Boolean);
+  const base = normalizePath(folderOf(to)).split("/").filter(Boolean);
+  let k = 0;
+  while (k < target.length && k < base.length && target[k] === base[k]) k++;
+  return [...base.slice(k).map(() => ".."), ...target.slice(k)].join("/");
+}
+
+// A gate with its file references changed by `map`: its guide, and the text
+// of a workflow gate that names its child by a path. A child's path that
+// `map` turns into something fuse-flow would read as a name (no "/" and no
+// YAML extension, as ../child written next to child) is written ./<path>,
+// so it still names that file.
+function mapGateRefs(g: Gate, map: (ref: string) => string): Gate {
+  const out = { ...g };
+  if (g.guide) out.guide = map(g.guide);
+  if (g.kind === "workflow" && isWorkflowPath(g.text)) {
+    const text = map(g.text);
+    out.text = isWorkflowPath(text) ? text : `./${text}`;
+  }
+  return out;
+}
+
+// A gate as the file it is in reads it, for comparing: references resolved,
+// relative and absolute ones alike, to the files they name.
+const resolvedGate = (g: Gate, file?: string) => (file === undefined ? g : mapGateRefs(g, (ref) => resolveFrom(ref, file)));
+// A gate of the right side as the left side has to write it.
+const gateForLeft = (g: Gate, files?: CompareFiles) => (files ? mapGateRefs(g, (ref) => rebaseRef(ref, files.right, files.left)) : g);
+
+// ----------------------------------------------------------- gate order
+
+// The order fuse-flow runs a step's gates in (gatesInOrder in
+// flow/src/commands.ts): the workflow gate, then checks and scripts, then
+// agent reviews, then the owner; within one rank, in file order. A review's
+// number, which an owner's acceptance is bound to, is its place in that
+// order. So gates that move within a rank change what the step does, and a
+// move between ranks does not.
+export const gateRank = (g: Pick<Gate, "kind">): number =>
+  g.kind === "workflow" ? 0 : g.kind === "check" || g.kind === "script" ? 1 : g.kind === "agent" ? 2 : 3;
+const RANK_LABEL = ["workflow gates", "checks and scripts", "agent reviews", "owner gates"];
+
 // The gates of two steps paired one to one. A step may have two gates of the
 // same kind and text, so they are not matched as a set: first each left gate
 // with an equal right gate (same key and settings), in any order; then the
@@ -94,6 +163,9 @@ export interface GatePairs {
   changed: { left: number; right: number }[];
   onlyLeft: number[];
   onlyRight: number[];
+  // The ranks whose paired gates run in another order on the right, each
+  // with its pairs in the right's file order.
+  reordered: { rank: number; pairs: { left: number; right: number }[] }[];
 }
 
 export function pairGates(x: Gate[], y: Gate[]): GatePairs {
@@ -109,10 +181,16 @@ export function pairGates(x: Gate[], y: Gate[]): GatePairs {
     }
   };
   const sameKey = (i: number, j: number) => gateKey(x[i]) === gateKey(y[j]);
-  take((i, j) => sameKey(i, j) && gateSettings(x[i]) === gateSettings(y[j]), []);
+  const equal: { left: number; right: number }[] = [];
+  take((i, j) => sameKey(i, j) && gateSettings(x[i]) === gateSettings(y[j]), equal);
   const changed: { left: number; right: number }[] = [];
   take(sameKey, changed);
-  return { changed, onlyLeft: leftFree, onlyRight: rightFree };
+  const reordered: GatePairs["reordered"] = [];
+  for (const rank of [0, 1, 2, 3]) {
+    const pairs = [...equal, ...changed].filter((p) => gateRank(x[p.left]) === rank).sort((a, b) => a.right - b.right);
+    if (pairs.some((p, k) => k > 0 && p.left < pairs[k - 1].left)) reordered.push({ rank, pairs });
+  }
+  return { changed, onlyLeft: leftFree, onlyRight: rightFree, reordered };
 }
 
 // The outputs of two steps paired by artifact, whatever their mode: one
@@ -152,7 +230,8 @@ export function pairOutputs(x: ArtifactView[], y: ArtifactView[]): OutputPairs {
 // hold the keys of the elements on one side only (consumes by id, outputs by
 // outputKey), or on both sides with other details: for outputs, the keys on
 // both sides of each pair that pairOutputs finds changed. Gates are listed by
-// file index, as pairGates pairs them.
+// file index, as pairGates pairs them. Gate references are compared as the
+// files they name when the workflow files are given.
 export interface StepDiff {
   title: boolean;
   phase: boolean;
@@ -168,13 +247,18 @@ export interface StepDiff {
   gatesLeft: number[];
   gatesRight: number[];
   gatesChanged: { left: number; right: number }[];
+  // The gates that run in another order, by rank (see pairGates).
+  gatesReordered: GatePairs["reordered"];
 }
 
-export function stepDiff(x: StepView, y: StepView): StepDiff {
+export function stepDiff(x: StepView, y: StepView, files?: CompareFiles): StepDiff {
   const notIn = <T>(a: T[], b: T[], key: (v: T) => string) => a.filter((v) => !b.some((w) => key(w) === key(v))).map(key);
   const id = (v: string) => v;
   const outputs = pairOutputs(x.artifacts, y.artifacts);
-  const gates = pairGates(x.gates, y.gates);
+  const gates = pairGates(
+    x.gates.map((g) => resolvedGate(g, files?.left)),
+    y.gates.map((g) => resolvedGate(g, files?.right)),
+  );
   return {
     title: (x.title ?? "") !== (y.title ?? ""),
     phase: (x.phase ?? "") !== (y.phase ?? ""),
@@ -194,6 +278,7 @@ export function stepDiff(x: StepView, y: StepView): StepDiff {
     gatesLeft: gates.onlyLeft,
     gatesRight: gates.onlyRight,
     gatesChanged: gates.changed,
+    gatesReordered: gates.reordered,
   };
 }
 
@@ -205,7 +290,7 @@ export function hasDifferences(d: StepDiff): boolean {
     d.description ||
     d.condition ||
     d.instruction ||
-    [d.consumesLeft, d.consumesRight, d.outputsLeft, d.outputsRight, d.outputsChanged, d.gatesLeft, d.gatesRight, d.gatesChanged].some(
+    [d.consumesLeft, d.consumesRight, d.outputsLeft, d.outputsRight, d.outputsChanged, d.gatesLeft, d.gatesRight, d.gatesChanged, d.gatesReordered].some(
       (list) => list.length > 0,
     )
   );
@@ -234,7 +319,7 @@ export interface CompareRow {
   diff?: StepDiff;
 }
 
-export function alignSteps(left: StepView[], right: StepView[]): CompareRow[] {
+export function alignSteps(left: StepView[], right: StepView[], files?: CompareFiles): CompareRow[] {
   const a = left.map((s) => s.id);
   const b = right.map((s) => s.id);
   const rows: CompareRow[] = [];
@@ -242,7 +327,7 @@ export function alignSteps(left: StepView[], right: StepView[]): CompareRow[] {
   for (const op of lcsDiff(a, b)) {
     const at = lastLeft + 1;
     if (op.kind === " ") {
-      const diff = stepDiff(left[op.a!], right[op.b!]);
+      const diff = stepDiff(left[op.a!], right[op.b!], files);
       rows.push({ kind: hasDifferences(diff) ? "changed" : "same", left: op.a!, right: op.b!, at, diff });
     } else if (op.kind === "-") {
       const to = b.indexOf(a[op.a!]);
@@ -342,9 +427,10 @@ const gateFields = (g: Gate) => ({
 // The differences of left step x (at index `step` of the left workflow) from
 // right step y, one per line, in the order the right card lists them. Each
 // applies on its own: afterwards that difference is gone and no other
-// appears.
-export function differences(x: StepView, y: StepView, step: number): Difference[] {
-  const d = stepDiff(x, y);
+// appears. With the workflow files, a gate reference is written so that it
+// names in the left file what it names in the right one.
+export function differences(x: StepView, y: StepView, step: number, files?: CompareFiles): Difference[] {
+  const d = stepDiff(x, y, files);
   const out: Difference[] = [];
   const presence = (a: unknown, b: unknown): DiffMark => (b ? (a ? "chg" : "add") : "del");
   for (const key of ["title", "phase", "mode", "description"] as const) {
@@ -410,9 +496,18 @@ export function differences(x: StepView, y: StepView, step: number): Difference[
   }
   const refusal = (g: Gate) =>
     `The workflow gate ${g.text} sets the child's slug, inputs or returns, which Compare cannot write; change it on the Edit page instead.`;
-  for (const g of d.gatesRight.map((j) => y.gates[j])) {
+  // Compare adds a gate at the end of the left list. Gates of one rank run in
+  // file order, so a gate the right step runs before a gate both steps have
+  // would run after it; such an addition is refused rather than misplaced.
+  const paired = y.gates.map((_, k) => k).filter((k) => !d.gatesRight.includes(k));
+  const runsBeforePaired = (j: number) => paired.some((k) => k > j && gateRank(y.gates[k]) === gateRank(y.gates[j]));
+  const misplaced =
+    "Compare adds a gate at the end of its list, but the other step runs this one before gates both steps have; use Make the left step match this one, or add it in the workflow file.";
+  for (const j of d.gatesRight) {
+    const g = gateForLeft(y.gates[j], files);
     const label = `gate ${GATE_LABEL[g.kind]}: ${g.text}`;
     if (delegates(g)) out.push({ mark: "add", label, edits: [], refused: refusal(g) });
+    else if (runsBeforePaired(j)) out.push({ mark: "add", label, edits: [], refused: misplaced });
     else
       out.push({
         mark: "add",
@@ -428,12 +523,24 @@ export function differences(x: StepView, y: StepView, step: number): Difference[
     out.push({ mark: "del", label: `gate ${GATE_LABEL[g.kind]}: ${g.text}`, edits: [{ op: "removeGate", step, index: i }] });
   }
   for (const pair of d.gatesChanged) {
-    const [own, g] = [x.gates[pair.left], y.gates[pair.right]];
+    const [own, g] = [x.gates[pair.left], gateForLeft(y.gates[pair.right], files)];
     const label = `gate ${GATE_LABEL[g.kind]}: ${g.text} (settings)`;
     // The other settings are written without touching these, so only a
     // difference in them is refused.
     if (delegation(g) !== delegation(own)) out.push({ mark: "chg", label, edits: [], refused: refusal(g) });
     else out.push({ mark: "chg", label, edits: [{ op: "setGate", step, index: pair.left, fields: gateFields(g) }] });
+  }
+  // A rank whose gates run in another order. The structured edits cannot
+  // move a gate, and taking the gates out and adding them back would drop
+  // their comments and layout, so this difference is refused.
+  for (const { rank, pairs } of d.gatesReordered) {
+    const label = `gate order (${RANK_LABEL[rank]}) → ${pairs.map((p) => y.gates[p.right].text).join(", ")}`;
+    out.push({
+      mark: "chg",
+      label,
+      edits: [],
+      refused: "Compare cannot move gates without losing their comments; reorder them in the workflow file.",
+    });
   }
   return out;
 }
@@ -456,9 +563,11 @@ export function moveEdits(row: CompareRow): Edit[] {
 // replaced too (a workflow cannot lose its last step). editedWorkflow keeps
 // the replaced step's key. A step the target does not have goes at `at`, or
 // without it right after the nearest earlier source step that the target also
-// has, or first when there is none.
-export function copyStepEdits(source: StepView[], index: number, target: StepView[], at?: number): Edit[] {
-  const step = source[index];
+// has, or first when there is none. With the workflow files (the source on
+// the right, the target on the left), a gate reference is written so that it
+// names in the target what it names in the source.
+export function copyStepEdits(source: StepView[], index: number, target: StepView[], at?: number, files?: CompareFiles): Edit[] {
+  const step = { ...source[index], gates: source[index].gates.map((g) => gateForLeft(g, files)) };
   if (step.gates.some(delegates))
     throw new Error(`Step ${step.id} has a workflow gate with a slug, inputs or returns; copy it in edit mode instead.`);
   const position = copyPosition(source, index, target, at);

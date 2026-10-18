@@ -4,16 +4,26 @@
 // those of one workflow; the one-line summaries the rail and the left lane
 // show; and the links between workstreams that the detail offers.
 
+import { formatIssue, parseWorkflowText } from "../../../flow/src/parse.ts";
+
 // The fields of a workstream and a project this file reads, as the server's
 // /api/workstreams and /api/projects give them.
 export interface WorkstreamSummary {
   project: string;
   slug: string;
+  workflow?: string;
   workflowPath?: string;
+  // The real path of workflowPath, when a link makes it differ.
+  workflowRealPath?: string;
+  // Why fuse-flow cannot read the workstream's state file.
+  error?: string;
   after?: string;
   parent?: { slug: string; step: string };
   startedAfter?: string[];
   children?: { step: string; pass: number; slug: string }[];
+  // The state file's steps as recorded.
+  steps?: Record<string, unknown>;
+  events?: { kind: string; backFrom?: string; backTo?: string; detail: string }[];
   summary?: {
     status: string;
     currentStep?: string;
@@ -21,6 +31,7 @@ export interface WorkstreamSummary {
     lastEvent?: string;
     ownerWaitMs: number;
     routesBack: { time: string; from: string; to: string }[];
+    steps?: Record<string, { status: string }>;
   };
 }
 
@@ -106,16 +117,33 @@ export function orderWorkstreams<W extends WorkstreamSummary>(list: W[]): Workst
   return out;
 }
 
+// A workflow file as a workstream is matched to it: its listed path, and the
+// real path it leads to when a link makes them differ. A bare string is a
+// path without a known real path.
+export type WorkflowIdentity = string | { path: string; realPath?: string };
+
+// Whether a workstream follows a workflow file: by the path it recorded, or,
+// when a link lies on either path, by the real path both lead to. The run's
+// recorded path stays the one its workflow is opened and resolved by.
+export function followsWorkflow(
+  run: { workflowPath?: string; workflowRealPath?: string },
+  workflow: WorkflowIdentity,
+): boolean {
+  if (!run.workflowPath) return false;
+  const { path, realPath } = typeof workflow === "string" ? { path: workflow, realPath: undefined } : workflow;
+  return run.workflowPath === path || (run.workflowRealPath ?? run.workflowPath) === (realPath ?? path);
+}
+
 // The projects in their listed order, each with its workstreams; with a
-// workflow path, only the workstreams that follow that file.
+// workflow, only the workstreams that follow that file.
 export function groupByProject<P extends ProjectSummary, W extends WorkstreamSummary>(
   projects: P[],
   workstreams: W[],
-  workflowPath: string | null,
+  workflow: WorkflowIdentity | null,
 ): ProjectGroup<P, W>[] {
   return projects.map((project) => {
     const own = workstreams.filter((w) => w.project === project.path);
-    const shown = workflowPath === null ? own : own.filter((w) => w.workflowPath === workflowPath);
+    const shown = workflow === null ? own : own.filter((w) => followsWorkflow(w, workflow));
     return { project, total: own.length, rows: orderWorkstreams(shown) };
   });
 }
@@ -134,14 +162,72 @@ export function projectCount(group: ProjectGroup, filtered: boolean): string {
 export const isActive = (w: WorkstreamSummary) => w.summary?.status !== "COMPLETED";
 
 // A workflow's row in the left lane on the Workstreams page.
-export function laneCount(workflowPath: string, workstreams: WorkstreamSummary[]): { text: string; count: number } {
-  const own = workstreams.filter((w) => w.workflowPath === workflowPath);
+export function laneCount(workflow: WorkflowIdentity, workstreams: WorkstreamSummary[]): { text: string; count: number } {
+  const own = workstreams.filter((w) => followsWorkflow(w, workflow));
   if (!own.length) return { text: "no workstreams", count: 0 };
   const active = own.filter(isActive).length;
   return { text: `${plural(own.length, "workstream")}${active ? ` · ${active} active` : ""}`, count: own.length };
 }
 
-export const stateOf = (w: WorkstreamSummary): RunState => runState(w.summary?.status);
+// The workstream's state as its rail row and detail show it. fuse-flow gives
+// a workstream the state of its current step, which is PENDING when the
+// step has not been handed out yet, though work has happened, as when a
+// condition holds it, an edit renamed or inserted the step, or the owner
+// sent the work back and every step is PENDING again. Such a workstream has
+// started: it is in progress, not "not started".
+export const stateOf = (w: WorkstreamSummary): RunState => {
+  const state = runState(w.summary?.status);
+  return state === "PENDING" && hasProgress(w) ? "IN_PROGRESS" : state;
+};
+
+// Whether the workstream has started: its state file records an event for
+// any step, also one the workflow no longer has.
+export const hasProgress = (w: WorkstreamSummary): boolean =>
+  (w.events?.length ?? 0) > 0 || Object.values(w.summary?.steps ?? {}).some((step) => runState(step.status) !== "PENDING");
+
+// Why fuse-flow cannot read the workstream, or undefined: its state file, a
+// workflow that is not found, or the workflow file on disk when Komposer has
+// no text of it or the text is not a valid workflow. fuse-flow reads that
+// file for every command, so a file Komposer could not read fails there too.
+// `diskText` is that file's text on disk, when it is listed; `unreadable` is
+// why it cannot be read, when the server says so.
+export function workstreamProblem(w: WorkstreamSummary, diskText?: string, unreadable?: string): string | undefined {
+  if (w.error) return w.error;
+  if (!w.workflowPath) return `Its workflow ${w.workflow ?? ""} is not found.`;
+  if (diskText === undefined) return `Its workflow ${w.workflowPath} cannot be read${unreadable ? `: ${unreadable}` : "."}`;
+  const parsed = parseWorkflowText(diskText);
+  if (parsed.ok) return undefined;
+  const issue = parsed.issues[0];
+  const why = !issue ? "it is not a valid workflow" : issue.code === "yaml" ? `it is ${issue.message}` : `it is not a valid workflow: ${formatIssue(issue)}`;
+  return `Its workflow ${w.workflowPath} cannot be read: ${why.trimEnd()}`;
+}
+
+// The steps the state file records that the shown steps do not include, in
+// the state file's order, with their state and what to say about them. Only
+// a workflow that was read shows that it no longer has a step, as after a
+// step was renamed or removed; when the workflow cannot be read (`readable`
+// false), fuse-flow refuses the workstream and its steps are unknown.
+export function orphanSteps(w: WorkstreamSummary, stepIds: string[], readable = true): { id: string; status: RunState; note: string }[] {
+  const note = readable ? "recorded, but the workflow no longer has this step" : "recorded; the workflow cannot be read, so its steps are unknown";
+  return Object.entries(w.summary?.steps ?? {})
+    .filter(([id]) => !stepIds.includes(id))
+    .map(([id, step]) => ({ id, status: runState(step.status), note }));
+}
+
+// The current step when fuse-flow has not handed it out although the
+// workstream has started, so the owner knows to look.
+export function heldStep(w: WorkstreamSummary): string | undefined {
+  const current = w.summary?.currentStep;
+  return current && runState(w.summary?.status) === "PENDING" && hasProgress(w) ? current : undefined;
+}
+
+// What an event says beyond its change of state: a send-back says from
+// which step to which, as fuse-flow writes it, with the owner's note.
+export function eventDetail(event: { kind: string; backFrom?: string; backTo?: string; detail: string }): string {
+  if (event.kind === "sent-back" && event.backFrom && event.backTo)
+    return `sent the work back from ${event.backFrom} to ${event.backTo}${event.detail ? `: ${event.detail}` : ""}`;
+  return event.detail;
+}
 
 // Under the state pill of a rail row: where it is and for how long, or how
 // long it took.
@@ -217,11 +303,38 @@ export function sentBackFrom(w: WorkstreamSummary, stepId: string): string[] {
   return [...new Set((w.summary?.routesBack ?? []).filter((b) => b.from === stepId).map((b) => b.to))];
 }
 
-// The child workstreams one step's workflow gate started, by pass: the
-// newest is the one the step waits for now, the others are earlier passes,
-// oldest first. Null when the step started none.
-export function stepChildren(w: WorkstreamSummary, stepId: string): { current: string; earlier: string[] } | null {
+// The step's current pass, as its state records it, or undefined; fuse-flow
+// reads none as the first.
+function recordedPass(w: WorkstreamSummary, stepId: string): number | undefined {
+  const pass = (w.steps?.[stepId] as { pass?: unknown } | undefined)?.pass;
+  return typeof pass === "number" ? pass : undefined;
+}
+
+// The child of the step's current pass, as fuse-flow names it: the one its
+// state records, else the gate's slug template (`firstPass`, filled in)
+// with -<pass> from the second pass on.
+export function currentChildSlug(w: WorkstreamSummary, stepId: string, firstPass: string): string {
+  const pass = recordedPass(w, stepId) ?? 1;
+  const recorded = (w.children ?? []).find((c) => c.step === stepId && c.pass === pass);
+  return recorded?.slug ?? (pass > 1 ? `${firstPass}-${pass}` : firstPass);
+}
+
+// A step's child workstreams as fuse-flow status lists them. While the step
+// has a workflow gate and is handed out and not finished, it waits for the
+// child of its current pass (currentChildSlug), which may not exist yet; its
+// other children are earlier passes. Otherwise it waits for none, and all its
+// children are listed. `firstPass` is the gate's slug template filled in, as
+// for currentChildSlug, or undefined when the step has no workflow gate.
+// Children are in pass order. Null when there is nothing to list.
+export function stepChildren(
+  w: WorkstreamSummary,
+  stepId: string,
+  firstPass?: string,
+): { waitsFor?: string; others: string[] } | null {
   const own = (w.children ?? []).filter((c) => c.step === stepId).sort((a, b) => a.pass - b.pass);
-  const last = own.at(-1);
-  return last ? { current: last.slug, earlier: own.slice(0, -1).map((c) => c.slug) } : null;
+  const state = runState(w.summary?.steps?.[stepId]?.status);
+  const handedOut = state === "IN_PROGRESS" || state === "AWAITING_OWNER" || state === "BLOCKED";
+  const waitsFor = firstPass !== undefined && handedOut ? currentChildSlug(w, stepId, firstPass) : undefined;
+  const others = [...new Set(own.map((c) => c.slug))].filter((slug) => slug !== waitsFor);
+  return waitsFor || others.length ? { ...(waitsFor ? { waitsFor } : {}), others } : null;
 }

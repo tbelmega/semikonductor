@@ -24,13 +24,14 @@ import { givesWay } from "./model/readOnlyView.ts";
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { editedWorkflow } from "./model/editWorkflow.ts";
 import { selectionAfterMove } from "./model/stepSelection.ts";
-import { plural, workstreamLinkDir } from "./model/workstreams.ts";
+import { followsWorkflow, plural, workstreamLinkDir } from "./model/workstreams.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
   linkTo,
   openWorkflow,
   routeBackCount,
+  savedVersion,
   stepViews,
   workflowHandOffs,
   workflowInputs,
@@ -159,6 +160,10 @@ export function App() {
   // edited or saved.
   const readOnly = workflow?.location === "run";
   const localWorkflows = useMemo(() => workflows.filter((w) => w.location !== "run"), [workflows]);
+  // The Workstreams page shows each workflow as saved, since that is what
+  // fuse-flow reads for its workstreams; unsaved edits are not part of them.
+  const savedWorkflows = useMemo(() => workflows.map(savedVersion), [workflows]);
+  const savedWorkflow = useMemo(() => (workflow ? savedVersion(workflow) : null), [workflow]);
   const selected = selectedIndex !== null && selectedIndex < steps.length ? selectedIndex : null;
 
   // Keys 1 to 4 switch pages, when focus is not in a field. Escape does what
@@ -423,8 +428,7 @@ export function App() {
     setSelectedIndex(index);
     setProblemsOpen(false);
     if (readOnly) return;
-    setRailTab((tab) => (!railOpen || tab === "workflow" ? "step" : tab));
-    setRailOpen(true);
+    showTab("step");
   };
   // A workflow reference of the open workflow (a hand-off, a workflow gate),
   // resolved the way fuse-flow resolves it: a name in the workflows of the
@@ -443,8 +447,10 @@ export function App() {
   // becomes the selected one, so the workstream stays in the list.
   const showWorkstream = (item: WorkstreamSummary) => {
     setWorkstreamKeySelected(runKey(item));
-    if (allWorkstreams || item.workflowPath === workflow?.path) return;
-    const target = item.workflowPath ? workflows.find((w) => w.path === item.workflowPath) : undefined;
+    if (allWorkstreams || (workflow && followsWorkflow(item, workflow))) return;
+    const target = item.workflowPath
+      ? (workflows.find((w) => w.path === item.workflowPath) ?? workflows.find((w) => followsWorkflow(item, w)))
+      : undefined;
     if (target) selectWorkflow(workflowKey(target));
     else setAllWorkstreams(true);
   };
@@ -747,11 +753,11 @@ export function App() {
         <div className="screen is-workstreams">
           {lane}
           <Workstreams
-            workflows={workflows}
+            workflows={savedWorkflows}
             workstreams={workstreams}
             projects={projects.projects}
             projectsError={projects.error}
-            filter={allWorkstreams ? null : workflow}
+            filter={allWorkstreams ? null : savedWorkflow}
             selectedKey={workstreamKeySelected}
             onSelect={showWorkstream}
             view={workstreamView}
@@ -760,6 +766,7 @@ export function App() {
             onMessage={showToast}
             linkTo={resolveWorkstreamLink}
             onOpenWorkflow={editWorkflow}
+            unavailable={unavailable}
           />
         </div>
       ) : page === "compare" ? (
@@ -850,7 +857,7 @@ export function App() {
           workflow={workflow}
           structural={structureChanges(workflow, steps)}
           activeWorkstreams={workstreams.filter(
-            (w) => w.workflowPath === workflow.path && w.summary?.status !== "COMPLETED",
+            (w) => followsWorkflow(w, workflow) && w.summary?.status !== "COMPLETED",
           )}
           onConfirm={modal.type === "new" ? confirmNew : save}
         />

@@ -648,7 +648,7 @@ function Edges({
         const strokeWidth = highlighted ? 1.6 : 1;
         const marker = `url(#${highlighted ? arrowSelected : arrow})`;
         return (
-          <g key={`bus-${bus.artifact}`}>
+          <g key={`bus-${bus.producerIndex}-${bus.artifact}`}>
             <path d={`M${left} ${y0} H${x} V${Math.max(...ys)}`} fill="none" style={{ stroke: color, strokeWidth }} />
             <circle cx={left} cy={y0} r={2.5} style={{ fill: color }} />
             {ys.map((y, k) => (

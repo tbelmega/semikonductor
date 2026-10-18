@@ -1884,6 +1884,9 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 }
 .ws-step-row:last-child, .ws-event:last-child { border-bottom: 0; }
 .ws-step-row.is-current { box-shadow: inset 3px 0 0 var(--st-line); }
+/* A step the workstream recorded that the workflow no longer has. */
+.ws-step-row.is-gone { background: var(--surface-sunken); box-shadow: inset 3px 0 0 var(--sem-error); }
+.ws-step-row.is-gone .ws-step-title { color: var(--text-muted); text-decoration: line-through; }
 .ws-step-num { font: 600 12px "JetBrains Mono", monospace; color: var(--text-faint); }
 .ws-step-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ws-step-title { font: 600 13px "IBM Plex Sans", sans-serif; color: var(--text-strong); }

@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  followsWorkflow,
   groupByProject,
   laneCount,
   orderWorkstreams,
@@ -13,6 +14,12 @@ import {
   workstreamLinkDir,
   workstreamLinks,
   workstreamStats,
+  currentChildSlug,
+  eventDetail,
+  heldStep,
+  orphanSteps,
+  stateOf,
+  workstreamProblem,
   type WorkstreamSummary,
 } from "../src/model/workstreams.ts";
 import { resolveWorkflowRef } from "../src/model/workflowLinks.ts";
@@ -94,6 +101,23 @@ describe("summaries", () => {
     expect(laneCount("/other.yml", list)).toEqual({ text: "no workstreams", count: 0 });
   });
 
+  test("a workstream follows a workflow reached through a link: by the real path both lead to", () => {
+    // Personal workflows is a link to /shared/workflows; the run recorded the
+    // physical path, the editable entry is listed under the link's path.
+    const run = ws("/p", "a", { workflowPath: "/shared/workflows/parent.yml" });
+    const alias = { path: "/home/.konductor/workflows/parent.yml", realPath: "/shared/workflows/parent.yml" };
+    expect(followsWorkflow(run, alias)).toBe(true);
+    expect(laneCount(alias, [run])).toEqual({ text: "1 workstream · 1 active", count: 1 });
+    expect(groupByProject([{ path: "/p" }], [run], alias).map((g) => g.rows.length)).toEqual([1]);
+    // A run that recorded the link's path, of the workflow listed by its real path.
+    const viaLink = { ...ws("/p", "b"), workflowPath: alias.path, workflowRealPath: alias.realPath };
+    expect(followsWorkflow(viaLink, { path: alias.realPath })).toBe(true);
+    expect(followsWorkflow(viaLink, alias)).toBe(true);
+    // Another file is not followed.
+    expect(followsWorkflow(run, { path: "/shared/workflows/other.yml" })).toBe(false);
+    expect(followsWorkflow({ workflowPath: undefined }, { path: "/x.yml" })).toBe(false);
+  });
+
   test("a row says where an open workstream is and for how long, or how long a finished one took", () => {
     const open = ws("/p", "a", { started: 53 });
     open.summary!.currentStep = "implement";
@@ -132,7 +156,7 @@ describe("summaries", () => {
     expect(workstreamLinks(next, all)).toEqual([{ label: "started after", slug: "pdf" }]);
   });
 
-  test("a step's child workstreams: the newest pass is the one it waits for, the others are earlier passes", () => {
+  test("a step's child workstreams are listed in pass order; one that is not handed out waits for none", () => {
     const w = ws("/p", "pdf", {
       children: [
         { step: "review", pass: 2, slug: "pdf-review-2" },
@@ -141,10 +165,10 @@ describe("summaries", () => {
         { step: "review", pass: 1, slug: "pdf-review" },
       ],
     });
-    expect(stepChildren(w, "review")).toEqual({ current: "pdf-review-3", earlier: ["pdf-review", "pdf-review-2"] });
-    expect(stepChildren(w, "plan")).toEqual({ current: "pdf-plan", earlier: [] });
-    expect(stepChildren(w, "build")).toBeNull();
-    expect(stepChildren(ws("/p", "none"), "review")).toBeNull();
+    expect(stepChildren(w, "review", "pdf-review")).toEqual({ others: ["pdf-review", "pdf-review-2", "pdf-review-3"] });
+    expect(stepChildren(w, "plan", "pdf-plan")).toEqual({ others: ["pdf-plan"] });
+    expect(stepChildren(w, "build", "pdf-build")).toBeNull();
+    expect(stepChildren(ws("/p", "none"), "review", "none-review")).toBeNull();
   });
 });
 
@@ -171,5 +195,118 @@ describe("workstreamLinkDir", () => {
   test("a workstream of a project Komposer does not list falls back to the given folder", () => {
     expect(workstreamLinkDir(ws("/gone", "pdf"), projects, "/a/.konductor/workflows")).toBe("/a/.konductor/workflows");
     expect(resolveWorkflowRef("missing", listed[0].path, listed, "/a/.konductor/workflows")).toEqual({ ok: false, reason: 'no workflow named "missing"' });
+  });
+});
+
+describe("a workstream as fuse-flow reads it", () => {
+  const withSteps = (status: string, steps: Record<string, string>, fields: Partial<WorkstreamSummary> = {}) => {
+    const w = ws("/p", "a", { status, ...fields });
+    w.summary = { ...w.summary!, currentStep: "s3", steps: Object.fromEntries(Object.entries(steps).map(([id, st]) => [id, { status: st }])) };
+    return w;
+  };
+
+  test("a current step that is PENDING after earlier steps finished is in progress, and is named as held", () => {
+    const held = withSteps("PENDING", { s1: "COMPLETED", s2: "COMPLETED", s3: "PENDING" });
+    expect(stateOf(held)).toBe("IN_PROGRESS");
+    expect(heldStep(held)).toBe("s3");
+    const fresh = withSteps("PENDING", { s1: "PENDING" });
+    expect(stateOf(fresh)).toBe("PENDING");
+    expect(heldStep(fresh)).toBeUndefined();
+  });
+
+  test("after a rename of the current step, the old step's record still counts and is listed as no longer in the workflow", () => {
+    const renamed = withSteps("PENDING", { draft: "COMPLETED", reviewing: "PENDING", review: "IN_PROGRESS" });
+    expect(stateOf(renamed)).toBe("IN_PROGRESS");
+    expect(orphanSteps(renamed, ["draft", "reviewing"])).toEqual([
+      { id: "review", status: "IN_PROGRESS", note: "recorded, but the workflow no longer has this step" },
+    ]);
+    expect(orphanSteps(renamed, ["draft", "reviewing", "review"])).toEqual([]);
+  });
+
+  test("a workflow file on disk that is not a valid workflow is a problem, as for fuse-flow list", () => {
+    const w = ws("/p", "a");
+    expect(workstreamProblem(w, "version: 1\nname: z\nsteps: [oops\n")).toMatch(/^Its workflow \/wf\/a\.yml cannot be read: it is /);
+    expect(workstreamProblem(w, "version: 1\nname: z\nsteps:\n  - id: s\n    instruction: x\n")).toBeUndefined();
+    expect(workstreamProblem({ ...w, error: "state is broken" }, undefined)).toBe("state is broken");
+    expect(workstreamProblem({ ...w, workflowPath: undefined, workflow: "zeta" })).toBe("Its workflow zeta is not found.");
+  });
+
+  test("a send-back event says from which step to which, with the owner's note", () => {
+    expect(eventDetail({ kind: "sent-back", backFrom: "s2", backTo: "s1", detail: "redo one" })).toBe("sent the work back from s2 to s1: redo one");
+    expect(eventDetail({ kind: "sent-back", backFrom: "s2", backTo: "s1", detail: "" })).toBe("sent the work back from s2 to s1");
+    expect(eventDetail({ kind: "completed", detail: "" })).toBe("");
+  });
+
+  test("a delegating step names the child of its current pass, and waits for it only while handed out", () => {
+    const w = ws("/p", "ws-next", {
+      children: [{ step: "deleg", pass: 1, slug: "ws-next-deleg" }],
+      steps: { deleg: { status: "PENDING", pass: 2 } },
+    });
+    w.summary = { ...w.summary!, steps: { deleg: { status: "PENDING" } } };
+    expect(currentChildSlug(w, "deleg", "ws-next-deleg")).toBe("ws-next-deleg-2");
+    expect(stepChildren(w, "deleg", "ws-next-deleg")).toEqual({ others: ["ws-next-deleg"] });
+    const second = { ...w, children: [...w.children!, { step: "deleg", pass: 2, slug: "ws-next-deleg-2" }] };
+    second.summary = { ...w.summary, steps: { deleg: { status: "IN_PROGRESS" } } };
+    expect(currentChildSlug(second, "deleg", "ws-next-deleg")).toBe("ws-next-deleg-2");
+    expect(stepChildren(second, "deleg", "ws-next-deleg")).toEqual({ waitsFor: "ws-next-deleg-2", others: ["ws-next-deleg"] });
+    const done = { ...second, summary: { ...second.summary, steps: { deleg: { status: "COMPLETED" } } } };
+    expect(stepChildren(done, "deleg", "ws-next-deleg")).toEqual({ others: ["ws-next-deleg", "ws-next-deleg-2"] });
+    // A step whose state names no pass is in its first.
+    expect(currentChildSlug(ws("/p", "x"), "deleg", "x-deleg")).toBe("x-deleg");
+  });
+
+  // rvk-views-2: fuse-flow status names the child of the current pass, which
+  // may not exist yet, and never an earlier pass's child in its place.
+  test("a handed-out step whose current pass has no child yet waits for that pass's child, not the earlier one", () => {
+    const w = ws("/p", "parent-run", {
+      children: [{ step: "deleg", pass: 1, slug: "parent-run-deleg" }],
+      steps: { deleg: { status: "IN_PROGRESS", pass: 2 } },
+    });
+    w.summary = { ...w.summary!, steps: { deleg: { status: "IN_PROGRESS" } } };
+    expect(stepChildren(w, "deleg", "parent-run-deleg")).toEqual({ waitsFor: "parent-run-deleg-2", others: ["parent-run-deleg"] });
+  });
+
+  test("a step whose workflow gate was removed waits for no child and lists its children", () => {
+    const w = ws("/p", "removed-gate-run", { children: [{ step: "deleg", pass: 1, slug: "removed-gate-run-deleg" }] });
+    w.summary = { ...w.summary!, steps: { deleg: { status: "IN_PROGRESS" } } };
+    expect(stepChildren(w, "deleg", undefined)).toEqual({ others: ["removed-gate-run-deleg"] });
+    // A handed-out step with a gate and no child recorded yet waits for its first.
+    expect(stepChildren({ ...w, children: [] }, "deleg", "removed-gate-run-deleg")).toEqual({ waitsFor: "removed-gate-run-deleg", others: [] });
+  });
+
+  // rvk-views-3: a send-back that resets every step to PENDING keeps the
+  // events the workstream recorded; it has started.
+  test("a workstream sent back so that every step is PENDING again is in progress and held at its current step", () => {
+    const rewound = withSteps("PENDING", { first: "PENDING", second: "PENDING" }, {
+      events: [
+        { kind: "handed-out", detail: "" },
+        { kind: "completed", detail: "" },
+        { kind: "sent-back", backFrom: "second", backTo: "first", detail: "Repeat the work." },
+      ],
+    });
+    rewound.summary = { ...rewound.summary!, currentStep: "first" };
+    expect(stateOf(rewound)).toBe("IN_PROGRESS");
+    expect(heldStep(rewound)).toBe("first");
+    const fresh = withSteps("PENDING", { first: "PENDING" }, { events: [] });
+    expect(stateOf(fresh)).toBe("PENDING");
+  });
+
+  // rvk-views-5: fuse-flow reads the workflow file for every command, so one
+  // Komposer has no text of is a problem, with the server's reason when known.
+  test("a workflow file that cannot be read is a problem, with its reason", () => {
+    const w = ws("/p", "a");
+    expect(workstreamProblem(w, undefined, "EACCES: permission denied, open '/wf/a.yml'")).toBe(
+      "Its workflow /wf/a.yml cannot be read: EACCES: permission denied, open '/wf/a.yml'",
+    );
+    expect(workstreamProblem(w, undefined)).toBe("Its workflow /wf/a.yml cannot be read.");
+  });
+
+  // rvk-views-6: a workflow that cannot be read says nothing of which steps
+  // it has, so no recorded step is said to be removed.
+  test("recorded steps of a workflow that cannot be read are not said to be removed", () => {
+    const w = withSteps("IN_PROGRESS", { original: "IN_PROGRESS" });
+    expect(orphanSteps(w, [], false)).toEqual([
+      { id: "original", status: "IN_PROGRESS", note: "recorded; the workflow cannot be read, so its steps are unknown" },
+    ]);
   });
 });

@@ -28,26 +28,27 @@ export interface Layout {
 }
 
 export function layoutEdges(steps: StepView[]): Layout {
-  // The first step to list each artifact in produces, optional_produces or
-  // updates, or to return it from its child through a workflow gate, is its
-  // producer.
-  const producedAt = new Map<string, number>();
-  steps.forEach((step, i) => {
-    const returned = step.gates.flatMap((g) => (g.kind === "workflow" ? Object.keys(g.returns ?? {}) : []));
-    for (const id of [...step.artifacts.map((a) => a.artifact), ...returned]) {
-      if (!producedAt.has(id)) producedAt.set(id, i);
+  // A consumer reads the artifact from the nearest earlier step that lists
+  // it in produces, optional_produces or updates, or returns it from its
+  // child through a workflow gate, as fuse-flow finds the document a step
+  // reads. One bus per writer of an artifact that a later step reads from it.
+  const writes = (step: StepView, id: string) =>
+    step.artifacts.some((a) => a.artifact === id) ||
+    step.gates.some((g) => g.kind === "workflow" && Object.hasOwn(g.returns ?? {}, id));
+  const byWriter = new Map<string, Bus>();
+  steps.forEach((step, j) => {
+    for (const artifact of step.consumes) {
+      let producerIndex = j - 1;
+      while (producerIndex >= 0 && !writes(steps[producerIndex], artifact)) producerIndex--;
+      if (producerIndex < 0) continue;
+      const key = `${producerIndex}:${artifact}`;
+      const bus = byWriter.get(key) ?? { artifact, producerIndex, consumerIndices: [], lastConsumerIndex: j, lane: 0 };
+      if (!bus.consumerIndices.includes(j)) bus.consumerIndices.push(j);
+      bus.lastConsumerIndex = Math.max(bus.lastConsumerIndex, j);
+      byWriter.set(key, bus);
     }
   });
-
-  const buses: Bus[] = [];
-  for (const [artifact, producerIndex] of producedAt) {
-    const consumerIndices: number[] = [];
-    steps.forEach((step, j) => {
-      if (j > producerIndex && step.consumes.includes(artifact)) consumerIndices.push(j);
-    });
-    if (consumerIndices.length === 0) continue;
-    buses.push({ artifact, producerIndex, consumerIndices, lastConsumerIndex: Math.max(...consumerIndices), lane: 0 });
-  }
+  const buses = [...byWriter.values()];
   buses.sort((a, b) => a.producerIndex - b.producerIndex || a.lastConsumerIndex - b.lastConsumerIndex);
   const laneEnd: number[] = [];
   for (const bus of buses) {

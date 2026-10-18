@@ -7,6 +7,7 @@
 
 import YAML from "yaml";
 import { applyEdit, type Edit, type OutputMode } from "./yamlEdit.ts";
+import { plural } from "./workstreams.ts";
 
 // The library's description of an artifact id, if it has one.
 export type Describe = (id: string) => string | undefined;
@@ -31,6 +32,36 @@ export const describeFrom =
   (entries: DescribedEntry[]): Describe =>
   (artifactId) =>
     winningEntry(entries, artifactId)?.description;
+
+// The library entries fuse-flow reads itself, whatever the workflows name:
+// decision-log, whose guide every step block names for recording the
+// decisions the agent makes on its own.
+export const ENGINE_ENTRIES: readonly string[] = ["decision-log"];
+
+// How a library entry is used, as the Library tab says it: by the steps and
+// workflows that name its id, and, for the entry in effect of an id that
+// fuse-flow reads itself, by fuse-flow on every step.
+export function libraryUse<E extends DescribedEntry>(entries: E[], entry: E, steps: number, workflows: number): string {
+  const named = steps ? `${plural(steps, "step")} · ${plural(workflows, "workflow")}` : "";
+  if (!ENGINE_ENTRIES.includes(entry.id) || winningEntry(entries, entry.id) !== entry) return named || "unused";
+  return named ? `${named} · fuse-flow` : "fuse-flow, every step";
+}
+
+// What entryFileNames needs of a library entry: the files sent with their
+// text, and the links, of which those marked outside were sent without it.
+export interface EntryFiles {
+  files: Record<string, string>;
+  links?: Record<string, { path: string; outside?: boolean }>;
+}
+
+// The files of a library entry the Library tab lists, in the order guide,
+// template, review: those sent with their text, and those that lie outside
+// the folders Komposer reads, which the server names under links only.
+export function entryFileNames(entry: EntryFiles): string[] {
+  const outside = Object.entries(entry.links ?? {}).flatMap(([name, link]) => (link.outside && !Object.hasOwn(entry.files, name) ? [name] : []));
+  const rank = (name: string) => (name === "guide.md" ? 0 : name.startsWith("template.") ? 1 : name === "review.md" ? 2 : 3);
+  return [...Object.keys(entry.files), ...outside].sort((a, b) => rank(a) - rank(b));
+}
 
 const MODES: OutputMode[] = ["produces", "optional_produces", "updates"];
 

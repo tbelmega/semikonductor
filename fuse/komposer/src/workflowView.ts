@@ -39,6 +39,9 @@ export interface WorkflowFile {
   text: string;
   hash: string;
   workingCopy?: string;
+  // The file's real path when it differs from path (a link on the way), so
+  // a reference that names the real path leads to it (workflowLinks).
+  realPath?: string;
 }
 
 export const workflowKey = (workflow: Pick<WorkflowFile, "path">): string => workflow.path;
@@ -196,6 +199,12 @@ export function openWorkflow(file: WorkflowFile | OpenWorkflow, resetIdentity = 
     issues: parsed.ok ? [] : parsed.issues,
     rawWorkflow: guessRawWorkflow(openText),
   };
+}
+
+// The workflow as saved on disk, without its unsaved edits: what fuse-flow
+// reads for the workstreams that follow it.
+export function savedVersion(workflow: OpenWorkflow): OpenWorkflow {
+  return workflow.openText === workflow.text ? workflow : openWorkflow({ ...workflow, workingCopy: undefined }, true);
 }
 
 // --------------------------------------------------------------- step view

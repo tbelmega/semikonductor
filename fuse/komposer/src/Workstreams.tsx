@@ -7,13 +7,19 @@
 import type { ProjectSummary, RunEvent, WorkstreamSummary } from "./api.ts";
 import { dateTime, duration, projectName, RUN_STATE, runDuration, runState, type RunState } from "./runView.ts";
 import {
+  currentChildSlug,
+  eventDetail,
+  followsWorkflow,
   groupByProject,
+  heldStep,
+  orphanSteps,
   sentBackFrom,
   stateOf,
   stepChildren,
   stepTiming,
   workstreamKey,
   workstreamLinks,
+  workstreamProblem,
   workstreamStats,
 } from "./model/workstreams.ts";
 import type { WorkflowInput } from "../../flow/src/schemas/workflow.ts";
@@ -27,6 +33,7 @@ import {
   type StepView,
   type WorkflowLink,
 } from "./workflowView.ts";
+import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { ProjectList, workflowStem } from "./ProjectList.tsx";
 import { WorkflowLinkButton, WorkstreamLinkButton } from "./Links.tsx";
 import { childSlug, delegationTip, GATE_STYLE, ModeBadge } from "./Flow.tsx";
@@ -50,6 +57,7 @@ export function Workstreams({
   onMessage,
   linkTo,
   onOpenWorkflow,
+  unavailable = [],
 }: {
   workflows: OpenWorkflow[];
   workstreams: WorkstreamSummary[];
@@ -69,8 +77,18 @@ export function Workstreams({
   // workflow resolve, and opening the workflow one leads to.
   linkTo: (workstream: WorkstreamSummary, from: OpenWorkflow) => (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
+  // The files the server could not read, so a workstream whose workflow is
+  // one of them says why.
+  unavailable?: UnavailableWorkflow[];
 }) {
-  const groups = groupByProject(projects, workstreams, filter ? filter.path : null);
+  const groups = groupByProject(projects, workstreams, filter ?? null);
+  const workflowOf = (w: WorkstreamSummary) => workflows.find((f) => followsWorkflow(w, f)) ?? null;
+  // fuse-flow reads the workflow file on disk, not a working copy.
+  const problemOf = (w: WorkstreamSummary) => {
+    const file = workflowOf(w);
+    const unreadable = unavailable.find((u) => u.kind === "file" && u.path === w.workflowPath)?.reason;
+    return workstreamProblem(w, file?.onDisk ? file.text : undefined, unreadable);
+  };
   const rows = groups.flatMap((g) => g.rows.map((r) => r.workstream));
   const selected = rows.find((w) => workstreamKey(w) === selectedKey) ?? rows[0] ?? null;
   const openLinked = (from: WorkstreamSummary, slug: string) => {
@@ -83,7 +101,8 @@ export function Workstreams({
         {selected ? (
           <Detail
             workstream={selected}
-            workflow={workflows.find((w) => w.path === selected.workflowPath) ?? null}
+            workflow={workflowOf(selected)}
+            problem={problemOf(selected)}
             all={workstreams}
             view={view}
             onView={onView}
@@ -105,6 +124,7 @@ export function Workstreams({
         onSelect={onSelect}
         onChanged={onChanged}
         onMessage={onMessage}
+        problemOf={problemOf}
       />
     </div>
   );
@@ -118,6 +138,7 @@ function StatePill({ state }: { state: RunState }) {
 function Detail({
   workstream,
   workflow,
+  problem,
   all,
   view,
   onView,
@@ -127,6 +148,8 @@ function Detail({
 }: {
   workstream: WorkstreamSummary;
   workflow: OpenWorkflow | null;
+  // Why fuse-flow cannot read the workstream.
+  problem?: string;
   all: WorkstreamSummary[];
   view: WorkstreamView;
   onView: (view: WorkstreamView) => void;
@@ -145,7 +168,7 @@ function Detail({
       <div className="ws-detail-head">
         <div className="ws-detail-title-row">
           <h1 className="ws-detail-title">{workstream.slug}</h1>
-          <StatePill state={state} />
+          {workstream.summary && <StatePill state={state} />}
           <span className="grow" />
           <div className="segmented ws-view-toggle" role="tablist">
             {(
@@ -169,9 +192,11 @@ function Detail({
         <div className="ws-detail-meta">
           <span title={workstream.workflowPath}>{file}</span>
           <span title={workstream.project}>{projectName(workstream.project)}</span>
-          <span>
-            started {dateTime(workstream.summary?.started)} · {done ? "took" : "running for"} {duration(runDuration(workstream))}
-          </span>
+          {workstream.summary && (
+            <span>
+              started {dateTime(workstream.summary.started)} · {done ? "took" : "running for"} {duration(runDuration(workstream))}
+            </span>
+          )}
         </div>
         {links.length > 0 && (
           <div className="ws-detail-links">
@@ -188,20 +213,23 @@ function Detail({
             The workflow is {projectName(workstream.project)}'s own file; it opens read-only.
           </span>
         )}
-        {(workstream.error || !workstream.workflowPath) && (
-          <span className="ws-detail-error">
-            {workstream.error ?? `Its workflow ${workstream.workflow ?? ""} is not found.`}
+        {problem && <span className="ws-detail-error">{problem}</span>}
+        {!problem && heldStep(workstream) && (
+          <span className="ws-detail-note">
+            Step {heldStep(workstream)} has not been handed out yet. <code>fuse-flow start {workstream.slug}</code> hands it out,
+            or says what holds it, such as a condition whose check the owner has to bind or skip.
           </span>
         )}
       </div>
       {view === "summary" ? (
-        <Summary workstream={workstream} steps={steps} found={found} onOpenLinked={onOpenLinked} />
+        <Summary workstream={workstream} steps={steps} readable={!problem} found={found} onOpenLinked={onOpenLinked} />
       ) : (
         <WorkstreamDiagram
           workstream={workstream}
           found={found}
           onOpenLinked={onOpenLinked}
           steps={steps}
+          readable={!problem}
           inputs={workflow ? workflowInputs(workflow) : []}
           handOffs={workflow ? workflowHandOffs(workflow) : []}
           linkTo={workflow ? linkTo(workstream, workflow) : notListed}
@@ -215,11 +243,14 @@ function Detail({
 function Summary({
   workstream,
   steps,
+  readable,
   found,
   onOpenLinked,
 }: {
   workstream: WorkstreamSummary;
   steps: StepView[];
+  // Whether fuse-flow can read the workflow, so the steps it lacks are known.
+  readable: boolean;
   found: (slug: string) => boolean;
   onOpenLinked: (slug: string) => void;
 }) {
@@ -228,6 +259,7 @@ function Summary({
   const inputs = Object.entries(workstream.inputs ?? {});
   return (
     <>
+      {s && (
       <div className="ws-stats">
         {workstreamStats(workstream).map((stat) => (
           <div key={stat.label} className="ws-stat">
@@ -238,6 +270,7 @@ function Summary({
           </div>
         ))}
       </div>
+      )}
       {inputs.length > 0 && (
         <section className="ws-card">
           <div className="ws-card-head ws-kicker">Inputs</div>
@@ -268,6 +301,16 @@ function Summary({
           );
         })}
         {steps.length === 0 && <div className="ws-empty">The workflow's steps cannot be shown.</div>}
+        {orphanSteps(workstream, steps.map((step) => step.id), readable).map((orphan) => (
+          <div key={`gone-${orphan.id}`} className="ws-step-row is-gone">
+            <span className="ws-step-num">–</span>
+            <span className="ws-step-main">
+              <span className="ws-step-title">{orphan.id}</span>
+              <span className="ws-step-bits">{orphan.note}</span>
+            </span>
+            <StatePill state={orphan.status} />
+          </div>
+        ))}
       </section>
       <section className="ws-card">
         <div className="ws-card-head ws-kicker">Events · newest first</div>
@@ -299,7 +342,7 @@ function EventRow({
         <WorkstreamLinkButton slug={event.detail} found={found(event.detail)} onOpen={onOpenLinked} />
       </>
     ) : (
-      event.detail
+      eventDetail(event)
     );
   return (
     <div className="ws-event">
@@ -336,6 +379,7 @@ function WorkstreamDiagram({
   found,
   onOpenLinked,
   steps,
+  readable,
   inputs,
   handOffs,
   linkTo,
@@ -345,6 +389,8 @@ function WorkstreamDiagram({
   found: (slug: string) => boolean;
   onOpenLinked: (slug: string) => void;
   steps: StepView[];
+  // Whether fuse-flow can read the workflow, so the steps it lacks are known.
+  readable: boolean;
   inputs: WorkflowInput[];
   handOffs: HandOff[];
   linkTo: (ref: string) => WorkflowLink;
@@ -393,7 +439,8 @@ function WorkstreamDiagram({
         const phaseHead = !!step.phase && (i === 0 || steps[i - 1].phase !== step.phase);
         const back = sentBackFrom(workstream, step.id);
         const bits = stepTiming(figures, " working");
-        const children = stepChildren(workstream, step.id);
+        const delegation = step.gates.find((g) => g.kind === "workflow");
+        const children = stepChildren(workstream, step.id, delegation && childSlug(delegation, step.id, workstream.slug));
         return (
           <div key={step.id} className="ws-diagram-item">
             {phaseHead && (
@@ -461,7 +508,11 @@ function WorkstreamDiagram({
                             <span className="gate-kind">{style.label}</span>
                             <span className="gate-text">{gate.text}</span>
                             <span className="gate-extra">
-                              {link.ok ? `↳ ${childSlug(gate, step.id, workstream.slug)}` : link.unavailable ? "unavailable" : "not found"}
+                              {link.ok
+                                ? `↳ ${currentChildSlug(workstream, step.id, childSlug(gate, step.id, workstream.slug))}`
+                                : link.unavailable
+                                  ? "unavailable"
+                                  : "not found"}
                             </span>
                           </button>
                         );
@@ -475,14 +526,22 @@ function WorkstreamDiagram({
                     })}
                   </div>
                 )}
+                {/* As fuse-flow status says it: while the step is handed out it
+                    waits for its current child; otherwise its children are listed. */}
                 {children && (
                   <div className="ws-step-children">
-                    <span className="ws-link-label">{children.earlier.length ? "waits for" : "child"}</span>
-                    <WorkstreamLinkButton slug={children.current} found={found(children.current)} onOpen={onOpenLinked} />
-                    {children.earlier.length > 0 && (
+                    {children.waitsFor && (
                       <>
-                        <span className="ws-link-label">earlier passes</span>
-                        {children.earlier.map((slug) => (
+                        <span className="ws-link-label">waits for</span>
+                        <WorkstreamLinkButton slug={children.waitsFor} found={found(children.waitsFor)} onOpen={onOpenLinked} />
+                      </>
+                    )}
+                    {children.others.length > 0 && (
+                      <>
+                        <span className="ws-link-label">
+                          {children.waitsFor ? "earlier passes" : children.others.length > 1 ? "children" : "child"}
+                        </span>
+                        {children.others.map((slug) => (
                           <WorkstreamLinkButton key={slug} slug={slug} found={found(slug)} onOpen={onOpenLinked} />
                         ))}
                       </>
@@ -497,6 +556,21 @@ function WorkstreamDiagram({
           </div>
         );
       })}
+      {orphanSteps(workstream, steps.map((step) => step.id), readable).map((orphan) => (
+        <div key={`gone-${orphan.id}`} className="ws-diagram-item">
+          <div className="ws-connector" />
+          <div className={`ws-step-card state-${RUN_STATE[orphan.status].className} is-dashed`}>
+            <div className="step-badge">–</div>
+            <div className="step-main">
+              <div className="step-title-row">
+                <span className="step-title">{orphan.id}</span>
+              </div>
+              <div className="ws-step-bits">{orphan.note}</div>
+            </div>
+            <StatePill state={orphan.status} />
+          </div>
+        </div>
+      ))}
       {handOffs.length > 0 && (
         <div className="flow-card handoff-box ws-handoffs">
           <span className="flow-card-kicker">Hands off to</span>

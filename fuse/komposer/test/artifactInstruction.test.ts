@@ -14,7 +14,9 @@ import { listLibrary } from "../../flow/src/policy.ts";
 import {
   addArtifactEdits,
   describeFrom,
+  entryFileNames,
   insertArtifactStepEdits,
+  libraryUse,
   type Describe,
 } from "../src/model/artifactInstruction.ts";
 import { applyEdit, type Edit } from "../src/model/yamlEdit.ts";
@@ -252,5 +254,49 @@ describe("a step written in braces", () => {
     if (!parsed.ok) throw new Error("invalid");
     expect(parsed.workflow.steps[0].optional_produces).toEqual([{ artifact: "bash-extra", path: "extra.md" }]);
     expect(parsed.workflow.steps[0].instruction).toBe("Write the bash-note.\nWrite the bash-extra.");
+  });
+});
+
+describe("the Library tab's usage of an entry", () => {
+  test("the decision-log entry in effect is used by fuse-flow on every step, as the step block names its guide", () => {
+    const savedHome = process.env.HOME;
+    const root = mkdtempSync(join(tmpdir(), "kp-use-root-"));
+    process.env.HOME = mkdtempSync(join(tmpdir(), "kp-use-home-"));
+    const entries = listLibrary(root);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(process.env.HOME, { recursive: true, force: true });
+    process.env.HOME = savedHome;
+    const decisionLog = entries.find((e) => e.id === "decision-log" && e.level === "package")!;
+    expect(decisionLog).toBeDefined();
+    expect(libraryUse(entries, decisionLog, 0, 0)).toBe("fuse-flow, every step");
+    expect(libraryUse(entries, decisionLog, 2, 1)).toBe("2 steps · 1 workflow · fuse-flow");
+    const design = entries.find((e) => e.id === "design")!;
+    expect(libraryUse(entries, design, 0, 0)).toBe("unused");
+    expect(libraryUse(entries, design, 1, 1)).toBe("1 step · 1 workflow");
+  });
+
+  test("a decision-log entry another level hides is not the one fuse-flow reads", () => {
+    const own = { id: "decision-log", level: "project" as const };
+    const shipped = { id: "decision-log", level: "package" as const };
+    expect(libraryUse([own, shipped], own, 0, 0)).toBe("fuse-flow, every step");
+    expect(libraryUse([own, shipped], shipped, 0, 0)).toBe("unused");
+  });
+});
+
+describe("the files the Library tab lists for an entry", () => {
+  test("a file that lies outside is listed, after the server sent it under links without its text", () => {
+    const entry = {
+      files: { "template.md": "# T\n" },
+      links: {
+        "review.md": { path: "/elsewhere/review.md", display: "/elsewhere/review.md", outside: true },
+        "guide.md": { path: "/elsewhere/guide.md", display: "/elsewhere/guide.md", outside: true },
+      },
+    };
+    expect(entryFileNames(entry)).toEqual(["guide.md", "template.md", "review.md"]);
+  });
+
+  test("a link that leads inside is listed once, by its text", () => {
+    const entry = { files: { "guide.md": "G\n", "review.md": "R\n" }, links: { "guide.md": { path: "/skills/g.md", display: "g.md" } } };
+    expect(entryFileNames(entry)).toEqual(["guide.md", "review.md"]);
   });
 });

@@ -27,6 +27,7 @@ export function ProjectList({
   onSelect,
   onChanged,
   onMessage,
+  problemOf,
 }: {
   // The selected workflow's file, or "All workstreams".
   title: string;
@@ -41,6 +42,8 @@ export function ProjectList({
   // Called after projects were added or removed, to reload.
   onChanged: () => void;
   onMessage: (message: string) => void;
+  // Why fuse-flow cannot read a workstream, or undefined.
+  problemOf: (workstream: WorkstreamSummary) => string | undefined;
 }) {
   const sections = useFolderState("komposer-projects");
   const [adding, setAdding] = useState(false);
@@ -115,8 +118,7 @@ export function ProjectList({
                   {group.rows.map(({ workstream, depth }) => {
                     const key = workstreamKey(workstream);
                     const state = RUN_STATE[stateOf(workstream)];
-                    const reason =
-                      workstream.error ?? (!workstream.workflowPath ? `its workflow ${workstream.workflow ?? ""} is not found` : "");
+                    const reason = problemOf(workstream) ?? "";
                     return (
                       <button
                         key={key}
@@ -135,8 +137,9 @@ export function ProjectList({
                           <span className="ws-row-file">{reason ? "cannot be read" : workflowStem(workstream)}</span>
                         </span>
                         <span className="ws-row-side">
-                          <span className={`run-state-pill ${state.className}`}>{state.label}</span>
-                          <span className="ws-row-time">{rowTiming(workstream)}</span>
+                          {/* A state file that cannot be read has no state to show. */}
+                          {workstream.summary && <span className={`run-state-pill ${state.className}`}>{state.label}</span>}
+                          {workstream.summary && <span className="ws-row-time">{rowTiming(workstream)}</span>}
                         </span>
                       </button>
                     );

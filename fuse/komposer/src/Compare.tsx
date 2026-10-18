@@ -90,7 +90,9 @@ export function Compare(props: CompareProps) {
   const { left, right, library, onApply } = props;
   const leftSteps = useMemo(() => stepViews(left), [left]);
   const rightSteps = useMemo(() => (right ? stepViews(right) : []), [right]);
-  const rows = useMemo(() => (right ? alignSteps(leftSteps, rightSteps) : []), [leftSteps, rightSteps, right]);
+  // Gate references are relative to each side's own file.
+  const files = useMemo(() => (right ? { left: left.path, right: right.path } : undefined), [left.path, right?.path]);
+  const rows = useMemo(() => (right ? alignSteps(leftSteps, rightSteps, files) : []), [leftSteps, rightSteps, right, files]);
   const counts = rowCounts(rows);
   const items = compareItems(rows, leftSteps, props.onlyDifferences);
 
@@ -255,7 +257,8 @@ function Row({
   const x = row.left !== null ? leftSteps[row.left] : null;
   const y = row.right !== null ? rightSteps[row.right] : null;
   const words = x && y && row.diff?.instruction ? wordDiff(x.instruction ?? "", y.instruction ?? "") : null;
-  const lines = x && y && row.kind === "changed" ? differences(x, y, row.left!) : [];
+  const files = { left: left.path, right: right.path };
+  const lines = x && y && row.kind === "changed" ? differences(x, y, row.left!, files) : [];
   const leftName = stem(left.file);
   const rightName = stem(right.file);
 
@@ -265,7 +268,7 @@ function Row({
       <button
         className="compare-apply"
         title="Make the left step match this one"
-        onClick={() => run(() => copyStepEdits(rightSteps, row.right!, leftSteps), `Applied all changes to ${x!.id}`)}
+        onClick={() => run(() => copyStepEdits(rightSteps, row.right!, leftSteps, undefined, files), `Applied all changes to ${x!.id}`)}
       >
         ← Apply all
       </button>
@@ -276,7 +279,7 @@ function Row({
         className="compare-apply"
         title="Copy this step into the left workflow"
         onClick={() =>
-          run(() => copyStepEdits(rightSteps, row.right!, leftSteps, row.at), `Added ${y.id} to ${leftName} as step ${row.at + 1}`, true)
+          run(() => copyStepEdits(rightSteps, row.right!, leftSteps, row.at, files), `Added ${y.id} to ${leftName} as step ${row.at + 1}`, true)
         }
       >
         ← Add to left as step {row.at + 1}
@@ -400,7 +403,8 @@ function Card({
   const consumes = { left: d?.consumesLeft ?? [], right: d?.consumesRight ?? [] };
   const outputs = { left: d?.outputsLeft ?? [], right: d?.outputsRight ?? [] };
   const gates = { left: d?.gatesLeft ?? [], right: d?.gatesRight ?? [] };
-  const gatesChanged = (d?.gatesChanged ?? []).map((pair) => pair[side]);
+  // A gate that runs in another order on the other side is changed too.
+  const gatesChanged = [...(d?.gatesChanged ?? []), ...(d?.gatesReordered ?? []).flatMap((r) => r.pairs)].map((pair) => pair[side]);
   const gateExtra = (g: Gate) =>
     g.route_back_to.length ? `↩ ${g.route_back_to.join(", ")}` : g.kind === "workflow" ? `↳ ${childSlug(g, step.id)}` : "";
   return (

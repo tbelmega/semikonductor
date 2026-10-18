@@ -144,6 +144,8 @@ export interface WorkstreamSummary {
   slug: string;
   workflow?: string;
   workflowPath?: string;
+  // The real path of the workflow file, when a link lies on workflowPath.
+  workflowRealPath?: string;
   error?: string;
   // The workstream this one was started after (`start --after`).
   after?: string;
