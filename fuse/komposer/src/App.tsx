@@ -22,7 +22,7 @@ import { diskChangeWatcher } from "./model/diskChange.ts";
 import { mergeListed } from "./model/listedWorkflows.ts";
 import { givesWay } from "./model/readOnlyView.ts";
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
-import { editedWorkflow } from "./model/editWorkflow.ts";
+import { editedWorkflow, movedRefEdits } from "./model/editWorkflow.ts";
 import { selectionAfterMove } from "./model/stepSelection.ts";
 import { followsWorkflow, plural, workstreamLinkDir } from "./model/workstreams.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
@@ -52,7 +52,22 @@ import { Present } from "./Present.tsx";
 import { ALL_SHOWN, escapeAction, secondOptions, shownSecond, type FlowShow } from "./model/present.ts";
 import { projectName } from "./runView.ts";
 
-type SaveModal = { type: "save"; asNew: boolean; location: LocationId; folder: string; name: string; error?: string };
+// checking: the workstreams in progress are being read, for the warning;
+// checkError: why they could not be. warnings: the engine's warnings for the
+// file Save as new would write, and checked: the destination and text they
+// were given for, so a second Save writes it anyway.
+type SaveModal = {
+  type: "save";
+  asNew: boolean;
+  location: LocationId;
+  folder: string;
+  name: string;
+  error?: string;
+  checking?: boolean;
+  checkError?: string;
+  warnings?: string[];
+  checked?: string;
+};
 type NewModal = { type: "new"; location: LocationId; folder: string; name: string; error?: string };
 type Modal = SaveModal | NewModal;
 type DiskVersion = { text: string; hash: string; at: string };
@@ -414,8 +429,21 @@ export function App() {
     if (next.select !== null) selectWorkflow(next.select);
   };
   const goPage = (next: Page) => (next === "compare" ? openCompare() : setPage(next));
-  // A workflow opened from another page: selected, on the Edit page.
+  // The project a followed link was read for, with the file it led to:
+  // another project's file can be followed by workstreams of several
+  // projects, and names in it resolve in the project of the one it was
+  // reached from (as fuse-flow runs it there), not in the first one the
+  // server lists it with.
+  const [linkContext, setLinkContext] = useState<{ key: string; project: string } | null>(null);
+  // A workflow opened from the Workstreams page: selected, on the Edit page,
+  // read for the project of the workstream whose link was followed. That is
+  // the workstream the page shows, which is not always the one selected (the
+  // page shows the first one when none is), so it is the one whose links
+  // were last resolved (resolveWorkstreamLink).
+  const shownWorkstream = useRef<WorkstreamSummary | null>(null);
   const editWorkflow = (key: string) => {
+    const from = shownWorkstream.current;
+    setLinkContext(from ? { key, project: from.project } : null);
     selectWorkflow(key);
     setPage("edit");
   };
@@ -434,13 +462,21 @@ export function App() {
   // resolved the way fuse-flow resolves it: a name in the workflows of the
   // project the open file belongs to when it is another project's file, else
   // of this project.
-  const linkProject = (readOnly ? workflow?.project : undefined) ?? session?.root;
+  const linkProject =
+    (readOnly ? (linkContext && linkContext.key === currentKey ? linkContext.project : workflow?.project) : undefined) ?? session?.root;
   const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
   const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
+  // A link of the open workflow, followed: its target is read for the same project.
+  const followLink = (key: string) => {
+    if (linkProject) setLinkContext({ key, project: linkProject });
+    selectWorkflow(key);
+  };
   const localLinkDir = projects.projects.find((p) => p.path === session?.root)?.workflowsDir ?? session?.locations[0].path ?? "";
   // A workstream's workflow references resolve in the workstream's own project.
-  const resolveWorkstreamLink = (item: WorkstreamSummary, from: OpenWorkflow) => (ref: string) =>
-    linkTo(ref, from, workflows, workstreamLinkDir(item, projects.projects, localLinkDir), unavailable);
+  const resolveWorkstreamLink = (item: WorkstreamSummary, from: OpenWorkflow) => {
+    shownWorkstream.current = item;
+    return (ref: string) => linkTo(ref, from, workflows, workstreamLinkDir(item, projects.projects, localLinkDir), unavailable);
+  };
 
   // A workstream chosen on the Workstreams page, or from the Workflow tab.
   // When it follows another workflow than the selected one, that workflow
@@ -516,7 +552,25 @@ export function App() {
     if (!workflow || !currentKey || modal?.type !== "save") return;
     try {
       if (modal.asNew) {
-        const result = await api.saveNewWorkflow(modal.location, modal.folder, modal.name, workflow.openText);
+        // The file as it will be at the new place: relative guides, workflow
+        // gates and hand-offs written again so they name the same files,
+        // checked there by the engine. Errors refuse; warnings are shown
+        // once, then Save writes it.
+        const location = session!.locations.find((x) => x.id === modal.location)!;
+        const folder = modal.folder.replace(/^\/+|\/+$/g, "");
+        const destination = `${location.path}/${folder ? `${folder}/` : ""}${modal.name}.yml`;
+        const text = editedWorkflow(workflow, movedRefEdits(workflow.openText, workflow.path, destination)).openText;
+        const check = await api.validate(destination, text);
+        if (check.errors.length) {
+          setModal({ ...modal, error: `fuse-flow would refuse the file there: ${check.errors.join(" · ")}` });
+          return;
+        }
+        const checked = `${destination}\n${text}`;
+        if (check.warnings.length && modal.checked !== checked) {
+          setModal({ ...modal, warnings: check.warnings, checked, error: undefined });
+          return;
+        }
+        const result = await api.saveNewWorkflow(modal.location, modal.folder, modal.name, text);
         await api.deleteWorkingCopy(workflow.path);
         const dir = modal.folder.replace(/^\/+|\/+$/g, "");
         const file = `${modal.name}.yml`;
@@ -526,7 +580,7 @@ export function App() {
           file,
           path: result.path,
           onDisk: true,
-          text: workflow.openText,
+          text,
           hash: result.hash,
         });
         setWorkflows((all) =>
@@ -621,6 +675,7 @@ export function App() {
       onOpen={(key) => {
         // On Compare a row picks the left workflow and stays on Compare.
         if (page === "compare") return pickCompare("left", key);
+        setLinkContext(null);
         selectWorkflow(key);
         if (page === "workstreams") {
           setAllWorkstreams(false);
@@ -699,7 +754,7 @@ export function App() {
           allWorkflows={localWorkflows}
           onOpenWorkstream={openWorkstreamPage}
           linkTo={resolveLink}
-          onOpenWorkflow={selectWorkflow}
+          onOpenWorkflow={followLink}
           onOpenWorkflowStep={openWorkflowStep}
           onClose={() => setRailOpen(false)}
         />
@@ -738,7 +793,7 @@ export function App() {
           onSecond={setPresentSecond}
           linkTo={resolveLink}
           secondLinkTo={(ref) => linkTo(ref, presentSecondWorkflow!, workflows, localLinkDir, unavailable)}
-          onOpenWorkflow={selectWorkflow}
+          onOpenWorkflow={followLink}
           library={library}
           show={presentShow}
           onShow={setPresentShow}
@@ -840,7 +895,7 @@ export function App() {
                 inputs={workflowInputs(workflow)}
                 handOffs={workflowHandOffs(workflow)}
                 linkTo={resolveLink}
-                onOpenWorkflow={selectWorkflow}
+                onOpenWorkflow={followLink}
               />
             </EditCenter>
           ) : (
@@ -859,6 +914,10 @@ export function App() {
           activeWorkstreams={workstreams.filter(
             (w) => followsWorkflow(w, workflow) && w.summary?.status !== "COMPLETED",
           )}
+          onSetName={(name) => {
+            apply({ op: "setWorkflowField", key: "name", value: name });
+            setModal((m) => (m?.type === "save" ? { ...m, warnings: undefined, checked: undefined } : m));
+          }}
           onConfirm={modal.type === "new" ? confirmNew : save}
         />
       )}
@@ -1034,6 +1093,7 @@ function ModalView({
   workflow,
   structural,
   activeWorkstreams,
+  onSetName,
   onConfirm,
 }: {
   modal: Modal;
@@ -1042,6 +1102,8 @@ function ModalView({
   workflow: OpenWorkflow;
   structural: string[];
   activeWorkstreams: WorkstreamSummary[];
+  // Sets the open workflow's name, as a warning about the file name offers.
+  onSetName: (name: string) => void;
   onConfirm: () => void;
 }) {
   const asNew = modal.type === "new" || modal.asNew;
@@ -1049,7 +1111,10 @@ function ModalView({
   const location = session.locations.find((x) => x.id === modal.location)!;
   const preview = `${location.path}/${modal.folder ? `${modal.folder.replace(/^\/+|\/+$/g, "")}/` : ""}${modal.name || "…"}.yml`;
   const warning = modal.type === "save" && !modal.asNew && structural.length > 0 && activeWorkstreams.length > 0;
-  const patch = (fields: Partial<Modal>) => setModal({ ...modal, ...fields } as Modal);
+  const engineWarnings = modal.type === "save" && modal.asNew ? (modal.warnings ?? []) : [];
+  // A change of destination drops the warnings given for the old one.
+  const patch = (fields: Partial<SaveModal>) =>
+    setModal({ ...modal, ...("asNew" in fields || "location" in fields || "folder" in fields || "name" in fields ? { warnings: undefined, checked: undefined } : {}), ...fields } as Modal);
   return (
     <div className="modal-backdrop" onClick={() => setModal(null)}>
       <div className="save-modal" onClick={(e) => e.stopPropagation()}>
@@ -1124,6 +1189,19 @@ function ModalView({
               </div>
             ))}
             <div>{structural.join(" · ")}</div>
+          </div>
+        )}
+        {engineWarnings.length > 0 && (
+          <div className="workstream-warning">
+            <strong>fuse-flow warns about the file there:</strong>
+            {engineWarnings.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+            {engineWarnings.some((line) => line.includes("differs from the file name")) && (
+              <button className="secondary-button" onClick={() => onSetName(modal.name)}>
+                Name the workflow {modal.name}
+              </button>
+            )}
           </div>
         )}
         {modal.error && <div className="field-error">{modal.error}</div>}

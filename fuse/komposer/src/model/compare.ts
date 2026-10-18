@@ -9,7 +9,7 @@ import type { Gate } from "../../../flow/src/schemas/gate.ts";
 import { lcsDiff } from "../diff.ts";
 import { readsCompletely, type ArtifactRole, type ArtifactView, type OpenWorkflow, type StepView } from "../workflowView.ts";
 import type { Edit } from "./yamlEdit.ts";
-import { isWorkflowPath, normalizePath } from "./workflowLinks.ts";
+import { isWorkflowPath, normalizePath, rebaseRef } from "./workflowLinks.ts";
 
 // --------------------------------------------------------- the two workflows
 
@@ -109,30 +109,12 @@ const relativeRef = (ref: string) => !ref.startsWith("/");
 // normalized absolute path, however it is spelled.
 const resolveFrom = (ref: string, file: string) => normalizePath(relativeRef(ref) ? `${folderOf(file)}/${ref}` : ref);
 
-// A relative reference written in workflow file `from`, rewritten so that
-// it names the same file when written in workflow file `to`. An absolute one
-// is kept.
-export function rebaseRef(ref: string, from: string, to: string): string {
-  if (!relativeRef(ref) || folderOf(from) === folderOf(to)) return ref;
-  const target = resolveFrom(ref, from).split("/").filter(Boolean);
-  const base = normalizePath(folderOf(to)).split("/").filter(Boolean);
-  let k = 0;
-  while (k < target.length && k < base.length && target[k] === base[k]) k++;
-  return [...base.slice(k).map(() => ".."), ...target.slice(k)].join("/");
-}
-
 // A gate with its file references changed by `map`: its guide, and the text
-// of a workflow gate that names its child by a path. A child's path that
-// `map` turns into something fuse-flow would read as a name (no "/" and no
-// YAML extension, as ../child written next to child) is written ./<path>,
-// so it still names that file.
+// of a workflow gate that names its child by a path.
 function mapGateRefs(g: Gate, map: (ref: string) => string): Gate {
   const out = { ...g };
   if (g.guide) out.guide = map(g.guide);
-  if (g.kind === "workflow" && isWorkflowPath(g.text)) {
-    const text = map(g.text);
-    out.text = isWorkflowPath(text) ? text : `./${text}`;
-  }
+  if (g.kind === "workflow" && isWorkflowPath(g.text)) out.text = map(g.text);
   return out;
 }
 

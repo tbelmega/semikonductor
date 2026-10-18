@@ -9,8 +9,12 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { workflowDirs } from "../../../flow/src/project.ts";
+import { findWorkflow, workflowDirs } from "../../../flow/src/project.ts";
+import { loadWorkflow } from "../../../flow/src/workflow.ts";
+import { movedRefEdits } from "../../src/model/editWorkflow.ts";
 import { resolveWorkflowRef } from "../../src/model/workflowLinks.ts";
+import { workstreamProblem } from "../../src/model/workstreams.ts";
+import { applyEdit } from "../../src/model/yamlEdit.ts";
 import { type KomposerServer, startServer } from "../app.ts";
 
 const CLI = resolve(import.meta.dir, "..", "..", "..", "flow", "src", "cli.ts");
@@ -385,6 +389,239 @@ describe("workflows", () => {
     const text = one.replace("Do it.", "Do it well.");
     await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(one), text }) });
     expect(readFileSync(path, "utf8")).toBe(text);
+  });
+
+  test("a run started by a path through a link to this project leads to the project's own editable file", async () => {
+    const gamma = write(join(root, ".konductor", "workflows", "gamma.yml"), ONE_STEP.replace("one-step", "gamma"));
+    const alias = join(root, "home", "proj-link");
+    symlinkSync(root, alias);
+    flow("start", "ws-symlink", "--workflow", join(alias, ".konductor", "workflows", "gamma.yml"));
+    const { workstreams } = await json("/api/workstreams");
+    expect(workstreams.find((w: any) => w.slug === "ws-symlink").workflowPath).toBe(gamma);
+    const { workflows } = await json("/api/workflows");
+    expect(workflows.filter((w: any) => w.file === "gamma.yml").map((w: any) => [w.location, w.path])).toEqual([["project", gamma]]);
+  });
+
+  // A run started by a path through a symlinked workflow folder reads its
+  // relative references from that path, so it is listed and linked by that
+  // path, not by the location's form, where the same references lead
+  // elsewhere.
+  test("a run whose workflow's references read differently in the location's form keeps the path fuse-flow used", async () => {
+    const shared = join(root, "shared", "workflows");
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(join(home, ".konductor"), { recursive: true });
+    symlinkSync(shared, join(home, ".konductor", "workflows"));
+    const parentText = `version: 1
+name: parent
+steps:
+  - id: ask
+    instruction: Ask.
+    gates:
+      - agent: review it
+        guide: ../review.md
+      - workflow: ../child.yml
+`;
+    const parent = write(join(shared, "parent.yml"), parentText);
+    const child = write(join(root, "shared", "child.yml"), "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Do it.\n");
+    const guide = write(join(root, "shared", "review.md"), "rules\n");
+    flow("start", "shared-run", "--workflow", parent);
+    const { workstreams } = await json("/api/workstreams");
+    expect(workstreams.find((w: any) => w.slug === "shared-run").workflowPath).toBe(parent);
+    const { workflows, unavailable } = await json("/api/workflows");
+    expect(workflows.find((w: any) => w.path === parent)).toMatchObject({ location: "run", text: parentText });
+    const link = resolveWorkflowRef("../child.yml", parent, workflows, join(root, ".konductor", "workflows"), unavailable);
+    expect(link).toMatchObject({ ok: true, target: { path: child } });
+    const guides = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path: parent, text: parentText }) });
+    expect(guides.gates[0].gateGuide).toMatchObject({ path: guide, exists: true });
+    expect(await json("/api/validate", { method: "POST", body: JSON.stringify({ path: parent, text: parentText }) })).toEqual({ errors: [], warnings: [], problems: [] });
+  });
+
+  // An absolute reference may name a listed workflow by its real path; the
+  // listing gives that path, so a link can be matched to the one entry.
+  test("a listed workflow whose real path differs from its listed path names its real path", async () => {
+    const realHome = join(root, "real-home");
+    mkdirSync(realHome);
+    home = join(root, "linked-home");
+    symlinkSync(realHome, home);
+    server.stop();
+    process.env.HOME = home;
+    server = startServer({ root, port: 0, token: TOKEN });
+    const listedPath = write(join(home, ".konductor", "workflows", "child.yml"), "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Do it.\n");
+    const plain = write(join(root, ".konductor", "workflows", "plain.yml"), ONE_STEP);
+    const locked = write(join(home, ".konductor", "workflows", "locked.yml"), ONE_STEP);
+    chmodSync(locked, 0o000);
+    try {
+      const { unavailable } = await json("/api/workflows");
+      if (process.getuid?.() !== 0) expect(unavailable.find((u: any) => u.path === locked)).toMatchObject({ kind: "file", realPath: join(realHome, ".konductor", "workflows", "locked.yml") });
+    } finally {
+      chmodSync(locked, 0o644);
+    }
+    const { workflows } = await json("/api/workflows");
+    expect(workflows.find((w: any) => w.path === listedPath).realPath).toBe(join(realHome, ".konductor", "workflows", "child.yml"));
+    expect(workflows.find((w: any) => w.path === plain).realPath).toBeUndefined();
+  });
+
+  // fuse-flow reads the file an absolute reference leads to, so a workflow
+  // gate naming a personal workflow by the real path of a symlinked home
+  // leads to the one entry Komposer lists for it.
+  test("an absolute reference to the real path of a listed workflow links to that workflow", async () => {
+    const realHome = join(root, "real-home");
+    mkdirSync(realHome);
+    home = join(root, "linked-home");
+    symlinkSync(realHome, home);
+    server.stop();
+    process.env.HOME = home;
+    server = startServer({ root, port: 0, token: TOKEN });
+    const listedPath = write(join(home, ".konductor", "workflows", "child.yml"), "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Do it.\n");
+    const realChild = join(realHome, ".konductor", "workflows", "child.yml");
+    const folder = join(root, ".konductor", "workflows");
+    const parentText = `version: 1\nname: parent\nsteps:\n  - id: ask\n    instruction: Ask.\n    gates:\n      - workflow: ${realChild}\n`;
+    const parent = write(join(folder, "parent.yml"), parentText);
+    flow("validate", parent);
+    const { workflows, unavailable } = await json("/api/workflows");
+    expect(resolveWorkflowRef(realChild, parent, workflows, folder, unavailable)).toMatchObject({ ok: true, target: { path: listedPath } });
+    expect(await json("/api/validate", { method: "POST", body: JSON.stringify({ path: parent, text: parentText }) })).toMatchObject({ errors: [] });
+  });
+
+  // A run that keeps the path fuse-flow used and the editable entry of the
+  // same file are two listed paths for one file. The run gives the file's
+  // real path. A listed entry gives it only when the file names the same
+  // files read from its real path, since only then does a reference to the
+  // real path name this workflow.
+  test("a run that keeps a linked path gives its workflow's real path; an entry gives its real path only when the file reads alike from it", async () => {
+    const shared = join(root, "shared", "workflows");
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(join(home, ".konductor"), { recursive: true });
+    symlinkSync(shared, join(home, ".konductor", "workflows"));
+    const alias = join(root, "alias-workflows");
+    symlinkSync(shared, alias);
+    const physical = write(join(shared, "parent.yml"), "version: 1\nname: parent\nsteps:\n  - id: ask\n    instruction: Ask.\n    gates:\n      - workflow: ../child.yml\n");
+    write(join(root, "child.yml"), "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Do it.\n");
+    const ran = join(alias, "parent.yml");
+    flow("start", "alias-run", "--workflow", ran);
+    const { workstreams } = await json("/api/workstreams");
+    const run = workstreams.find((w: any) => w.slug === "alias-run");
+    expect(run.workflowPath).toBe(ran);
+    expect(run.workflowRealPath).toBe(physical);
+    const { workflows } = await json("/api/workflows");
+    const editable = workflows.find((w: any) => w.location === "personal" && w.file === "parent.yml");
+    // The file names ../child.yml, which leads to another file from each
+    // of the three paths, so it is another workflow by each: no entry gives
+    // a real path that a reference to the physical file would be matched by.
+    expect(editable.path).toBe(join(home, ".konductor", "workflows", "parent.yml"));
+    expect(editable.realPath).toBeUndefined();
+    const runEntry = workflows.find((w: any) => w.path === ran);
+    expect(runEntry.location).toBe("run");
+    expect(runEntry.realPath).toBeUndefined();
+  });
+
+  // A project file that names a workflow by its physical path, where the
+  // project's workflow folder is a link to that file's folder and the file
+  // names other files read from the link: the physical file is another
+  // workflow than the listed alias, so it is listed by its own path, before
+  // it has a run, and its references are followed from there.
+  test("a physical-path reference to a file that reads differently through the linked folder opens that file before any run", async () => {
+    const physicalDir = join(root, "shared", "workflows");
+    mkdirSync(physicalDir, { recursive: true });
+    mkdirSync(join(root, ".konductor"), { recursive: true });
+    const folder = join(root, ".konductor", "workflows");
+    symlinkSync(physicalDir, folder);
+    const one = (name: string) => `version: 1\nname: ${name}\nsteps:\n  - id: only\n    instruction: Do it.\n`;
+    const physicalChild = write(join(root, "shared", "child.yml"), one("physical-child"));
+    write(join(root, ".konductor", "child.yml"), one("alias-child"));
+    const physical = write(
+      join(physicalDir, "parent.yml"),
+      "version: 1\nname: parent\nsteps:\n  - id: ask\n    instruction: Ask.\n    gates:\n      - workflow: ../child.yml\n",
+    );
+    const caller = write(
+      join(folder, "caller.yml"),
+      `version: 1\nname: caller\nsteps:\n  - id: call\n    instruction: Call.\n    gates:\n      - workflow: ${physical}\n`,
+    );
+    flow("validate", caller);
+    const { workflows, unavailable } = await json("/api/workflows");
+    const link = resolveWorkflowRef(physical, caller, workflows, folder, unavailable);
+    expect(link).toMatchObject({ ok: true, target: { path: physical, location: "run" } });
+    if (!link.ok) return;
+    expect(resolveWorkflowRef("../child.yml", link.target.path, workflows, folder, unavailable)).toMatchObject({
+      ok: true,
+      target: { path: physicalChild },
+    });
+  });
+
+  // A linked folder's file whose relative references lead elsewhere from its
+  // real path is another workflow when a reference names that real path, as
+  // fuse-flow reads it from there; Komposer must not open the listed alias.
+  test("an absolute reference to a linked file that reads differently from its real path does not open the alias", async () => {
+    // Outside the project, so the server does not list the real path itself.
+    const external = mkdtempSync(join(tmpdir(), "komposer-external-"));
+    try {
+      const shared = join(external, "shared");
+      mkdirSync(shared, { recursive: true });
+      const folder = join(root, ".konductor", "workflows");
+      mkdirSync(folder, { recursive: true });
+      symlinkSync(shared, join(folder, "linked"));
+      const one = (name: string, step: string) => `version: 1\nname: ${name}\nsteps:\n  - id: ${step}\n    instruction: Do it.\n`;
+      write(join(external, "child.yml"), one("intended", "intended"));
+      write(join(folder, "child.yml"), one("decoy", "decoy"));
+      write(join(shared, "alias-target.yml"), "version: 1\nname: alias-target\nhands_off_to: ../child.yml\nsteps:\n  - id: only\n    instruction: Do it.\n");
+      const realTarget = join(realpathSync(shared), "alias-target.yml");
+      const caller = write(join(folder, "real-caller.yml"), `version: 1\nname: real-caller\nhands_off_to: ${realTarget}\nsteps:\n  - id: only\n    instruction: Do it.\n`);
+      flow("validate", caller);
+      // fuse-flow reads the target from the path the caller gives.
+      const engineChild = loadWorkflow(findWorkflow(root, loadWorkflow(caller).hands_off_to[0].workflow)).hands_off_to[0].workflow;
+      expect(engineChild).toBe(join(realpathSync(external), "child.yml"));
+      const { workflows, unavailable } = await json("/api/workflows");
+      const link = resolveWorkflowRef(realTarget, caller, workflows, folder, unavailable);
+      if (link.ok) expect(resolveWorkflowRef("../child.yml", link.target.path, workflows, folder, unavailable)).toMatchObject({ ok: true, target: { path: engineChild } });
+      else expect(link.reason).toContain(realTarget);
+      expect(link).not.toMatchObject({ ok: true, target: { path: join(folder, "linked", "alias-target.yml") } });
+    } finally {
+      rmSync(external, { recursive: true, force: true });
+    }
+  });
+
+  // fuse-flow starts a workflow named by a path whatever the file is called
+  // and records that path, so the run's workflow is listed and read.
+  test("a run of a workflow file without a YAML extension lists that file and reads it", async () => {
+    const folder = join(root, ".konductor", "workflows");
+    const child = write(join(folder, "child"), "version: 1\nname: intended\nsteps:\n  - id: intended\n    instruction: Do it.\n");
+    flow("start", "extensionless-run", "--workflow", child);
+    const { workstreams } = await json("/api/workstreams");
+    const run = workstreams.find((w: any) => w.slug === "extensionless-run");
+    expect(run.workflowPath).toBe(child);
+    const { workflows } = await json("/api/workflows");
+    const file = workflows.find((w: any) => w.path === child);
+    expect(file).toMatchObject({ location: "run", onDisk: true });
+    expect(workstreamProblem(run, file.text)).toBeUndefined();
+  });
+
+  // The project's own workflow files name files outside the three folders by
+  // their path, and fuse-flow follows those paths, so they are listed
+  // read-only before any run follows them.
+  test("a file the project's own workflow names by a path outside the workflow folders is listed read-only", async () => {
+    write(join(root, ".konductor", "workflows", "main.yml"), "version: 1\nname: main\nhands_off_to: ../../outside/child.yml\nsteps:\n  - id: only\n    instruction: Finish.\n");
+    const child = write(join(root, "outside", "child.yml"), ONE_STEP);
+    const { workflows } = await json("/api/workflows");
+    expect(workflows.filter((w: any) => w.path === child).map((w: any) => [w.location, w.project])).toEqual([["run", root]]);
+  });
+
+  // The same holds for a personal or shipped workflow that names a file of
+  // this project by its path, and for the project's own workflow once a run
+  // follows it: the target is listed, and the link resolves.
+  test("a file that a personal workflow or a run of the project's own workflow names in this project is listed read-only", async () => {
+    const parent = write(join(root, ".konductor", "workflows", "local-parent.yml"), "version: 1\nname: local-parent\nhands_off_to: ../../custom/child.yml\nsteps:\n  - id: only\n    instruction: Finish.\n");
+    const child = write(join(root, "custom", "child.yml"), ONE_STEP.replace("one-step", "child"));
+    const mine = write(join(home, ".konductor", "workflows", "mine.yml"), `version: 1\nname: mine\nhands_off_to: ${join(root, "custom", "other.yml")}\nsteps:\n  - id: only\n    instruction: Finish.\n`);
+    const other = write(join(root, "custom", "other.yml"), ONE_STEP.replace("one-step", "other"));
+    flow("start", "local-run", "--workflow", "local-parent");
+    const { workflows, unavailable } = await json("/api/workflows");
+    expect(workflows.filter((w: any) => w.path === child || w.path === other).map((w: any) => [w.path, w.location, w.project])).toEqual([
+      [child, "run", root],
+      [other, "run", root],
+    ]);
+    const folder = join(root, ".konductor", "workflows");
+    expect(resolveWorkflowRef("../../custom/child.yml", parent, workflows, folder, unavailable)).toMatchObject({ ok: true, target: { path: child } });
+    expect(resolveWorkflowRef(other, mine, workflows, folder, unavailable)).toMatchObject({ ok: true, target: { path: other } });
   });
 
   test("tells a watcher when the open file changes on disk", async () => {
@@ -829,6 +1066,36 @@ describe("projects", () => {
     const copy = await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x" }) });
     expect(copy.status).toBe(403);
     expect(readFileSync(path, "utf8")).toBe(ONE);
+  });
+
+  // fuse-flow reads a hand-off or a workflow gate that names its workflow by
+  // a path relative to the file; a target in the same project is listed, so
+  // the link opens before the target has a run of its own.
+  test("the workflows a listed run file names by a path inside its project are listed read-only", async () => {
+    const other = otherProject();
+    const parent = write(
+      join(other, "custom", "parent.yml"),
+      "version: 1\nname: parent\nhands_off_to: child.yml\nsteps:\n  - id: only\n    instruction: Do it.\n    gates:\n      - workflow: ../procedures/sub.yml\n",
+    );
+    const child = write(join(other, "custom", "child.yml"), ONE);
+    const sub = write(join(other, "procedures", "sub.yml"), ONE);
+    write(join(root, "outside.yml"), ONE);
+    write(join(other, "custom", "far.yml"), "version: 1\nname: far\nhands_off_to: ../../outside.yml\nsteps:\n  - id: only\n    instruction: x\n");
+    flowIn(other, "start", "external-run", "--workflow", "custom/parent.yml");
+    flowIn(other, "start", "far-run", "--workflow", "custom/far.yml");
+    // A path that names no file any more stays not found, rather than unreadable.
+    write(join(other, "custom", "missing.yml"), "version: 1\nname: m\nhands_off_to: gone.yml\nsteps:\n  - id: only\n    instruction: x\n");
+    const gone = write(join(other, "custom", "gone.yml"), ONE);
+    flowIn(other, "start", "missing-run", "--workflow", "custom/missing.yml");
+    rmSync(gone);
+    const { workflows, unavailable } = await json("/api/workflows");
+    const listed = workflows.filter((w: any) => w.location === "run").map((w: any) => w.path);
+    expect(listed).toEqual(expect.arrayContaining([parent, child, sub]));
+    // Outside the project, a reference is not followed.
+    expect(listed).not.toContain(join(root, "outside.yml"));
+    // Only this test's run workflows matter here; a checkout may carry its
+    // own broken personal links in the shipped folder.
+    expect(unavailable.filter((u: any) => u.location === "run")).toEqual([]);
   });
 
   // A name in another project's workflow resolves in that project's own
@@ -1562,6 +1829,31 @@ steps:
     expect(out.warnings).toEqual(['name "alpha" differs from the file name; fuse-flow finds a workflow by its file name, alpha3']);
     write(there, text);
     expect(validateCli(there).ok).toBe(false);
+    // The references written again for the new folder name the same guide.
+    const moved = movedRefEdits(text, here, there).reduce(applyEdit, text);
+    expect(await validate(there, moved)).toMatchObject({ errors: [] });
+    write(there, moved);
+    expect(validateCli(there).ok).toBe(true);
+  });
+
+  // ../tail is a path to the extensionless file tail; moved one folder up,
+  // the same path written as tail would be a name, and fuse-flow would find
+  // tail.yml, a different workflow, instead.
+  test("Save as new keeps a path that would lose its last slash naming the same file", async () => {
+    const one = (name: string) => `version: 1\nname: ${name}\nsteps:\n  - id: ${name}\n    instruction: Do it.\n`;
+    write(join(WORKFLOWS(), "origin", "tail"), one("intended-target"));
+    write(join(WORKFLOWS(), "origin", "tail.yml"), one("wrong-target"));
+    const text = "version: 1\nname: path-handoff\nhands_off_to: ../tail\nsteps:\n  - id: ask\n    instruction: Ask.\n    gates:\n      - workflow: ../tail\n";
+    const here = write(join(WORKFLOWS(), "origin", "deep", "path-handoff.yml"), text);
+    const there = join(WORKFLOWS(), "origin", "copied.yml");
+    const moved = movedRefEdits(text, here, there).reduce(applyEdit, text);
+    write(there, moved);
+    const targets = (path: string) => {
+      const wf = loadWorkflow(path);
+      return [wf.hands_off_to[0].workflow, wf.steps[0].gates[0].text].map((ref) => findWorkflow(root, ref));
+    };
+    expect(targets(there)).toEqual(targets(here));
+    expect(loadWorkflow(targets(there)[0]).name).toBe("intended-target");
   });
 
   // The warning says what fuse-flow validate says: the file name finds this

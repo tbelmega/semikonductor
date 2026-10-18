@@ -23,16 +23,21 @@
 export interface ListedWorkflow {
   location: string;
   path: string;
+  // The file's path with links resolved, when it differs from `path`.
+  realPath?: string;
   onDisk: boolean;
 }
 
-// A workflow file that cannot be read, or a workflow location with a folder
-// that cannot be searched, as the server lists it: `path` is the file, or the
-// location's folder; `reason` is the error.
+// What the server lists as unusable: a workflow file that cannot be read, a
+// workflow location with a folder that cannot be searched, a link whose
+// target is missing, or a working copy that cannot be read. `path` is the
+// file, link or working copy, or the location's folder; `reason` is the
+// error. Only files and folders take part in resolving a reference: fuse-flow
+// skips a broken link without a word and never reads a working copy.
 export interface UnavailableWorkflow {
   location: string;
   path: string;
-  kind: "file" | "folder";
+  kind: "file" | "folder" | "link" | "working-copy";
   reason: string;
 }
 
@@ -61,6 +66,26 @@ export function normalizePath(path: string): string {
 }
 
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1) || ".";
+
+// A reference written in the workflow file `from`, written again so that it
+// names the same file when it is written in the workflow file `to`. An
+// absolute path stays as it is, and so does a relative one that already
+// names that file from `to`. Any other relative path is written relative to
+// `to`, and one that would then have no "/" is written ./<file>, so that it
+// stays a path: fuse-flow reads "child" as a name, and "child.yml" in another
+// folder may be another file. Only paths are given: a reference by name is
+// looked up by fuse-flow wherever the file is, and is not rewritten.
+export function rebaseRef(ref: string, from: string, to: string): string {
+  if (ref.startsWith("/")) return ref;
+  const named = normalizePath(`${dirOf(from)}/${ref}`);
+  if (normalizePath(`${dirOf(to)}/${ref}`) === named) return ref;
+  const target = named.split("/").filter(Boolean);
+  const base = normalizePath(dirOf(to)).split("/").filter(Boolean);
+  let common = 0;
+  while (common < target.length && common < base.length && target[common] === base[common]) common++;
+  const rebased = [...base.slice(common).map(() => ".."), ...target.slice(common)].join("/");
+  return rebased.includes("/") ? rebased : `./${rebased}`;
+}
 const baseOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 // Where a listed or unavailable workflow is, which is all a lookup level reads.
@@ -78,7 +103,12 @@ export function resolveWorkflowRef<T extends ListedWorkflow>(
   const unreadable = unavailable.filter((u) => u.kind === "file");
   if (isWorkflowPath(ref)) {
     const wanted = normalizePath(ref.startsWith("/") ? ref : `${dirOf(from)}/${ref}`);
-    const target = onDisk.find((w) => normalizePath(w.path) === wanted);
+    // fuse-flow reads the file at the path, and reads the paths that file
+    // names relative to that path. The listed file at that path is it; else
+    // the listed file whose real path it is, which the server gives only when
+    // the file names the same files read from either path.
+    const target =
+      onDisk.find((w) => normalizePath(w.path) === wanted) ?? onDisk.find((w) => w.realPath !== undefined && normalizePath(w.realPath) === wanted);
     if (target) return { ok: true, target };
     const locked = unreadable.find((u) => normalizePath(u.path) === wanted);
     if (locked) return { ok: false, reason: `${locked.path} cannot be read: ${locked.reason}`, unavailable: locked };

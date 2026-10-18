@@ -98,7 +98,10 @@ export type Edit =
   | { op: "setGate"; step: number; index: number; fields: GateFields }
   | { op: "insertStep"; at: number; step: { id: string; instruction: string } }
   | { op: "deleteStep"; index: number }
-  | { op: "moveStep"; from: number; to: number };
+  | { op: "moveStep"; from: number; to: number }
+  // The workflow of the hand-off at `index` in hands_off_to as fuse-flow
+  // lists it; a name stays a name, a mapping keeps its other keys.
+  | { op: "setHandOff"; index: number; workflow: string };
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -613,6 +616,18 @@ function editModel(
       if (!Number.isInteger(edit.to) || edit.to < 0 || edit.to >= steps.length) fail(`step index ${edit.to} is out of range (workflow has ${steps.length} steps)`);
       const [moved] = steps.splice(edit.from, 1);
       steps.splice(edit.to, 0, moved);
+      break;
+    }
+    case "setHandOff": {
+      const handOffs = root.hands_off_to;
+      const list = Array.isArray(handOffs) ? handOffs : handOffs === undefined || handOffs === null ? [] : [handOffs];
+      const item = list[edit.index];
+      if (!Number.isInteger(edit.index) || edit.index < 0 || (typeof item !== "string" && !isObj(item))) fail(`hand-off index ${edit.index} is out of range`);
+      const next = isObj(item) ? { ...item, workflow: edit.workflow } : edit.workflow;
+      if (Array.isArray(handOffs)) {
+        list[edit.index] = next;
+        root.hands_off_to = list;
+      } else root.hands_off_to = next;
       break;
     }
     default: {

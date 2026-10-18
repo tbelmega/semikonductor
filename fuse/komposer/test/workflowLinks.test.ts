@@ -246,6 +246,17 @@ describe("which workflow a reference opens, as fuse-flow resolves it", () => {
     });
   });
 
+  // A location folder reached through a link is listed by the path Komposer
+  // was given; fuse-flow reads an absolute reference to the real path as the
+  // same file.
+  test("an absolute path to a listed file's real path opens that file, an exact path first", () => {
+    const linked = { location: "personal", path: "/linked-home/.konductor/workflows/child.yml", realPath: "/real-home/.konductor/workflows/child.yml", onDisk: true };
+    const exact = { location: "run", path: "/real-home/.konductor/workflows/child.yml", onDisk: true };
+    const from = "/p/.konductor/workflows/parent.yml";
+    expect(resolveWorkflowRef("/real-home/.konductor/workflows/./child.yml", from, [linked], PROJECT)).toEqual({ ok: true, target: linked });
+    expect(resolveWorkflowRef("/real-home/.konductor/workflows/child.yml", from, [linked, exact], PROJECT)).toEqual({ ok: true, target: exact });
+  });
+
   test("normalizePath drops . and .. segments and repeated slashes", () => {
     expect(normalizePath("/a/b/../c//./d.yml")).toBe("/a/c/d.yml");
     expect(normalizePath("/../a")).toBe("/a");

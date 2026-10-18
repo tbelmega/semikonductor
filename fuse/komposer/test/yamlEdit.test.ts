@@ -2230,3 +2230,26 @@ steps:
     expect(out).toBe("version: 1\nname: a\nsteps:\n  - id: a\n    instruction: Do it.\n    consumes: [ # on open\n      x,\n      y\n    ] # on close\n    gates: [{ check: default }]\n");
   });
 });
+
+describe("setHandOff", () => {
+  const text = (handOff: string) => `version: 1\nname: h\nhands_off_to: ${handOff}\nsteps:\n  - id: a\n    instruction: Do it.\n`;
+
+  test("sets the workflow of one hand-off in each form fuse-flow reads", () => {
+    expect(applyEdit(text("next"), { op: "setHandOff", index: 0, workflow: "../next.yml" })).toBe(text("../next.yml"));
+    expect(applyEdit(text("{ workflow: next, when: later }"), { op: "setHandOff", index: 0, workflow: "other" })).toBe(
+      text("{ workflow: other, when: later }"),
+    );
+    expect(applyEdit(text("[a, { workflow: b, when: then }]"), { op: "setHandOff", index: 1, workflow: "c" })).toBe(
+      text("[a, { workflow: c, when: then }]"),
+    );
+    const parsed = parseWorkflowText(applyEdit(text("[a, b]"), { op: "setHandOff", index: 1, workflow: "c" }));
+    expect(parsed.ok && parsed.workflow.hands_off_to.map((h) => h.workflow)).toEqual(["a", "c"]);
+  });
+
+  test("refuses an index the file has no hand-off at", () => {
+    expect(() => applyEdit(text("next"), { op: "setHandOff", index: 1, workflow: "x" })).toThrow("hand-off index 1 is out of range");
+    expect(() => applyEdit(`version: 1\nname: h\nsteps:\n  - id: a\n    instruction: Do it.\n`, { op: "setHandOff", index: 0, workflow: "x" })).toThrow(
+      "hand-off index 0 is out of range",
+    );
+  });
+});

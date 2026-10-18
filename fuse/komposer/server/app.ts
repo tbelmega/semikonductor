@@ -224,6 +224,51 @@ export function startServer(options: ServerOptions): KomposerServer {
   const workingCopyPath = (location: Location, rel: string) => join(editorDir, location.id, rel);
   const inLocation = (path: string) => locations.some((l) => listedForm(path).startsWith(l.path + sep));
 
+  // The paths a workflow file names relative to itself: workflow gates and
+  // hand-offs given by a path, and gate guides.
+  const relativeRefs = (text: string | undefined): string[] => {
+    const parsed = text === undefined ? undefined : parseWorkflowText(text);
+    if (!parsed?.ok) return [];
+    const wf = parsed.workflow;
+    return [
+      ...wf.hands_off_to.map((h) => h.workflow).filter(isWorkflowPath),
+      ...wf.steps.flatMap((step) => step.gates.flatMap((g) => [...(g.kind === "workflow" && isWorkflowPath(g.text) ? [g.text] : []), ...(g.guide ? [g.guide] : [])])),
+    ].filter((ref) => !isAbsolute(ref));
+  };
+
+  // The path a run's workflow is listed and linked by. fuse-flow reads the
+  // file's relative references from the path the run records, so that path
+  // is given in the location's form only when every relative reference of
+  // the file leads to the same real file from both; otherwise, as when the
+  // location's folder is itself a link and a reference climbs out of it,
+  // the run keeps the path fuse-flow used.
+  const runPath = (path: string): string => {
+    const engine = resolve(path);
+    const listed = listedForm(engine);
+    return listed !== engine && readsAlike(engine, listed) ? listed : engine;
+  };
+
+  // Whether the file read from path `a` and read from path `b` names the
+  // same files: every relative reference in it leads to the same real file
+  // from both. fuse-flow reads a file's references relative to the path it
+  // was given, so only then is it the same workflow by either path.
+  const readsAlike = (a: string, b: string): boolean =>
+    relativeRefs(readText(a)).every((ref) => {
+      const fromA = realForm(resolve(dirname(a), ref)) ?? resolve(dirname(a), ref);
+      const fromB = realForm(resolve(dirname(b), ref)) ?? resolve(dirname(b), ref);
+      return fromA === fromB;
+    });
+
+  // The real path of a listed workflow file, when it differs from the path
+  // it is listed by and the file reads alike from both (readsAlike). A
+  // reference that names the real path then leads to this entry. A file
+  // that names other files from its real path is another workflow there,
+  // so it has no real path to be matched by.
+  const realPathOf = (path: string): { realPath?: string } => {
+    const real = realForm(path);
+    return real && real !== path && readsAlike(real, path) ? { realPath: real } : {};
+  };
+
   // Every write is judged by the real path it leads to, with symlinks
   // resolved, as a review guide's read is: a workflow file must lead to a
   // .yml or .yaml file inside the real folder of a workflow location, and a
@@ -320,20 +365,53 @@ export function startServer(options: ServerOptions): KomposerServer {
   // searched, are listed as unavailable with the reason: fuse-flow still
   // picks that file by its name, and fails a name looked up in that folder,
   // so a link to such a name must not lead to a shared workflow instead.
-  const runWorkflows = () => {
+  // A listed file's hand-offs and workflow gates that name a workflow by its
+  // path, relative to the file as fuse-flow reads them, are listed too when
+  // the file is inside the same project, so following one opens it before it
+  // has a run of its own. The files of the three workflow locations are
+  // followed the same way, for the files they name inside this project, and
+  // a run's workflow is listed by runPath.
+  const runWorkflows = (own: { path: string; text: string }[], listed: Set<string>) => {
     const out = new Map<string, Record<string, unknown>>();
     const unavailable = new Map<string, Record<string, unknown>>();
-    const add = (path: string, project: string) => {
-      if (out.has(path) || unavailable.has(path) || inLocation(path) || !/\.ya?ml$/.test(path)) return;
+    // A listed file's references by a path inside its project.
+    const follow = (path: string, text: string, project: string) => {
+      const parsed = parseWorkflowText(text);
+      if (!parsed.ok) return;
+      const refs = [
+        ...parsed.workflow.hands_off_to.map((h) => h.workflow),
+        ...parsed.workflow.steps.flatMap((step) => step.gates.filter((g) => g.kind === "workflow").map((g) => g.text)),
+      ];
+      for (const ref of refs) {
+        if (!isWorkflowPath(ref)) continue; // a name, looked up in the project's folder
+        const target = resolve(dirname(path), ref);
+        if (target.startsWith(project + sep) && existsSync(target)) add(target, project);
+      }
+    };
+    // A file in a workflow location is listed by the location, in the
+    // location's form, unless the location does not list it: fuse-flow reads
+    // a workflow named by its path, and records one it was started with,
+    // whatever the file is called and wherever it is, while a location lists
+    // only the .yml and .yaml files workflowFilesBelow finds. `keep` lists a
+    // run's workflow by the path the run used, though that path lies in a
+    // workflow location by its real folder. A file whose listed form names
+    // other files than its own path does (readsAlike) is another workflow
+    // by that path, so it is listed by it as well.
+    const add = (path: string, project: string, keep = false) => {
+      if (out.has(path) || unavailable.has(path)) return;
+      const form = listedForm(path);
+      if (!keep && inLocation(path) && listed.has(form) && (form === resolve(path) || readsAlike(path, form))) return;
       let text: string;
       try {
         text = readFileSync(path, "utf8");
       } catch (e) {
-        unavailable.set(path, { location: "run", project, kind: "file", path, reason: (e as Error).message });
+        unavailable.set(path, { location: "run", project, kind: "file", path, ...realPathOf(path), reason: (e as Error).message });
         return;
       }
-      out.set(path, { location: "run", project, dir: "", file: basename(path), path, onDisk: true, text, hash: sha(text) });
+      out.set(path, { location: "run", project, dir: "", file: basename(path), path, onDisk: true, ...realPathOf(path), text, hash: sha(text) });
+      follow(path, text, project);
     };
+    for (const { path, text } of own) follow(path, text, root);
     for (const project of projects().paths.filter((p) => p !== root)) {
       const folder = workflowDirs(project)[0];
       let files: string[] = [];
@@ -344,7 +422,11 @@ export function startServer(options: ServerOptions): KomposerServer {
       }
       for (const path of files) add(path, project);
     }
-    for (const run of runs()) if (run.workflowPath) add(run.workflowPath, run.project);
+    for (const run of runs()) {
+      if (!run.workflowPath) continue;
+      const path = runPath(run.workflowPath);
+      add(path, run.project, !locations.some((l) => path.startsWith(l.path + sep)));
+    }
     return { files: [...out.values()], unavailable: [...unavailable.values()] };
   };
 
@@ -357,7 +439,7 @@ export function startServer(options: ServerOptions): KomposerServer {
   const scanLocation = (location: Location) => {
     const files: { path: string; text: string }[] = [];
     const unavailable: Record<string, unknown>[] = [];
-    const missing = (kind: string, path: string, reason: string) => unavailable.push({ location: location.id, kind, path, reason });
+    const missing = (kind: string, path: string, reason: string) => unavailable.push({ location: location.id, kind, path, ...realPathOf(path), reason });
     const skip = new Set([join(root, ".git"), workstreamsDir(root), ...Object.values(libraryDirs(root))].filter(existsSync).map((p) => realpathSync(p)));
     const notWorkflows = new Set([projectsFile(), ...Object.values(policyFiles(root))].filter(existsSync).map((p) => realpathSync(p)));
     const walk = (folder: string) => {
@@ -399,9 +481,11 @@ export function startServer(options: ServerOptions): KomposerServer {
   const listWorkflows = () => {
     const out: Record<string, unknown>[] = [];
     const unavailable: Record<string, unknown>[] = [];
+    const own: { path: string; text: string }[] = [];
     for (const location of locations) {
       const seen = new Set<string>();
       const scanned = scanLocation(location);
+      own.push(...scanned.files);
       unavailable.push(...scanned.unavailable);
       for (const u of scanned.unavailable) if (u.kind !== "folder") seen.add(relative(location.path, u.path as string));
       for (const { path, text } of scanned.files) {
@@ -414,6 +498,7 @@ export function startServer(options: ServerOptions): KomposerServer {
           file: basename(rel),
           path,
           onDisk: true,
+          ...realPathOf(path),
           text,
           hash: sha(text),
           ...(readableCopy(copy) ? { workingCopy: readFileSync(copy, "utf8") } : {}),
@@ -438,7 +523,7 @@ export function startServer(options: ServerOptions): KomposerServer {
         });
       }
     }
-    const other = runWorkflows();
+    const other = runWorkflows(own, new Set([...own.map((w) => w.path), ...unavailable.filter((u) => u.kind === "file").map((u) => u.path as string)]));
     return { workflows: [...out, ...other.files], unavailable: [...unavailable, ...other.unavailable] };
   };
 
@@ -590,7 +675,10 @@ export function startServer(options: ServerOptions): KomposerServer {
   // text sent is the open version, saved or not; a gate's guide is relative to
   // the workflow file, as the engine reads it.
   const reviewGuides = (body: any) => {
-    const { path } = locate(body.path);
+    locate(body.path);
+    // References are read from the path as sent, as fuse-flow reads them
+    // from the path it was given (see runPath).
+    const path = resolve(body.path);
     if (typeof body.text !== "string") throw new HttpError(400, "text is required");
     const parsed = parseWorkflowText(body.text);
     if (!parsed.ok) return { gates: [], files: {} };
@@ -680,7 +768,8 @@ export function startServer(options: ServerOptions): KomposerServer {
   // with. Errors come first, then warnings, each in the order of `errors` and
   // `warnings`.
   const validateText = (body: any) => {
-    const { path } = locate(body.path);
+    locate(body.path);
+    const path = resolve(body.path); // as in reviewGuides
     if (typeof body.text !== "string") throw new HttpError(400, "text is required");
     return engineCheck(path, body.text);
   };
@@ -785,6 +874,13 @@ export function startServer(options: ServerOptions): KomposerServer {
     throw new HttpError(422, `fuse-flow would refuse ${path}:\n${errors.map((l) => `  ${l}`).join("\n")}`, { errors, problems });
   };
 
+  // A run's workflow path, by which its workflow is listed and linked, and
+  // that file's real path when it differs.
+  const runWorkflowPath = (path: string) => {
+    const realPath = realForm(path);
+    return { workflowPath: path, ...(realPath && realPath !== path ? { workflowRealPath: realPath } : {}) };
+  };
+
   // Each workstream with the runs it links to: the one it was started after,
   // the ones started after it, the parent whose step waits for it, and the
   // children its steps wait for, in step order and pass order. The newest
@@ -807,7 +903,7 @@ export function startServer(options: ServerOptions): KomposerServer {
           project: w.project,
           slug: w.slug,
           workflow: ws.workflow,
-          ...(w.workflowPath ? { workflowPath: listedForm(w.workflowPath) } : {}),
+          ...(w.workflowPath ? runWorkflowPath(runPath(w.workflowPath)) : {}),
           ...(ws.after ? { after: ws.after } : {}),
           ...(ws.parent ? { parent: ws.parent } : {}),
           ...(ws.inputs ? { inputs: ws.inputs } : {}),
