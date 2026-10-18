@@ -149,7 +149,13 @@ Validate infrastructure code across these 10 categories:
 
 Check for:
 
-- **Encryption at Rest**: All data stores (S3, DynamoDB, RDS, EBS) must have encryption enabled
+- **Encryption at Rest**: All data stores (S3, DynamoDB, RDS, EBS) must be encrypted at rest. S3
+  buckets and DynamoDB tables are encrypted at rest by default (S3 with SSE-S3 for every new
+  object, DynamoDB with an AWS owned key), so an S3 bucket or DynamoDB table without an explicit
+  encryption property is encrypted, not unencrypted. Report its key choice only when the project's
+  requirements call for another key, such as a customer managed KMS key for sensitive data. RDS
+  instances and EBS volumes are unencrypted unless encryption is configured (for EBS, in the
+  resource or as the account's default)
 - **Encryption in Transit**: TLS/SSL required for all network communication (API Gateway, ALB, CloudFront)
 - **IAM Permissions**: Least privilege principle, no wildcard permissions, no overly permissive policies
 - **Network Security**: VPC configuration, security groups, NACLs, no public access to sensitive resources
@@ -160,8 +166,10 @@ Check for:
 
 **Validation Checks**:
 
-1. Verify encryption enabled for all S3 buckets (AWS managed or customer managed KMS)
-2. Check DynamoDB tables have encryption enabled
+1. Verify each S3 bucket's encryption key meets the project's requirements (default SSE-S3, AWS
+   managed or customer managed KMS)
+2. Check each DynamoDB table's encryption key meets the project's requirements (default AWS owned
+   key, AWS managed or customer managed KMS)
 3. Validate RDS instances use encryption at rest
 4. Verify API Gateway uses TLS 1.2 or higher
 5. Check IAM policies for wildcard permissions (Action: "_", Resource: "_")
@@ -314,7 +322,8 @@ Check for:
 1. Verify resources deployed in compliant AWS regions
 2. Check CloudTrail enabled for all regions with log file validation
 3. Validate S3 bucket logging enabled for audit trails
-4. Verify KMS customer managed keys used for sensitive data encryption
+4. Where the project's requirements or compliance standards call for customer managed KMS keys
+   for sensitive data, verify those stores use them
 5. Check data retention policies configured (S3 lifecycle, CloudWatch Logs retention)
 6. Validate IAM policies follow least privilege principle
 7. Verify MFA required for privileged operations
@@ -529,13 +538,16 @@ Check EVERY data store resource:
 
 **DynamoDB Tables** (`AWS::DynamoDB::Table`):
 
-- [ ] `SSESpecification.SSEEnabled: true` present
-- [ ] Verify encryption type (AWS_MANAGED or CUSTOMER_MANAGED)
+- [ ] Encryption key meets the project's requirements: without `SSESpecification` the table uses
+      the default AWS owned key; `SSESpecification.SSEEnabled: true` selects an AWS managed or
+      customer managed KMS key
+- [ ] Verify encryption type (default, AWS_MANAGED or CUSTOMER_MANAGED)
 
 **S3 Buckets** (`AWS::S3::Bucket`):
 
-- [ ] `BucketEncryption.ServerSideEncryptionConfiguration` present
-- [ ] `SSEAlgorithm` is `AES256` or `aws:kms`
+- [ ] Encryption key meets the project's requirements: without
+      `BucketEncryption.ServerSideEncryptionConfiguration` the bucket uses default SSE-S3
+- [ ] When set, `SSEAlgorithm` is `AES256` or `aws:kms`
 - [ ] If KMS, verify `KMSMasterKeyID` specified
 
 **RDS Instances** (`AWS::RDS::DBInstance`):
@@ -773,7 +785,7 @@ Check for alarms on:
 **For EACH DynamoDB Table** (`AWS::DynamoDB::Table`):
 
 - [ ] Partition key has high cardinality (not status, type, etc.)
-- [ ] `SSESpecification.SSEEnabled: true`
+- [ ] `SSESpecification` selects the key the project requires (omitted means the default AWS owned key)
 - [ ] `PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled: true` for production
 - [ ] `BillingMode` appropriate (PAY_PER_REQUEST for variable, PROVISIONED for steady)
 - [ ] GSI count reasonable (< 5 typically)
@@ -784,7 +796,7 @@ Check for alarms on:
 **For EACH S3 Bucket** (`AWS::S3::Bucket`):
 
 - [ ] `PublicAccessBlockConfiguration` with all four settings true
-- [ ] `BucketEncryption` configured
+- [ ] `BucketEncryption` selects the key the project requires (omitted means default SSE-S3)
 - [ ] `VersioningConfiguration.Status: Enabled` for critical data
 - [ ] `LifecycleConfiguration` for cost optimization
 - [ ] `ServerAccessLogsConfiguration` for audit trail
@@ -927,7 +939,10 @@ Provide structured feedback with:
 
 ## Output Format
 
-Provide structured feedback:
+Provide structured feedback. The tiers below map to the Quality Gate's classes: Critical Issues
+are CRITICAL, High Priority Issues are IMPORTANT, and Medium and Low Priority Issues are
+SUGGESTION. Give each finding its Quality Gate class as well, because a calling workflow merges
+findings by those classes.
 
 ### Critical Issues (Must Fix)
 
@@ -994,9 +1009,9 @@ Good practice: [What's done well]
 ### Critical Issues
 
 **Security** - S3 Bucket (DocumentsBucket)
-Issue: S3 bucket does not have encryption at rest enabled
-Impact: Sensitive data stored unencrypted violates security best practices and compliance requirements
-Fix: Enable server-side encryption with AWS managed keys or customer managed KMS keys
+Issue: S3 bucket uses the default SSE-S3 encryption, but the stated compliance requirements call for a customer managed KMS key for sensitive documents
+Impact: The bucket is encrypted at rest, but the key cannot be controlled, rotated or audited as the requirements demand
+Fix: Encrypt the bucket with a customer managed KMS key
 Example:
 
 ```typescript
@@ -1007,13 +1022,12 @@ const bucket = new s3.Bucket(this, 'DocumentsBucket', {
 });
 
 // After
+const bucketKey = new kms.Key(this, 'BucketKey', { enableKeyRotation: true });
 const bucket = new s3.Bucket(this, 'DocumentsBucket', {
   bucketName: 'taskflow-documents',
   versioned: true,
-  encryption: s3.BucketEncryption.S3_MANAGED,
-  // Or for customer managed keys:
-  // encryption: s3.BucketEncryption.KMS,
-  // encryptionKey: new kms.Key(this, 'BucketKey')
+  encryption: s3.BucketEncryption.KMS,
+  encryptionKey: bucketKey,
 });
 ```
 
@@ -1042,9 +1056,9 @@ taskFunction.addToRolePolicy(
 ```
 
 **Security** - DynamoDB Table (TasksTable)
-Issue: DynamoDB table does not have encryption at rest enabled
-Impact: Sensitive task data stored unencrypted violates compliance requirements
-Fix: Enable encryption using AWS managed keys or customer managed KMS keys
+Issue: DynamoDB table uses the default AWS owned key, but the stated compliance requirements call for a customer managed KMS key for task data
+Impact: The table is encrypted at rest, but the key cannot be controlled, rotated or audited as the requirements demand
+Fix: Encrypt the table with a customer managed KMS key
 Example:
 
 ```typescript
@@ -1055,13 +1069,12 @@ const table = new dynamodb.Table(this, 'TasksTable', {
 });
 
 // After
+const tableKey = new kms.Key(this, 'TableKey', { enableKeyRotation: true });
 const table = new dynamodb.Table(this, 'TasksTable', {
   partitionKey: { name: 'taskId', type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-  encryption: dynamodb.TableEncryption.AWS_MANAGED,
-  // Or for customer managed keys:
-  // encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
-  // encryptionKey: new kms.Key(this, 'TableKey')
+  encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+  encryptionKey: tableKey,
 });
 ```
 
@@ -1110,7 +1123,8 @@ Example:
 const table = new dynamodb.Table(this, 'TasksTable', {
   partitionKey: { name: 'taskId', type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-  encryption: dynamodb.TableEncryption.AWS_MANAGED,
+  encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+  encryptionKey: tableKey, // the customer managed key from the critical fix
   pointInTimeRecovery: true, // Enable PITR
 });
 ```
@@ -1181,7 +1195,8 @@ Example:
 const bucket = new s3.Bucket(this, 'DocumentsBucket', {
   bucketName: 'taskflow-documents',
   versioned: true,
-  encryption: s3.BucketEncryption.S3_MANAGED,
+  encryption: s3.BucketEncryption.KMS,
+  encryptionKey: bucketKey, // the customer managed key from the critical fix
   lifecycleRules: [
     {
       id: 'TransitionToIntelligentTiering',
@@ -1243,7 +1258,7 @@ Good practice: CloudWatch Logs retention configured (not indefinite)
 
 **Critical Gaps**:
 
-- Missing encryption at rest for S3 and DynamoDB
+- S3 and DynamoDB encryption keys do not meet the compliance requirements
 - Overly permissive IAM policies
 - Missing operational monitoring
 
@@ -1256,7 +1271,7 @@ Good practice: CloudWatch Logs retention configured (not indefinite)
 
 Before approving infrastructure code:
 
-- [ ] All data stores have encryption at rest enabled
+- [ ] All data stores are encrypted at rest, with the keys the project requires
 - [ ] All network communication uses TLS/SSL
 - [ ] IAM policies follow least privilege principle
 - [ ] No hardcoded credentials or secrets
@@ -1301,9 +1316,12 @@ Provide thorough, actionable feedback that improves infrastructure quality and e
 **CRITICAL (must fix):**
 
 - S3 buckets with public access enabled
-- Encryption at rest not configured for data stores
+- Data store not encrypted at rest (RDS or EBS without encryption; S3 and DynamoDB are encrypted by
+  default), or encrypted with a key that contradicts the project's stated requirements
 - Security groups with `0.0.0.0/0` ingress on non-HTTP ports
-- No deletion protection on stateful resources (RDS, DynamoDB)
+- No deletion protection on stateful resources (RDS, DynamoDB) in production, or in another
+  environment whose data the project must keep; in a disposable development environment this is
+  at most a SUGGESTION, and a DESTROY removal policy there is intended
 
 **IMPORTANT (should fix):**
 

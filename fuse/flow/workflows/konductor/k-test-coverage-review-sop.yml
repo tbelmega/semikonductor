@@ -53,7 +53,8 @@ steps:
       live_tests_authorized is true only with that authorization and that target, and defaults
       to false. Do not ask for it.
       Scan source_dir for implementation files (.ts, .tsx, .js, .jsx, .py) and test_dir for test
-      files (.test.ts, .spec.ts, .test.tsx, .test.py). Record the parameters, including
+      files: *.test.* and *.spec.* for .ts, .tsx, .js and .jsx, and test_*.py and *_test.py for
+      Python, plus any other test file naming the project's test configuration uses. Record the parameters, including
       scope_confirmed, scope_declined and live_tests_authorized with its target, the number of
       source files, the number of test files,
       the test-to-source ratio, and the source files with no corresponding test file. This

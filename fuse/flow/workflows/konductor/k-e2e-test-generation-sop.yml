@@ -19,12 +19,14 @@
 #   blocked; the owner decides. Declining at the scope gate is --forward-to summary, which cleans
 #   up and reports, as the SOP's decline branch does.
 # - Credential cleanup is verified by a script gate on the summary step, which every path that
-#   does not stop early reaches. It reads .konductor/<slug>/test-run-parameters.md, so a project
-#   policy must not move the test-run-parameters artifact.
+#   does not stop early reaches. It reads .konductor/<slug>/test-run-parameters.md, so when a project's
+#   policy moves the test-run-parameters artifact, the gate fails and its description has the
+#   agent check the file by hand and hand the step to the owner.
 # - Steps 4A to 6 are conditional on output_mode and project_mode, judged by the agent from the
 #   recorded parameters.
-# - prompts_dir: the unit-test-prompts artifact path, tests/page/ by default; a project's policy
-#   moves it.
+# - prompts_dir: the unit-test-prompts artifact path, tests/page/{slug}/ by default, a folder of
+#   its own per workstream under the SOP's tests/page/, so prompts left by another run or by
+#   k-light-ui-testing-sop are never counted as this run's; a project's policy moves it.
 # - The e2e-test-strategy guide needs an output file, so steps 4A and 4B-iv give it one, the
 #   optional e2e-test-strategy artifact; the SOP named none.
 # - Step 6's push "as part of k-full-sdlc" is dropped: fuse-flow's _k-full-sdlc does not call this
@@ -139,7 +141,7 @@ steps:
       - discovery-report
     produces:
       - artifact: unit-test-prompts
-        path: tests/page/
+        path: tests/page/{slug}/
     optional_produces:
       - artifact: e2e-test-strategy
         path: .konductor/{slug}/e2e-test-strategy.md
@@ -278,13 +280,18 @@ steps:
       committed because there is no repository, and do not create one. List the files this run
       created or changed: the specs, the support files (such as cypress/support/commands.ts or
       global-setup.ts), the scaffold's configuration and package files after a bootstrap, and
-      .gitignore when it was edited. With nothing listed there is nothing to commit. Otherwise stage
-      only those files by path and commit only those paths on the current branch, never git add -A
+      .gitignore when it was edited. With nothing listed there is nothing to commit. When the
+      project's house rules leave commits to the owner, do not commit: record the files as left
+      uncommitted for the owner, and say so. Otherwise stage
+      only those files by path and commit only those paths, on the branch the house rules say or
+      the current branch where they say nothing, never git add -A
       or git add ., because the tree may hold the owner's own changes and fixtures/auth/ session
-      state. The message is "test: bootstrap <Cypress|Playwright> functional tests" after a
-      bootstrap and "test: add <Cypress|Playwright> functional tests" otherwise. Report the commit
-      and ask the owner whether to push the branch; push only after they agree. Never push the
-      repository's default branch: right before any push, read it from the "ref:
+      state. Write the message as the project's house rules say; where they say nothing, it is
+      "test: bootstrap <Cypress|Playwright> functional tests" after a bootstrap and "test: add
+      <Cypress|Playwright> functional tests" otherwise. Report the commit
+      and ask the owner whether to push the branch; push only after they agree. Unless the house
+      rules allow pushing to it, never push the repository's default branch: right before any
+      push, read it from the "ref:
       refs/heads/<branch>" line of git ls-remote --symref origin HEAD, not from the cached
       origin/HEAD; if the current branch is the default branch, or the default cannot be resolved,
       do not push and record as IMPORTANT that the commit is local only and why. A failed push
@@ -310,6 +317,11 @@ steps:
       DOM inspection could not confirm that submitting it is safe, so they need the owner's
       confirmation before anyone runs them against the live app. After a declined scope, print the
       discovery summary instead and say that no tests were generated.
+      The cleanup check below reads the run parameters at .konductor/<slug>/test-run-parameters.md.
+      When the READ line for the run parameters names another path, the project's policy moved
+      them and the check fails however the cleanup went; do not change the check. Check the
+      credentials file yourself instead, delete it if this run created it, and report the step
+      blocked with what you found, so the owner can approve the step.
     consumes:
       - test-run-parameters
       - discovery-report
@@ -321,4 +333,6 @@ steps:
           'agent_created_credentials_file=true' "$f" || test ! -e "$(sed -n 's/^credentials_file=//p' "$f")"; }
         description: >-
           A credentials file this run created must be gone, so the plaintext password does not stay
-          on disk.
+          on disk. The check reads the run parameters at .konductor/<slug>/test-run-parameters.md
+          and fails when the project's policy has moved them; the step instruction says what the
+          agent does then.

@@ -5,6 +5,13 @@ frontend change against them with a critical eye, and give a direct, unbiased as
 out pattern violations, unnecessary complexity and missing test coverage. The same standards apply
 when you write frontend code.
 
+These standards are written for a project that uses React and TypeScript with Cloudscape, React
+Hook Form and Zod. Apply an item that names a library only where the project uses that library, as
+its dependencies, its code or its house rules show. Where the project uses another library for the
+same job, check the change against the project's own established pattern instead, and never report
+that a library the project does not use is missing. The library-specific items of the Quality Gate
+block approval only in a project that uses that library.
+
 ## Core Concepts
 
 ### Form Architecture
@@ -64,7 +71,8 @@ No native HTML elements in UI code. Use `Box` instead of `<div>`/`<span>`, `Inpu
 
 Read the complete file before changing it. Make only the minimal change that fixes the specific
 issue, follow the patterns already established in the codebase, and keep backward compatibility.
-Use Cloudscape components only, never native HTML, and follow every item in Standards above.
+Use Cloudscape components only, never native HTML, in a project on Cloudscape, and follow every
+item in Standards above that applies to the project.
 
 The change is not done while TypeScript compilation fails, a test fails, or the change has
 anything the review gate below classes CRITICAL. Fix what it classes IMPORTANT as well. Then review
@@ -81,9 +89,9 @@ Check the change against every item in Standards, then classify findings with th
 
 **CRITICAL (blocks approval):**
 
-- Native HTML element used instead of Cloudscape component
-- Inline style used (`style={{}}`)
-- Form state managed with `useState` instead of React Hook Form
+- Native HTML element used instead of Cloudscape component, in a project on Cloudscape
+- Inline style used (`style={{}}`), in a project on Cloudscape
+- Form state managed with `useState` instead of React Hook Form, in a project on React Hook Form
 - `any` type in production code
 - Test passes only due to implementation detail coupling
 

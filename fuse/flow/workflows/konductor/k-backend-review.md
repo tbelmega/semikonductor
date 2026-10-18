@@ -5,6 +5,12 @@ operations. Review a backend change against them with a critical eye, and give a
 assessment that calls out over-engineering, KISS, YAGNI and DRY violations and unnecessary
 complexity. The same standards apply when you write backend code.
 
+The architectural layering and the DynamoDB items are written for a project built that way. Apply
+them only where the project uses that layering or DynamoDB, as its code or its house rules show;
+elsewhere check the change against the layering and the data access the project already has, and
+do not report a missing facade, factory, repository or single-table design. The other items apply
+to every TypeScript backend.
+
 ## Core Concepts
 
 ### Architectural Layers
@@ -44,7 +50,7 @@ Prefer simple, minimal solutions. Only add abstractions that solve a real, exist
 - [ ] Multi-item updates use transactions (atomic)
 - [ ] Conditional writes used to prevent race conditions
 - [ ] No extra queries: write return values used where available
-- [ ] Key design follows single-table patterns (PK/SK)
+- [ ] Key design follows single-table patterns (PK/SK), in a project with a single-table design
 
 ### Error Handling
 
@@ -65,7 +71,7 @@ Prefer simple, minimal solutions. Only add abstractions that solve a real, exist
 
 Read the complete file before changing it. Make only the minimal change that fixes the specific
 issue, follow the patterns already established in the codebase, and keep backward compatibility.
-Follow every item in Standards above.
+Follow every item in Standards above that applies to the project.
 
 The change is not done while TypeScript compilation fails, a test fails, a breaking change has no
 migration path, or the change has anything the review gate below classes CRITICAL. Fix what it
@@ -84,7 +90,7 @@ Check the change against every item in Standards, then classify findings with th
 **CRITICAL (blocks approval):**
 
 - Race condition risk (non-atomic multi-item update without transaction)
-- Direct database connection bypassing repository layer
+- Direct database connection bypassing repository layer, in a project that has one
 - Missing null check before non-null assertion that will throw at runtime
 - Test passes only due to test order dependency
 

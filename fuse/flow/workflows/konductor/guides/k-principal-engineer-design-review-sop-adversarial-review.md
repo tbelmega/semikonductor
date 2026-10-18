@@ -24,7 +24,7 @@ command is set, run the review yourself in a separate pass and say so in the han
 
 Of the files the step block names for review, the reviewer challenges the design document only,
 at the path the `load` step recorded. The adversarial review file is the author's record of the
-rounds, and is not reviewed.
+rounds; the reviewer does not challenge it.
 
 The reviewer applies the design adversarial review guide to every design decision, trade-off and
 architectural choice, and runs fallacy checking with the argumentation reference on every decision

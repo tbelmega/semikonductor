@@ -18,12 +18,17 @@
 #   additional analysis.
 # - A fresh k-context-gathering pass for debugging after failed fixes is done inside the
 #   additional-analysis step, because fuse-flow has no loops.
-# - The hand-over to the plan SOP names the k-plan-sop workflow, which runs as its own workstream.
+# - The hand-over to the plan SOP names the k-plan-sop workflow, which runs as its own workstream
+#   started after this one and takes the analysis summary and the additional analysis as inputs.
 version: 1
 name: k-context-gathering-sop
 description: Port of the former k-context-gathering SOP, pre-implementation analysis of a target in
   the code and its documentation, with a complexity check that triggers any further analysis,
   ending in a hand-over to planning.
+hands_off_to:
+  - workflow: k-plan-sop
+    when: when the handoff step found every analysis question answered and every required further
+      analysis done
 steps:
   - id: analysis
     title: 1-4. Gather context and synthesize
@@ -88,8 +93,9 @@ steps:
       additional analysis document that every further analysis the complexity assessment required
       has been done. If either is not so, report the step blocked and name what is missing;
       implementation must not start. Otherwise hand over to planning: the implementation plan is
-      the next piece of work, written with the k-plan-sop workflow as its own workstream, with
-      these documents as its input; it defines the success criteria before any code is written. In
+      the next piece of work, written with the k-plan-sop workflow as its own workstream started
+      after this one, which takes the analysis summary and the additional analysis as its
+      inputs; it defines the success criteria before any code is written. In
       the hand-over, give the documents' paths and the recommended approach, as revised by the
       additional analysis when there was one.
     consumes:

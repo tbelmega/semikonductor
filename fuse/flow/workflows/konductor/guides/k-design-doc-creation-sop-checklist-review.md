@@ -24,10 +24,11 @@ the draft yourself in a separate pass and say so in the hand-over.
 2. **The outside-in structure,** in this order: Problem, Requirements, Solution Overview, Decision
    Requested, How It Works, Implementation Details, Implementation Plan. No layer mixes in detail
    that belongs to a later one.
-3. **Diagrams.** Every How It Works subsection opens with a Mermaid diagram, with no exception.
+3. **Diagrams.** Every How It Works subsection opens with a diagram, with no exception.
    Every other section that describes a multi-component interaction, a data flow or a sequence of
-   steps has a Mermaid diagram before its prose, or says why it has none. A diagram follows the
-   guide's Diagrams and Diagram Accuracy sections.
+   steps has a diagram before its prose, or says why it has none. A diagram is in the diagram
+   tool the project's house rules name, and in Mermaid when they name none; one in another tool
+   is not a finding. A diagram follows the guide's Diagrams and Diagram Accuracy sections.
 4. **Decision records.** Every significant decision, as the decision-record guide's section on
    architecture decision records defines it, has an ADR: inline under `## Architecture Decision
    Records`, or in the project's own decision-record location and linked from the draft. Each ADR

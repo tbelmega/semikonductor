@@ -8,7 +8,8 @@
 # - One step: each SOP step adds a section to the same plan, and nothing is handed on before the
 #   plan is complete.
 # - The SOP's outputs, which it only returned in chat, are sections of one written plan, so a later
-#   workstream (k-verify-sop) can read the success criteria.
+#   workstream (k-verify-sop) can read the success criteria. Started after a k-context-gathering-sop
+#   workstream, the plan takes its analysis documents as inputs.
 # - The plan's Verification phase names the k-verify-sop workflow instead of the verify SOP.
 # - The plan's artifact id is work-plan, not the library's implementation-plan, whose guide and
 #   template describe a different plan.
@@ -19,12 +20,23 @@ name: k-plan-sop
 description: Port of the former k-plan SOP, a work breakdown for one objective with success criteria,
   prioritized and estimated tasks, dependencies, the skill each task needs, a buffered effort
   baseline and a phased execution plan.
+inputs:
+  - artifact: analysis-summary
+    description: The analysis summary, when the plan follows k-context-gathering-sop.
+  - artifact: additional-analysis
+    description: The additional analysis, when the plan follows k-context-gathering-sop and its
+      complexity assessment required one.
+hands_off_to:
+  - workflow: k-verify-sop
+    when: once the plan has been executed, to verify the work against the plan's success criteria
 steps:
   - id: plan
     title: 1-6. Plan
     instruction: >
-      Write the plan for the objective. The objective is required; ask for it if the request does
-      not give it. Take the scope (directories, services or components) and the constraints
+      Write the plan for the objective. The objective is required: take it from the request, or,
+      when the plan follows a context-gathering workstream, from the analysis summary's
+      recommended approach, as revised by the additional analysis; ask for it if neither gives
+      it. Take the scope (directories, services or components) and the constraints
       (deadlines, technology restrictions, team availability) from the request when it gives them.
       Write these sections in this order, each finished before the next.
       (1) Success Criteria, before any task: Functional (specific behaviors that must work),
@@ -54,6 +66,9 @@ steps:
       work changes anything user-facing. State the rules for executing the plan: mark each task
       complete immediately after finishing it, and verify every requirement before declaring the
       work done.
+    consumes:
+      - analysis-summary
+      - additional-analysis
     produces:
       - artifact: work-plan
         path: .konductor/{slug}/plan.md

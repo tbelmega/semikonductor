@@ -53,18 +53,24 @@ steps:
       is required and can be written first with the design guide and its interview
       (fuse/flow/library/artifacts/design/), and report this step as blocked. Otherwise show the
       owner the list of artifacts found and ask "Proceed with review of these artifacts? [y/n]"; do
-      not go on without their explicit confirmation. If dry_run is true, stop here and report "DRY
+      not go on without their explicit confirmation. When the owner
+      answers no, they either change the list, which sends the work back to this step, or stop:
+      the gate then records the answer no, and the review step is skipped. If dry_run is true, stop here and report "DRY
       RUN" with what would be reviewed, each artifact found or not found, and that no report was
       generated (dry_run=true).
     produces:
       - artifact: design-artifact-inventory
         path: .konductor/{slug}/design-artifact-inventory.md
     gates:
-      - owner-action: answer "Proceed with review of these artifacts? [y/n]"
+      - owner-action: >-
+          answer "Proceed with review of these artifacts? [y/n]", recording yes or no in the
+          approval's note; an approval with the answer no skips the review step
   - id: review
     title: 3-6. Evaluate, report and recommend
     condition:
-      agent: the owner did not ask for a dry run (dry_run is false or not given)
+      agent: >-
+        the owner did not ask for a dry run (dry_run is false or not given) and answered yes to
+        reviewing the artifact list
     instruction: >
       Read every artifact in the confirmed list, in this order: system design, threat model, API
       specs, data models, security policies, diagrams. Note an optional artifact that is missing as

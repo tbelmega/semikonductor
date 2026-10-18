@@ -92,6 +92,8 @@ steps:
       component, page or hook paths. Skip file types that
       no lens matches, and say which were skipped. Tell each lens that the scope is confirmed: it
       reports every finding and leaves fixing to the owner, and it does not ask whether to fix them.
+      A lens's items for one stack or library apply only where the project uses it, as the lens
+      says.
 
       Write the cleanup report with the sections Removed Items, Preserved Items and Review
       Findings. Removed Items states the count of items removed per category and lists each with

@@ -67,7 +67,8 @@ steps:
       owner's request when elicitation was skipped. If neither names a topic, ask the owner once and
       wait. Apply the design guide before drafting. Follow the outside-in structure: Problem,
       Requirements, Solution Overview, Decision Requested (the guide's checklist asks for it), How
-      It Works, Implementation Details, Implementation Plan. Draw a Mermaid diagram before writing
+      It Works, Implementation Details, Implementation Plan. Draw a diagram, in the diagram tool
+      the project's house rules name and in Mermaid when they name none, before writing
       the prose of each section that describes a multi-component interaction, a data flow or a
       sequence of steps, such as the Solution Overview and How It Works. Every How It Works
       subsection opens with a diagram, without exception. Elsewhere you may leave out a diagram
@@ -141,8 +142,9 @@ steps:
       reviewer works single-voice. After each round, apply the corrections, then check the
       document against the draft step's maker-checker rules again and fix every CRITICAL finding
       before the next round. Do not discard any finding silently: each is fixed, or recorded with
-      your reason as rejected, for the owner to confirm as an engineer override. The guide gives
-      the exit condition and when to stop the loop for the owner. Write the adversarial review
+      your reason as rejected, for the owner to confirm as an engineer override. The gate's own
+      review guide (guides/k-design-doc-creation-sop-adversarial-review.md next to this workflow)
+      gives the exit condition and when to stop the loop for the owner. Write the adversarial review
       summary: the panel decision, for each round its findings by severity and the corrections
       applied, the findings marked for engineer override, and the issues still open.
     consumes:

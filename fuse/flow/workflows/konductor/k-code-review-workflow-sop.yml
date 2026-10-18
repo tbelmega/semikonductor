@@ -68,10 +68,14 @@ steps:
 
       The categories. Backend: .ts and .js files in paths matching **/handler*, **/service*,
       **/repository*, **/lambda*, **/util* or **/middleware*. Frontend: .tsx and .jsx files, and .ts
-      files in **/component*, **/page* or **/hook*. Infra: .ts files in **/cdk*, **/stack*,
-      **/construct* or **/infra*. A file that matches several categories goes to the first of
-      infra, frontend, backend. Everything else is uncategorized. When review_type is not all, keep
-      only the files of that category.
+      files in **/component*, **/page* or **/hook*. Infra: CDK TypeScript (.ts) and CDK Python
+      (.py) files in **/cdk*, **/stack*, **/construct* or **/infra*, and CloudFormation templates
+      (.yaml, .yml, .json or .template files with a top-level Resources section of AWS:: types),
+      the types the infrastructure lens reviews. A file that matches several categories goes to the
+      first of infra, frontend, backend. Everything else is uncategorized. CDK code in another
+      language, such as Java, C# or Go, is uncategorized too: list it in the review scope as
+      infrastructure the infrastructure lens does not cover. When review_type is not all, keep only
+      the files of that category.
 
       When there are infra files, the infrastructure review needs the target environment
       (development, staging or production). Ask the owner for it unless they already said, and ask
@@ -80,7 +84,8 @@ steps:
       Write the review scope: the parameters as resolved, including cr_url when the owner gave
       one, and how base was found, the diff command or the fallback used and why, the file lists
       per category including uncategorized, the counts per category, and for infra files the
-      infrastructure type (CDK TypeScript, from the .ts files), their location and the
+      infrastructure type the infrastructure lens asks for (CDK TypeScript, CDK Python,
+      CloudFormation YAML or CloudFormation JSON, from the infra files), their location and the
       environment.
     produces:
       - artifact: review-diff
@@ -102,7 +107,8 @@ steps:
       giving it the infrastructure type, the location and the environment from the review scope.
       Skip a category that has no files or that review_type excludes, and say so. Tell each lens
       that the scope is confirmed: it reports every finding and leaves fixing to the caller, and
-      it does not ask whether to fix them.
+      it does not ask whether to fix them. A lens's items for one stack or library apply only
+      where the project uses it, as the lens says.
 
       Merge all findings into one list sorted CRITICAL, then IMPORTANT, then SUGGESTION, using each
       lens's own Quality Gate classes. Remove a finding that several lenses report, keeping one.
@@ -172,7 +178,9 @@ steps:
       | SUGGESTION: N` and the verdict, then `## Critical Issues`, `## Important Issues` and `##
       Suggestions`, each a numbered list of its findings with file:line references. The verdict is
       NEEDS FIXES when a CRITICAL or IMPORTANT issue remains, and READY FOR REVIEW otherwise. When the review scope records that the diff target was
-      unresolved, say in the report that every file under source_dir was treated as changed. Do
+      unresolved, say in the report that every file under source_dir was treated as changed. When
+      it lists infrastructure the infrastructure lens does not cover, name those files in the
+      report as not reviewed for infrastructure. Do
       not print the report in your message; give its path, the verdict and the counts. Do not
       offer to fix the issues.
     consumes:

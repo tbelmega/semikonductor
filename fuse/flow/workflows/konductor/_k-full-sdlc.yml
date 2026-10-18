@@ -9,7 +9,9 @@
 # Deliberate deviations from the SOP:
 # - skip_phases: the owner skips or jumps with fuse-flow's --skip and --forward-to.
 # - Worktree isolation and parallel features: one workstream per checkout, features one after
-#   another on their own branches.
+#   another, by default on their own branches. The branching, the commits and how the work
+#   reaches review follow the project's house rules; the SOP's branch per feature and pull
+#   request per feature are the defaults where the house rules say nothing.
 # - The SOP's fix-cycle budget: the round cap of each agent gate.
 # - The unattended BLOCKED branches: the agent reports the step blocked and the owner decides.
 version: 1
@@ -72,7 +74,7 @@ steps:
     instruction: >
       Have the design reviewed as the gate below says. Fix every CRITICAL finding in the design
       itself, never by deferring it to implementation, and record the findings and their
-      resolution.
+      resolution in the design review record.
     produces:
       - artifact: design-review
         path: .konductor/{slug}/design-review.md
@@ -86,7 +88,9 @@ steps:
       - agent: >
           review the design as a principal engineer: first against its review guide (writing
           quality, then production readiness), then with adversarial-review.md next to it. A
-          P0, P1 or CRITICAL finding is a required fix
+          P0, P1 or CRITICAL finding is a required fix. Of the files the review names next, the
+          design review record is the author's account of the rounds: check only that it does not
+          misreport them
         max_rounds: 2
       - owner-action: approve the reviewed design
         route_back_to: design
@@ -106,13 +110,16 @@ steps:
   - id: specs
     title: 6. Specs (per feature)
     instruction: >
-      For each feature in the split write .kiro/specs/<feature>/requirements.md, design.md and
-      tasks.md, as the spec index guide says, then list the spec directories in the index. The
-      owner approves the
-      specs for all features at once.
+      For each feature in the split write requirements.md, design.md and tasks.md, as the spec
+      index guide says, in the feature's spec directory: <feature>/ inside the feature-specs folder
+      below, which a project's policy can move. When the project's house rules keep feature specs
+      elsewhere and its policy has not moved the folder, write them there, and report the folder
+      not produced with that location. Then list the spec directories in the index. The owner approves the specs for all features at once.
     produces:
       - artifact: spec-index
         path: .konductor/{slug}/spec-index.md
+      - artifact: feature-specs
+        path: .kiro/specs/
     consumes:
       - feature-split
       - user-stories
@@ -123,18 +130,23 @@ steps:
   - id: implementation
     title: 7. Implementation (per feature)
     instruction: >
-      Before cutting the first branch, confirm the working tree is clean, and ask the owner if it
-      is not. Implement each feature from its tasks.md on its own branch, with unit and integration
-      tests. On a greenfield project build the scaffold first, from the design. Run the project's
-      check on each feature and commit the feature on its branch, following
-      fuse/flow/workflows/konductor/k-git-workflow.md in the fuse-konductor clone, before
-      starting the next. Record each feature's branch, commit and check result in the
-      implementation report.
+      Before you start, confirm the working tree is clean, and ask the owner if it is not.
+      Implement each feature from its tasks.md, with unit and integration tests. On a greenfield
+      project build the scaffold first, from the design. Branch and commit as the project's house
+      rules say, including whether, when and how finely to commit, and say that you did; where
+      they say nothing, follow fuse/flow/workflows/konductor/k-git-workflow.md in the
+      fuse-konductor clone, with each feature on its own branch, committed before you start the
+      next. Run the project's check on each feature. The check gate below runs only on what is
+      checked out when you continue, so when the features are on separate branches, run the
+      check on each branch yourself. Record each feature's branch, changed files, commits if any
+      and check result in the implementation report, so code review can find each feature's diff
+      whatever the commit shape.
     produces:
       - artifact: implementation-report
         path: .konductor/{slug}/implementation-report.md
     consumes:
       - spec-index
+      - feature-specs
       - design
       - codebase-analysis
     updates:
@@ -145,10 +157,15 @@ steps:
   - id: code-review
     title: 8. Code review and pull request (per feature)
     instruction: >
-      Open one pull request per feature branch, or push the branch when the project has no pull
-      request tool. Have each feature's diff reviewed as the gate below says, fix the required
-      findings on the feature branch, and record each feature's review and its pull request or
-      branch. Never merge.
+      Have each feature's diff, as the implementation report records it, reviewed as the gate
+      below says, fix the required findings where the implementation report places the feature,
+      and record each feature's review. When the features are on
+      separate branches, run the check on each branch yourself, as in the implementation step.
+      Then make each feature ready for the owner the way the project's house rules say a change
+      reaches review, such as a pull request or a pushed branch, and say that you followed them;
+      where they say nothing, open one pull request per feature branch, or push the branch when
+      the project has no pull request tool. Record each feature's pull request, branch or other
+      outcome. Never merge.
     produces:
       - artifact: code-review
         path: .konductor/{slug}/code-review.md
@@ -161,16 +178,23 @@ steps:
     gates:
       - check: default
       - agent: >
-          review each feature branch's diff against its spec. A CRITICAL finding is a required fix
+          review each feature's diff against its spec. When the features are on separate
+          branches, run one review per branch with that branch checked out, so that the range
+          named next ends at the feature branch's tip. A CRITICAL finding is a required fix.
+          Of the files the review names next, the code review record is the author's account of
+          the reviews: check only that it does not misreport them
         max_rounds: 2
         route_back_to: implementation
-      - owner-action: approve the pull requests or pushed branches for all features at once
+      - owner-action: >-
+          approve the reviewed features, as pull requests, pushed branches or the way the house
+          rules say, all at once
         route_back_to: implementation
   - id: testing
     title: 9. Testing (per feature)
     instruction: >
-      Find the coverage gaps for what was implemented, write the missing tests on the feature branch
-      and update its pull request, or push the branch when the feature has no pull request. Include
+      Find the coverage gaps for what was implemented, write the missing tests where the
+      implementation report places the feature, and update the feature's pull request, branch or other review the way the
+      code review step made it ready. Include
       a security test plan per feature, as the security tests section the test coverage guide names,
       and count its critical findings as gaps; a plan that is only a task list counts as not
       evaluated. When the owner has given a deployed URL, has authorized test runs against it
@@ -198,10 +222,14 @@ steps:
   - id: documentation
     title: 10. Documentation
     instruction: >
-      Write or update the README and developer guide for what shipped, write AGENTS.md if it is
-      missing or update it where commands or structure changed (the agents-md guide,
-      fuse/flow/library/artifacts/agents-md/guide.md in the fuse-konductor clone), and
-      apply the humanize-writing skill. Record the accuracy check's result.
+      Write or update the README and developer guide for what shipped. Update the project's agent
+      instruction file where commands or structure changed: the file the project already uses,
+      such as AGENTS.md, CLAUDE.md or steering files, or a new AGENTS.md when it has none (the
+      agents-md guide, fuse/flow/library/artifacts/agents-md/guide.md in the fuse-konductor
+      clone). Apply the humanize-writing skill. Record the accuracy check's result in the
+      documentation accuracy record. Report every file you change other than README.md with
+      --updated, such as the developer guide and the agent instruction file, so the hand-over
+      lists it; their paths are the project's own, so the step does not declare them.
     produces:
       - artifact: doc-accuracy
         path: .konductor/{slug}/doc-accuracy.md
@@ -215,15 +243,17 @@ steps:
         path: README.md
     gates:
       - agent: >
-          check every claim in the README, the developer guide and AGENTS.md against the
-          implementation (the doc-accuracy-analyzer skill). An incorrect claim is a required fix
+          check every claim in the README, the developer guide and the agent instruction file
+          against the implementation (the doc-accuracy-analyzer skill). An incorrect claim is a
+          required fix. Of the files the review names next, the documentation accuracy record is
+          the author's account of the check: check only that it does not misreport it
         max_rounds: 2
   - id: final-summary
     title: 11. Final summary
     instruction: >
       Write the summary for a reader who did not watch the work: what was delivered (artifact paths,
-      branches, pull requests), what was verified and how, which features need revalidation, and
-      what is left for the owner.
+      branches, and pull requests where there are any), what was verified and how, which
+      features need revalidation, and what is left for the owner.
     produces:
       - artifact: sdlc-summary
         path: .konductor/{slug}/sdlc-summary.md

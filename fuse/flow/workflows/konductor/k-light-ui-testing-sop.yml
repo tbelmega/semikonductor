@@ -22,10 +22,12 @@
 #   blocked; the owner decides. Declining at the scope gate is --forward-to report, which cleans
 #   up, as the SOP's decline branch does.
 # - Credential cleanup is verified by a script gate on the report step, which every path that
-#   does not stop early reaches. It reads .konductor/<slug>/test-run-parameters.md, so a project
-#   policy must not move the test-run-parameters artifact.
-# - output_dir: the ui-test-prompts artifact path, tests/page/ by default; a project's policy
-#   moves it.
+#   does not stop early reaches. It reads .konductor/<slug>/test-run-parameters.md, so when a project's
+#   policy moves the test-run-parameters artifact, the gate fails and its description has the
+#   agent check the file by hand and hand the step to the owner.
+# - output_dir: the ui-test-prompts artifact path, tests/page/{slug}/ by default, a folder of its
+#   own per workstream under the SOP's tests/page/, so prompts left by another run or by
+#   k-e2e-test-generation-sop are never counted as this run's; a project's policy moves it.
 # - Step 6's results are written to ui-test-results, so the report can be resumed.
 # - Prompts that submit a form whose validation trigger is unknown are flagged and named in the
 #   run question, and scope_confirmed covers them only when the owner's advance authorization
@@ -132,7 +134,7 @@ steps:
       - discovery-report
     produces:
       - artifact: ui-test-prompts
-        path: tests/page/
+        path: tests/page/{slug}/
 
   - id: execute
     title: Step 5. Review prompts, and Step 6. Execute test prompts
@@ -181,6 +183,11 @@ steps:
       are for manual review; after a declined scope, say that no prompts were written. Delete the
       credentials file if this run created it. Next steps: fix the failing features and run the
       prompts again, or move to full Cypress or Playwright spec generation once the page is stable.
+      The cleanup check below reads the run parameters at .konductor/<slug>/test-run-parameters.md.
+      When the READ line for the run parameters names another path, the project's policy moved
+      them and the check fails however the cleanup went; do not change the check. Check the
+      credentials file yourself instead, delete it if this run created it, and report the step
+      blocked with what you found, so the owner can approve the step.
     consumes:
       - test-run-parameters
       - ui-test-prompts
@@ -191,4 +198,6 @@ steps:
           'agent_created_credentials_file=true' "$f" || test ! -e "$(sed -n 's/^credentials_file=//p' "$f")"; }
         description: >-
           A credentials file this run created must be gone, so the plaintext password does not stay
-          on disk.
+          on disk. The check reads the run parameters at .konductor/<slug>/test-run-parameters.md
+          and fails when the project's policy has moved them; the step instruction says what the
+          agent does then.

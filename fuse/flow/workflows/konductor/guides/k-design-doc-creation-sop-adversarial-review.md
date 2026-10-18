@@ -21,7 +21,8 @@ set, run the review yourself in a separate pass and say so in the hand-over.
 ## What it looks at
 
 Of the files the step block names for review, the reviewer challenges the design document only.
-The adversarial review summary is the author's record of the rounds, and is not reviewed.
+The adversarial review summary is the author's record of the rounds; the reviewer does not
+challenge it.
 
 The reviewer applies the design adversarial review guide to every major architectural decision,
 trade-off and AWS service choice: its review checklist, its fallacy checking against the

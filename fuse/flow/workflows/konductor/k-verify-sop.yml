@@ -9,7 +9,8 @@
 #   next, so there is no hand-over in between. The CDK checks are a conditional part of the
 #   instruction rather than a conditional step, because their results go into the same report.
 # - The SOP's "from the plan SOP" success criteria come from a plan written with the k-plan-sop
-#   workflow, which runs as its own workstream.
+#   workflow, which runs as its own workstream; started after it, this workflow takes its plan
+#   as the work-plan input.
 # - A check: default gate is added, so the engine itself refuses to finish while the project's
 #   check fails. The SOP's build, test and lint detection stays in the instruction, for the
 #   per-package evidence.
@@ -26,6 +27,10 @@ name: k-verify-sop
 description: Port of the former k-verify SOP, evidence that a finished change works, from the build,
   the tests, lint, CDK checks where they apply and a manual check against the success criteria,
   collected in one report.
+inputs:
+  - artifact: work-plan
+    description: The plan whose Success Criteria the change is verified against, when the work
+      follows a k-plan-sop workstream.
 steps:
   - id: verify
     title: 1-7. Verify
@@ -39,7 +44,8 @@ steps:
       "no shell tool in this session" and give the owner the exact commands; a generic subagent
       that has a shell tool may run them instead.
       (1) Pre-check, before any build: the success criteria are defined, taken from the request or
-      from the Success Criteria section of this task's plan written with the k-plan-sop workflow;
+      from the Success Criteria section of the plan given as this workstream's input, or of this
+      task's plan written with the k-plan-sop workflow;
       if they are not, ask the owner to define them or extract them from the task context. Every
       TODO comment this implementation introduced is resolved, or deferred with a tracked
       follow-up. Do not build until both hold.
@@ -83,6 +89,8 @@ steps:
       Final Status. A Skipped item is not a failure. If any checklist item fails, the Final Status
       says so, and you report the step blocked with the failing items instead of declaring the task
       complete.
+    consumes:
+      - work-plan
     produces:
       - artifact: verification-evidence
         path: .konductor/{slug}/verification-evidence.md

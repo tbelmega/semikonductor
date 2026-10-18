@@ -41,15 +41,21 @@ steps:
       conversation. If the owner has not given it, ask for it before anything else. Do not ask for
       the report path; the default below applies. When doc_input is a file path, check that the
       file exists before going on. When it is inline or in the conversation, save it unchanged to
-      .konductor/<the workstream slug>/design-input.md, which is the file the later steps correct.
+      the design-input path below, which is the file the later steps correct. When doc_input is a
+      file path, the later steps correct that file instead: report design-input as not produced,
+      with the reason "doc_input is a file path; the design document is the path in the design
+      claims".
       Report the document's title, section count and approximate word count. Extract every
       verifiable claim (AWS service assertions, performance numbers, cost estimates) and every
       design decision, for the later steps. Do not modify the design document or any other file
-      except this step's own output, and do not run builds or tests. Write the document's path,
-      title, section inventory, word count, claim list and decision list to the path below.
+      except this step's own outputs, and do not run builds or tests. Write the document's path,
+      title, section inventory, word count, claim list and decision list to the design-claims
+      path below.
     produces:
       - artifact: design-claims
         path: .konductor/{slug}/design-claims.md
+      - artifact: design-input
+        path: .konductor/{slug}/design-input.md
   - id: quality-gate
     title: 1. Quality gate (design review guide, Part 1)
     instruction: >
@@ -65,6 +71,7 @@ steps:
       revised document again.
     consumes:
       - design-claims
+      - design-input
     produces:
       - artifact: design-quality-score
         path: .konductor/{slug}/design-quality-score.md
@@ -86,6 +93,7 @@ steps:
       confidence scores and the classified findings to the path below.
     consumes:
       - design-claims
+      - design-input
       - design-quality-score
     produces:
       - artifact: architecture-principles-review
@@ -99,8 +107,10 @@ steps:
       opt-in as the design adversarial review guide describes
       (fuse/flow/library/artifacts/design/adversarial-review.md in the fuse-konductor clone),
       or go ahead single-voice without the panel. Pass that same value to every round's
-      reviewer; do not ask again or settle it again per round. Check the escalation rule in the
-      guide before applying a round's corrections. After each round, apply the corrections to the
+      reviewer; do not ask again or settle it again per round. Before applying a round's
+      corrections, check the escalation rule in the gate's own review guide
+      (guides/k-principal-engineer-design-review-sop-adversarial-review.md next to this workflow),
+      which also gives the exit condition and the round cap. After each round, apply the corrections to the
       document, then apply Part 1 of the design review guide again to confirm the quality score is
       still 3 or more, and fix the writing first if it is not. Keep the round history: the round
       number, the finding counts by severity, the corrections applied, and the quality score from
@@ -111,6 +121,7 @@ steps:
       blocked, as the guide says, so the owner has the verdict and the evidence.
     consumes:
       - design-claims
+      - design-input
       - design-quality-score
       - architecture-principles-review
     updates:
@@ -124,8 +135,9 @@ steps:
         path: docs/design/{slug}-principal-engineer-review.md
     gates:
       - agent: >
-          challenge every design decision, trade-off and architectural choice with the
-          design adversarial review guide, run fallacy checking on every decision justification,
+          challenge every design decision, trade-off and architectural choice in the design
+          document at the path the load step recorded (the design-input copy when it was given
+          inline), and no other file of the repository, with the design adversarial review guide, run fallacy checking on every decision justification,
           and classify each finding CRITICAL (architectural), CRITICAL (factual), IMPORTANT or
           MINOR
         guide: guides/k-principal-engineer-design-review-sop-adversarial-review.md
@@ -158,6 +170,7 @@ steps:
       one line on each remaining CRITICAL finding.
     consumes:
       - design-claims
+      - design-input
       - design-quality-score
       - architecture-principles-review
       - adversarial-review

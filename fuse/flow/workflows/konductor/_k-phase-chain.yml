@@ -11,8 +11,9 @@
 # - The independent checker runs on the user stories, the design and the code; the feature split
 #   and the specs are checked by their own guides only, to keep the chain light.
 # - Per-feature work happens inside one step per phase, because fuse-flow has no loops.
-# - QA reports its findings instead of handing them back to the developer; the agent suggests
-#   sending the work back when a gap leaves an acceptance criterion untested.
+# - QA reports its findings instead of handing them back to the developer. QA is the last step
+#   and has no owner gate, so the workflow is complete when it ends and cannot be sent back; the
+#   agent recommends follow-on work when a gap leaves an acceptance criterion untested.
 version: 1
 name: k-phase-chain
 description: Konductor's lighter six-phase chain, PM through QA, with no owner gates, from the "SDLC
@@ -58,11 +59,16 @@ steps:
   - id: specs
     title: 4. Developer (specs, per feature)
     instruction: >
-      For each feature in the split write .kiro/specs/<feature>/requirements.md, design.md and
-      tasks.md, as the spec index guide says, then list the spec directories in the index.
+      For each feature in the split write requirements.md, design.md and tasks.md, as the spec
+      index guide says, in the feature's spec directory: <feature>/ inside the feature-specs folder
+      below, which a project's policy can move. When the project's house rules keep feature specs
+      elsewhere and its policy has not moved the folder, write them there, and report the folder
+      not produced with that location. Then list the spec directories in the index.
     produces:
       - artifact: spec-index
         path: .konductor/{slug}/spec-index.md
+      - artifact: feature-specs
+        path: .kiro/specs/
     consumes:
       - feature-split
       - user-stories
@@ -70,14 +76,18 @@ steps:
   - id: implementation
     title: 5. Developer (implementation, per feature)
     instruction: >
-      Implement each feature from its tasks.md with tests. Commit each feature separately, with
-      commit messages that name the feature's slug, so code review can read each feature's diff.
-      Record per feature its commits and the check's result in the implementation report.
+      Implement each feature from its tasks.md with tests. Commit as the project's house rules say,
+      whether, when and how finely to commit and how to write the message, and say that you
+      followed them; where they say nothing, commit each feature separately and name the
+      feature's slug in the message. Record per feature its changed files, its commits if any and
+      the check's result in the implementation report, so code review can find each feature's
+      diff whatever the commit shape.
     produces:
       - artifact: implementation-report
         path: .konductor/{slug}/implementation-report.md
     consumes:
       - spec-index
+      - feature-specs
     updates:
       - artifact: code
         path: .
@@ -86,8 +96,8 @@ steps:
   - id: code-review
     title: 5a. Code review (per feature)
     instruction: >
-      Have the git diff of each feature reviewed as the gate below says, fix every CRITICAL finding
-      in the implementation, and record the review.
+      Have the git diff of each feature, as the implementation report records it, reviewed as the
+      gate below says, fix every CRITICAL finding in the implementation, and record the review.
     produces:
       - artifact: code-review
         path: .konductor/{slug}/code-review.md
@@ -99,7 +109,10 @@ steps:
         path: .
     gates:
       - check: default
-      - agent: review the git diff of each feature; a CRITICAL finding fails the round
+      - agent: >-
+          review the git diff of each feature; a CRITICAL finding fails the round. Of the files
+          the review names next, the code review record is the author's account of the review:
+          check only that it does not misreport it
         max_rounds: 2
         route_back_to: implementation
   - id: qa
@@ -110,9 +123,10 @@ steps:
       fuse-konductor clone) and the security tests, and check user-facing text when there is
       any; each is a section of the report, and the test coverage guide names the guides for the
       security tests and the user-facing text.
-      This is the last step; findings are reported, not routed back to implementation. Put any gap
-      that leaves an acceptance criterion untested at the top, and suggest sending the work back to
-      implementation in the hand-over.
+      This is the last step; findings are reported, not routed back to implementation, and the
+      workflow ends with this step. Put any gap that leaves an acceptance criterion untested at
+      the top, and in the hand-over recommend closing it as follow-on work started after this
+      workstream.
     produces:
       - artifact: test-coverage
         path: .konductor/{slug}/test-coverage.md

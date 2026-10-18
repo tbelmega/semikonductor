@@ -78,9 +78,11 @@ steps:
       patterns such as deprecated APIs. Rate each item CRITICAL (actively causing bugs, blocking
       features or creating a security risk), IMPORTANT (slowing development or adding maintenance
       burden) or SUGGESTION (cosmetic or a minor inconsistency), with file paths.
-      Cite only code you actually found; never fabricate an example. Keep the Mermaid diagrams
-      renderable: group related components into subgraphs and show top-level module relationships
-      rather than single files, with graph TD for hierarchies and graph LR for flows. If the
+      Cite only code you actually found; never fabricate an example. Where the project's house
+      rules name a diagram tool other than Mermaid, draw the diagrams above in it. Keep the
+      diagrams renderable: group related components into subgraphs and show top-level module
+      relationships rather than single files, in Mermaid with graph TD for hierarchies and graph
+      LR for flows. If the
       codebase is too large for one pass, analyse a few focus areas at a time and keep appending
       to the report.
       Finish the report in this order: the header lines, an Executive Summary of three to five
