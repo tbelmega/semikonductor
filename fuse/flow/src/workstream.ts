@@ -3,11 +3,11 @@
 // step stands. Only fuse-flow writes it, and git ignores it.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
 import { withLock } from "./lock.ts";
-import { decisionsDir, findWorkflow, projectsFile, workstreamFile, workstreamsDir } from "./project.ts";
+import { decisionsDir, findWorkflow, isWorkflowPath, projectsFile, workstreamFile, workstreamsDir } from "./project.ts";
 import { registerProject } from "./registry.ts";
 import { type StepState, type Workstream, WorkstreamSchema } from "./schemas/workstream.ts";
 
@@ -58,7 +58,20 @@ export function readWorkstream(root: string, slug: string): Workstream {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join(".") || "(top level)"}: ${i.message}`);
     throw new FlowError(`${path} is not a valid workstream file; it is written by fuse-flow only:\n${issues.join("\n")}`);
   }
-  return parsed.data;
+  // A workflow file inside the repository is recorded relative to its root,
+  // so the workstream survives a move of the checkout; in memory it is
+  // absolute, as start and the workflow gates name it.
+  const ws = parsed.data;
+  if (isWorkflowPath(ws.workflow) && !isAbsolute(ws.workflow)) ws.workflow = resolve(root, ws.workflow);
+  return ws;
+}
+
+// The workflow as the state file records it: relative to the repository root
+// when it is a file inside it, else as it is.
+function recordedWorkflow(root: string, workflow: string): string {
+  if (!isWorkflowPath(workflow) || !isAbsolute(workflow)) return workflow;
+  const rel = relative(root, workflow);
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) && isWorkflowPath(rel) ? rel : workflow;
 }
 
 // Read the state file, let `change` modify it, write it back. The lock makes
@@ -78,7 +91,7 @@ export function updateWorkstream(
     // Write a temporary file and rename it over the old one, so an
     // interrupted write never leaves a half-written state file.
     const path = workstreamFile(root, slug);
-    writeFileSync(`${path}.tmp`, YAML.stringify(WorkstreamSchema.parse(ws)));
+    writeFileSync(`${path}.tmp`, YAML.stringify(WorkstreamSchema.parse({ ...ws, workflow: recordedWorkflow(root, ws.workflow) })));
     renameSync(`${path}.tmp`, path);
   });
   // Komposer finds the project's runs through this list. Recording it is not

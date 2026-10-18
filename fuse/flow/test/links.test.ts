@@ -180,6 +180,32 @@ test("a file the owner moved and the producer rewrote in a later pass is read, a
   expect(repo.state("tgt").inputs).toEqual({ specification: "approved/spec.md" });
 });
 
+test("a file an earlier fuse-flow recorded, then moved by the owner and rewritten, is read and handed on at its new path only", () => {
+  install(
+    "source",
+    `version: 1\nname: source\nsteps:\n  - id: author\n    instruction: Write the specification.\n    produces: { artifact: specification, path: drafts/spec.md }\n    gates:\n      - owner-action: approve the specification\n  - id: consumer\n    instruction: Build to the specification.\n    consumes: [specification]\n`,
+  );
+  install("target", `version: 1\nname: target\ninputs:\n  - artifact: specification\n    required: true\nsteps:\n  - id: build\n    instruction: Build it.\n    consumes: [specification]\n`);
+  repo.ok("start", "src", "--workflow", "source");
+  repo.write("drafts/spec.md", "behaviour A\n");
+  repo.ok("continue", "src");
+  // A state file an earlier fuse-flow wrote kept only the records, without files.
+  const old = repo.state("src");
+  delete old.steps.author.files;
+  repo.write(join(".konductor", "workstreams", "src.yml"), Bun.YAML.stringify(old, null, 2));
+  repo.write(".konductor/policy-overrides.yml", "artifacts:\n  specification:\n    path: approved/spec.md\n");
+  repo.ok("continue", "src", "--back-to", "author", "--note", "Use approved/spec.md for the rewritten specification.");
+  repo.write("approved/spec.md", "behaviour B\n");
+  repo.ok("continue", "src");
+  const local = repo.ok("continue", "src", "--owner-approved", "--note", "Approve behaviour B.");
+  expect(local).toContain("READ approved/spec.md (from step author).");
+  expect(local).not.toContain("drafts/spec.md");
+  expect(repo.state("src").steps.author.files.map((f: any) => f.path)).toContain("drafts/spec.md");
+  const after = repo.ok("start", "tgt", "--workflow", "target", "--after", "src");
+  expect(after).toContain("READ approved/spec.md (input specification).");
+  expect(repo.state("tgt").inputs).toEqual({ specification: "approved/spec.md" });
+});
+
 describe("a document inside a folder the same step updates", () => {
   // As in custom-example-small: the report lies inside the code the step updates.
   const BUILD = `version: 1

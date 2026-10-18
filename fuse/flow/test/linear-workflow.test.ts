@@ -53,7 +53,7 @@ test("start mints a workstream that records its workflow, hands out the first st
     ].join("\n"),
   );
   const state = repo.state("feat");
-  expect(state.workflow).toBe(join(repo.root, "workflow-source.yml"));
+  expect(state.workflow).toBe("workflow-source.yml");
   expect(state.steps.design.status).toBe("IN_PROGRESS");
   expect(state.steps.design.history[0]).toEndWith(" handed out");
   expect(state.steps.build).toEqual({ status: "PENDING", artifacts: [], history: [] });

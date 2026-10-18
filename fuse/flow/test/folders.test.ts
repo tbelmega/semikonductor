@@ -147,3 +147,19 @@ steps:
   repo.write("reports/new.md");
   expect(repo.ok("continue", "s", "--updated", "reports/new.md")).toContain("READ reports/new.md (from step write).");
 });
+
+test("a folder an earlier fuse-flow recorded as existing, by its path as declared, keeps its protection", () => {
+  // Before declared paths were normalized, the state file kept them as the
+  // workflow wrote them: ./reports/ or docs/../reports/.
+  for (const [slug, declared] of [["dot", "./reports/"], ["parent", "docs/../reports/"]]) {
+    repo.write("reports/unrelated.md");
+    repo.start(slug, `version: 1\nname: w\nsteps:\n  - id: write\n    instruction: Write the report.\n    produces:\n      - artifact: report\n        path: ${declared}\n`);
+    const old = repo.state(slug);
+    old.steps.write.existed = [declared];
+    repo.write(`.konductor/workstreams/${slug}.yml`, JSON.stringify(old));
+
+    expect(repo.refused("continue", slug)).toContain("reports/ (report) existed before the step: name each file the step wrote in it");
+    repo.ok("start", slug);
+    expect(repo.state(slug).steps.write.existed).toEqual(["reports/"]);
+  }
+});

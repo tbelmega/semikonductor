@@ -4,7 +4,7 @@
 // the workflows shipped in fuse/flow/workflows.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { FLOW_DIR, Repo } from "./helpers";
 
@@ -35,11 +35,76 @@ describe("choosing the workflow", () => {
     );
   });
 
-  test("a workflow path is relative to the current directory and recorded as an absolute path", () => {
+  test("a workflow path is relative to the current directory and recorded relative to the repository root", () => {
     repo.write("sub/wf.yml", ONE_STEP);
     const r = repo.run(["start", "feat", "--workflow", "wf.yml"], join(repo.root, "sub"));
     expect(r.code).toBe(0);
-    expect(repo.state("feat").workflow).toBe(join(repo.root, "sub/wf.yml"));
+    expect(repo.state("feat").workflow).toBe("sub/wf.yml");
+    // A workflow outside the repository keeps its absolute path.
+    const outside = `${repo.root}-outside.yml`;
+    writeFileSync(outside, ONE_STEP);
+    try {
+      repo.ok("start", "away", "--workflow", outside);
+      expect(repo.state("away").workflow).toBe(outside);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+
+  test("a workstream follows its workflow file after the checkout moves, and an old absolute path is still read", () => {
+    repo.write("flows/w.yml", ONE_STEP);
+    repo.ok("start", "feat", "--workflow", "flows/w.yml");
+    repo.ok("start", "old", "--workflow", "flows/w.yml");
+    const old = repo.state("old");
+    old.workflow = join(repo.root, "flows/w.yml");
+    repo.write(".konductor/workstreams/old.yml", JSON.stringify(old));
+    expect(repo.ok("start", "old")).toContain(`workflow: ${join(repo.root, "flows/w.yml")}`);
+
+    const moved = `${repo.root}-moved`;
+    cpSync(repo.root, moved, { recursive: true });
+    try {
+      const run = (...args: string[]) => Bun.spawnSync([process.execPath, "run", join(FLOW_DIR, "src", "cli.ts"), ...args], { cwd: moved, env: repo.env });
+      const resumed = run("start", "feat");
+      expect(resumed.stdout.toString()).toContain(`workflow: ${join(moved, "flows/w.yml")}`);
+      expect(resumed.exitCode).toBe(0);
+      expect(run("start", "feat", "--workflow", "flows/w.yml").exitCode).toBe(0);
+    } finally {
+      rmSync(moved, { recursive: true, force: true });
+    }
+  });
+
+  test("a workflow file that is gone is refused, never guessed, and start --workflow names its new place", () => {
+    repo.write("flows/w.yml", ONE_STEP);
+    repo.ok("start", "old", "--workflow", "flows/w.yml");
+    const old = repo.state("old");
+    const gone = join(`${repo.root}-before-the-move`, "flows/w.yml");
+    old.workflow = gone;
+    repo.write(".konductor/workstreams/old.yml", JSON.stringify(old));
+    const hint = `workstream old follows workflow ${gone}, which does not exist. If it moved, run \`fuse-flow start old --workflow <its new path>\``;
+    expect(repo.refused("start", "old")).toContain(hint);
+    expect(repo.refused("status", "old")).toContain(hint);
+    expect(repo.refused("continue", "old")).toContain(hint);
+    expect(repo.ok("list")).toContain(`  old: cannot be read: ${hint}`);
+    expect(repo.state("old").workflow).toBe(gone);
+    expect(repo.ok("start", "old", "--workflow", "flows/w.yml")).toContain(`workflow: ${join(repo.root, "flows/w.yml")}`);
+    expect(repo.state("old").workflow).toBe("flows/w.yml");
+    expect(repo.ok("status", "old")).toContain("workstream old (one)");
+  });
+
+  test("an external workflow that is gone is not replaced by a project workflow of the same file name", () => {
+    const outside = `${repo.root}-outside`;
+    mkdirSync(outside);
+    try {
+      writeFileSync(join(outside, "flow.yml"), ONE_STEP.replace("id: only", "id: inspect"));
+      repo.ok("start", "s", "--workflow", join(outside, "flow.yml"));
+      rmSync(outside, { recursive: true, force: true });
+      repo.write("flow.yml", ONE_STEP.replace("id: only", "id: deploy"));
+      const before = repo.read(".konductor/workstreams/s.yml");
+      expect(repo.refused("start", "s")).toContain(`workstream s follows workflow ${join(outside, "flow.yml")}, which does not exist.`);
+      expect(repo.read(".konductor/workstreams/s.yml")).toBe(before);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   test("a name is looked up in the project, then the home directory, then the shipped workflows", () => {

@@ -210,3 +210,59 @@ test("an acceptance or block an earlier fuse-flow recorded by number holds while
   expect(resumed).toContain("TAKEN BACK: the owner accepted review 1 (review the notes) as it was");
   expect(resumed).toContain("  1. Have an independent agent review the notes and their risks.");
 });
+
+// ONE_REVIEW with its review removed.
+const NO_REVIEW = ONE_REVIEW("x").replace(/      - agent: .*\n/, "");
+
+test("an acceptance an earlier fuse-flow recorded does not hold for a review added after its review was gone at the first read", () => {
+  acceptReview(ONE_REVIEW("inspect spelling"));
+  writeOld((s) => delete s.s.accepted_reviews);
+  r.write("workflow-source.yml", NO_REVIEW);
+  r.ok("status", "feat");
+  r.write("workflow-source.yml", ONE_REVIEW("inspect authorization boundaries"));
+  const resumed = r.ok("start", "feat");
+  expect(resumed).not.toContain("The owner accepted this review");
+  expect(resumed).toContain("  1. Have an independent agent inspect authorization boundaries.");
+});
+
+test("a block an earlier fuse-flow recorded does not hold for a review added after its review was gone at the first read", () => {
+  r.start("feat", ONE_REVIEW("inspect spelling"));
+  r.write("notes.md");
+  r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+  writeOld((s) => delete s.s.blocked_review);
+  r.write("workflow-source.yml", NO_REVIEW);
+  r.ok("start", "feat");
+  r.write("workflow-source.yml", ONE_REVIEW("inspect authorization boundaries"));
+  expect(r.ok("start", "feat")).not.toContain("--owner-approved --gate 1");
+  r.refused("continue", "feat", "--owner-approved", "--gate", "1");
+});
+
+// ONE_REVIEW with its first step, and so the review, removed.
+const NO_STEP = ONE_REVIEW("x").replace(/  - id: s\n[\s\S]*?(?=  - id: release)/, "");
+
+test("an acceptance an earlier fuse-flow recorded does not hold for a review added after its whole step was gone at the first read", () => {
+  acceptReview(ONE_REVIEW("inspect spelling"));
+  writeOld((s) => delete s.s.accepted_reviews);
+  r.write("workflow-source.yml", NO_STEP);
+  r.ok("status", "feat");
+  r.write("workflow-source.yml", ONE_REVIEW("inspect authorization boundaries"));
+  const resumed = r.ok("start", "feat");
+  expect(resumed).not.toContain("The owner accepted this review");
+  expect(resumed).toContain("TAKEN BACK: the owner accepted review 1 (whose text was not recorded) as it was");
+  expect(resumed).toContain("  1. Have an independent agent inspect authorization boundaries.");
+});
+
+test("a block an earlier fuse-flow recorded does not hold for a review added after its whole step was gone at the first read", () => {
+  r.start("feat", ONE_REVIEW("inspect spelling"));
+  r.write("notes.md");
+  r.ok("continue", "feat", "--blocked", "the review does not converge", "--gate", "1");
+  writeOld((s) => delete s.s.blocked_review);
+  r.write("workflow-source.yml", NO_STEP);
+  r.ok("status", "feat");
+  r.write("workflow-source.yml", ONE_REVIEW("inspect authorization boundaries"));
+  expect(r.ok("start", "feat")).not.toContain("--owner-approved --gate 1");
+  r.refused("continue", "feat", "--owner-approved", "--gate", "1");
+  // The step itself can still be sent back and run again.
+  r.ok("continue", "feat", "--back-to", "s");
+  expect(r.ok("start", "feat")).toContain("  1. Have an independent agent inspect authorization boundaries.");
+});

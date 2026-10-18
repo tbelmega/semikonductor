@@ -99,6 +99,7 @@ interface Ctx {
 // `from` of the workflow are not checked: the command passes over them.
 function context(root: string, slug: string, ws: Workstream, readOnly = false, from: (wf: Workflow) => number = () => 0): Ctx {
   const file = findWorkflow(root, ws.workflow);
+  if (gone(ws.workflow)) throw new FlowError(goneWorkflow(slug, ws.workflow));
   const c = { root, slug, wf: loadWorkflow(file), p: loadProject(root), date: startedOn(ws) };
   if (!readOnly) {
     const first = from(c.wf);
@@ -108,6 +109,13 @@ function context(root: string, slug: string, ws: Workstream, readOnly = false, f
   recordOldReviews(c, ws);
   return c;
 }
+
+// A workflow file the workstream follows that is no longer there, as after a
+// move or a rename, is never replaced by a guess; the agent names its new path.
+const gone = (workflow: string) => isWorkflowPath(workflow) && !existsSync(workflow);
+const goneWorkflow = (slug: string, workflow: string) =>
+  `workstream ${slug} follows workflow ${workflow}, which does not exist. If it moved, run \`${FUSE_FLOW} start ${slug} --workflow <its new path>\`; ` +
+  "the workstream then follows that file, with the steps it has done";
 
 // The steps the workstream has not finished yet.
 const unfinishedIn = (ws: Workstream) => (step: Step) => !finished(stateOf(ws, step.id).status);
@@ -1653,19 +1661,23 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   const resumed = workstreamExists(root, slug);
   let ref = workflowRef;
   if (resumed) {
+    // While the recorded workflow file is gone, --workflow names its new
+    // place, and the workstream follows that file from now on.
     const recorded = readWorkstream(root, slug).workflow;
-    if (ref !== undefined && ref !== recorded) {
+    if (gone(recorded) && ref === undefined) throw new FlowError(goneWorkflow(slug, recorded));
+    if (ref !== undefined && ref !== recorded && !gone(recorded)) {
       throw new FlowError(`workstream ${slug} follows workflow ${recorded}, not ${ref}`);
     }
     if (from !== undefined) throw new FlowError(`workstream ${slug} exists; --from starts a new one. To jump forward, use continue --forward-to`);
     if (given.after !== undefined || Object.keys(given.inputs).length) {
       throw new FlowError(`workstream ${slug} exists; --after and --input bind inputs only when a workstream starts`);
     }
-    ref = recorded;
+    ref ??= recorded;
   } else if (ref === undefined) {
     throw new FlowError(`a new workstream needs --workflow <name or path>, for example --workflow _k-full-sdlc`);
   }
-  const path = findWorkflow(root, ref);
+  const workflow = ref;
+  const path = findWorkflow(root, workflow);
   const wf = loadWorkflow(path);
   const fromIndex = from === undefined ? 0 : wf.steps.findIndex((s) => s.id === from);
   if (fromIndex < 0) throw new FlowError(`no step "${from}" in workflow ${wf.name}`);
@@ -1687,6 +1699,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
       if (!resumed && workstreamExists(root, slug)) {
         throw new FlowError(`workstream ${slug} was started by another fuse-flow command meanwhile; run fuse-flow start ${slug} to resume it`);
       }
+      ws.workflow = workflow;
       // List every step in the state file, so it reads as a complete checklist.
       wf.steps.forEach((step, i) => {
         const state = stateOf(ws, step.id);
@@ -2212,11 +2225,13 @@ const once = (files: Written[]) => files.filter((f, i) => files.findIndex((o) =>
 function recordsOf(c: Ctx, step: Step, files: Written[]): StepState["artifacts"] {
   const order = declaredOf(c, step).map((a) => a.artifact.artifact);
   const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
-  // An artifact this pass recorded whole replaces the whole record an earlier
-  // pass left at another path, as when the owner moved a file and sent the
-  // step back: the earlier file stays in the step's files as history, but
-  // later steps read the rewritten one alone, not a folder of both.
-  const rewritten = (f: Written) => f.kind === "whole" && f.pass === "earlier" && files.some((o) => o.kind === "whole" && o.pass === "this" && o.artifact === f.artifact);
+  // An artifact this pass recorded whole replaces every record an earlier
+  // pass left of it, as when the owner moved a file and sent the step back:
+  // the earlier files stay in the step's files as history, but later steps
+  // read the rewritten one alone, not a folder of both. This holds whether
+  // the earlier entry was recorded whole or as a file, which is how a record
+  // an earlier fuse-flow wrote is converted once its path has moved.
+  const rewritten = (f: Written) => f.pass === "earlier" && files.some((o) => o.kind === "whole" && o.pass === "this" && o.artifact === f.artifact);
   const records = files.filter(
     (f): f is Written & { artifact: string } => f.artifact !== undefined && (f.kind === "whole" || !isUpdates(step, f.artifact)) && !rewritten(f),
   );
@@ -2276,23 +2291,31 @@ function convertOldState(c: Ctx, ws: Workstream): void {
 // concerns. Each is recorded once, as the workflow names the reviews at the
 // first command that reads it, and from then on holds like any other record.
 function recordOldReviews(c: Ctx, ws: Workstream): void {
-  const reviews = (step: Step) => gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : []));
-  const missing = (step: Step, s: StepState) => ({
-    accepted: (s.accepted_gates ?? []).filter((n) => !acceptanceOf(s, n) && reviewNow(c, step, n) !== undefined),
-    blocked: s.status === "BLOCKED" && s.blocked_gate !== undefined && !s.blocked_review && reviewNow(c, step, s.blocked_gate) !== undefined,
+  const reviews = (step: Step | undefined) => (step ? gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : [])) : []);
+  const missing = (s: StepState) => ({
+    accepted: (s.accepted_gates ?? []).filter((n) => !acceptanceOf(s, n)),
+    blocked: s.status === "BLOCKED" && s.blocked_gate !== undefined && !s.blocked_review,
     handedOver: s.status === "AWAITING_OWNER" && s.reviews_passed === undefined,
   });
-  const old = (step: Step, s: StepState) => {
-    const m = missing(step, s);
+  const old = (s: StepState) => {
+    const m = missing(s);
     return m.accepted.length > 0 || m.blocked || m.handedOver;
   };
-  if (!c.wf.steps.some((step) => ws.steps[step.id] && old(step, ws.steps[step.id]))) return;
+  if (!Object.values(ws.steps).some(old)) return;
   updateWorkstream(c.root, c.slug, (fresh) => {
-    for (const step of c.wf.steps) {
-      const s = fresh.steps[step.id];
-      if (!s || !old(step, s)) continue;
-      const m = missing(step, s);
-      const evidence = (n: number) => ({ review: reviewNow(c, step, n)!, passed: reviewsBefore(c, step, n) });
+    for (const [id, s] of Object.entries(fresh.steps)) {
+      if (!old(s)) continue;
+      // A step the workflow no longer has names no review: its records are
+      // retired as below, and a step added later under its id is another one.
+      const step = c.wf.steps.find((x) => x.id === id);
+      const m = missing(s);
+      // A number that names no review at the first read is recorded as a
+      // review no edit can bring back, so a review added there later is
+      // another one and the old acceptance or block does not hold for it.
+      const evidence = (n: number) => ({
+        review: (step && reviewNow(c, step, n)) ?? `review ${n} (whose text was not recorded)`,
+        passed: step ? reviewsBefore(c, step, n) : [],
+      });
       if (m.accepted.length) s.accepted_reviews = [...(s.accepted_reviews ?? []), ...m.accepted.map(evidence)];
       if (m.blocked) s.blocked_review = evidence(s.blocked_gate!);
       if (m.handedOver) s.reviews_passed = reviews(step);

@@ -4,6 +4,7 @@
 // git ignores it. State files written before the six step states are read and
 // migrated, so a workstream started with an earlier fuse-flow can continue.
 
+import { posix } from "node:path";
 import { z } from "zod";
 import { idRecord } from "./id-record.ts";
 
@@ -16,6 +17,10 @@ const LEGACY_STATES: Record<string, StepStatus> = {
   blocked: "BLOCKED",
   done: "COMPLETED",
 };
+
+// A recorded relative path in the form artifactPath gives a declared path:
+// posix.normalize, which keeps a trailing slash. Anything else is left as it is.
+const normalized = (path: unknown) => (typeof path === "string" && path && !posix.isAbsolute(path) ? posix.normalize(path) : path);
 
 // What a recorded artifact's status says about it. State files written before
 // "done" record "approved" for steps without an owner gate too, and are read
@@ -74,6 +79,19 @@ export const StepStateSchema = z
         if (Array.isArray(state.artifacts)) {
           state.artifacts = state.artifacts.map((a) =>
             typeof a === "string" ? { path: a, status: done ? "approved" : "draft" } : a,
+          );
+        }
+      }
+      // Earlier versions kept a declared path as the workflow wrote it, such
+      // as ./reports/ or docs/../reports/. Paths are compared as the engine
+      // places them now, normalized, so the recorded ones are read that way.
+      for (const key of ["existed", "updated", "earlier_pass"]) {
+        if (Array.isArray(state[key])) state[key] = (state[key] as unknown[]).map(normalized);
+      }
+      for (const key of ["artifacts", "files"]) {
+        if (Array.isArray(state[key])) {
+          state[key] = (state[key] as unknown[]).map((e) =>
+            e && typeof e === "object" && "path" in e ? { ...e, path: normalized((e as { path: unknown }).path) } : e,
           );
         }
       }
@@ -167,7 +185,11 @@ export const StepStateSchema = z
 export const WorkstreamSchema = z
   .object({
     workflow: z.string().min(1).meta({
-      description: "The workflow the workstream follows, as given to `start`: a name, or an absolute path.",
+      description:
+        "The workflow the workstream follows, as given to `start`: a name, or a path. A path to a file inside the " +
+        "repository is relative to its root, so the workstream survives a move of the checkout; any other path, " +
+        "and every path in state files written before this, is absolute. A path that is gone, as after a move of the " +
+        "checkout, is refused until `start --workflow` names the file's new path, which it then records.",
     }),
     started: z
       .string()
