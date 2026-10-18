@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The findings of a bug bash: one JSON file per lens or review, and an index with each finding's severity, verification and disposition."

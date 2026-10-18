@@ -104,6 +104,10 @@ script installs plain skills and an always-on instruction block that every suppo
   - `fuse-rapid-prototyping`, a new product idea explored as a runnable prototype: a short
     interview, many small build-and-feedback iterations with no code review loop, and a product
     brief of what to build that `fuse-system-development` can take up.
+  - `fuse-bug-bash`, a time-boxed bug bash: intake, a catalogue of the existing checks, a
+    discovery wave of independent agents with different lenses and models, and, in a fixing run,
+    reviewed fixes and a confirmation wave, ending in a report. Its library entries
+    `bug-bash-plan`, `bug-bash-findings` and `bug-bash-report` hold the method.
   - `fuse-rapid-prototyping`, `fuse-system-development` and `fuse-feature-development` hand off
     to each other: rapid prototyping to system or feature development, and system development to
     one feature workstream per entry of its build order, which receives the product brief,

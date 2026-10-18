@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The report of a bug bash: what was found and fixed, what is left for the owner, the state of every review, and what each lens cost and found."
