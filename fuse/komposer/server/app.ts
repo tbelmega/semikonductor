@@ -21,10 +21,12 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { FlowError } from "../../flow/src/errors.ts";
 import { summarizeRun, runEvents } from "../../flow/src/history.ts";
-import { parseWorkflowText } from "../../flow/src/parse.ts";
-import { display, libraryEntry, listLibrary, loadProject, reviewGuideSource } from "../../flow/src/policy.ts";
-import { findRepoRoot, isDirectory, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
+import { crossCheck } from "../../flow/src/links.ts";
+import { formatIssue, parseWorkflowText } from "../../flow/src/parse.ts";
+import { display, libraryEntry, listLibrary, loadProject, reviewGuideProblems, reviewGuideSource } from "../../flow/src/policy.ts";
+import { findRepoRoot, findWorkflow, isDirectory, isWorkflowPath, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
 import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
 import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
 
@@ -56,9 +58,32 @@ class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    // More fields of the answer, next to `error`.
+    readonly fields: Record<string, unknown> = {},
   ) {
     super(message);
   }
+}
+
+// A place in a workflow file that a validation line is about, by index: a
+// step, a gate of it (`field: "guide"` for the gate's own guide, `"workflow"`
+// for a workflow gate, whose child the line is about), a hand-off in
+// hands_off_to, or the name (`field: "name"`). A line with no place is the
+// workflow's as a whole.
+interface Place {
+  step?: number;
+  gate?: number;
+  handOff?: number;
+  field?: "guide" | "workflow" | "name";
+}
+
+// One line of a validation answer with the places it is about, and the line
+// without the place it starts with.
+interface Problem {
+  severity: "error" | "warning";
+  line: string;
+  detail: string;
+  at: Place[];
 }
 
 const FILE_NAME = /^[a-z0-9][a-z0-9-]*$/;
@@ -213,6 +238,16 @@ export function startServer(options: ServerOptions): KomposerServer {
   };
   const workflowWritable = (path: string) =>
     writable(path, locations.map((l) => realForm(l.path)), WORKFLOW_FILE, "a .yml or .yaml file inside a workflow location");
+  // For a listed workflow file that a link leads outside the workflow
+  // locations, where it leads: it is read and shown, but a save is refused.
+  const leadsOutside = (path: string): { leadsTo?: string } => {
+    try {
+      workflowWritable(path);
+      return {};
+    } catch {
+      return { leadsTo: realForm(path) ?? path };
+    }
+  };
   const editorRoot = () => {
     const konductor = realForm(join(root, ".konductor"));
     return konductor ? join(konductor, "editor") : undefined;
@@ -382,6 +417,7 @@ export function startServer(options: ServerOptions): KomposerServer {
           text,
           hash: sha(text),
           ...(readableCopy(copy) ? { workingCopy: readFileSync(copy, "utf8") } : {}),
+          ...leadsOutside(path),
         });
       }
       // Working copies of new workflows that were never saved.
@@ -413,6 +449,8 @@ export function startServer(options: ServerOptions): KomposerServer {
     const current = readFileSync(path, "utf8");
     if (sha(current) !== body.baseHash) throw new HttpError(409, `${path} changed on disk`);
     workflowWritable(path);
+    // Checked at the path as sent, as the app's own check was (see runPath).
+    refuseInvalid(resolve(body.path), body.text);
     writeFileSync(path, body.text);
     return { path, hash: sha(body.text) };
   };
@@ -431,6 +469,7 @@ export function startServer(options: ServerOptions): KomposerServer {
     const { path } = locate(join(location.path, folder, `${body.file}.yml`));
     if (existsSync(path)) throw new HttpError(409, "A workflow with this file name exists there.");
     workflowWritable(path);
+    refuseInvalid(path, body.text);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, body.text, { flag: "wx" });
     return { path, hash: sha(body.text) };
@@ -599,6 +638,151 @@ export function startServer(options: ServerOptions): KomposerServer {
       }),
     );
     return { gates, files };
+  };
+
+  // The warning fuse-flow validate gives for a name that differs from the
+  // file name (in flow/src/commands.ts): the file name is the reference to
+  // start the workflow by only when a lookup by it finds this file, which
+  // for a file not saved yet means it finds no other; otherwise the path is,
+  // with the reason.
+  const nameWarning = (name: string, stem: string, path: string) => {
+    let found: string | undefined;
+    let why = "names are looked up only in the workflows folders";
+    try {
+      found = realForm(findWorkflow(root, stem));
+      why = `the name ${stem} finds ${found}`;
+    } catch (e) {
+      if (!(e instanceof FlowError)) throw e;
+      if (e.message.includes("ambiguous")) why = e.message;
+      else if (!existsSync(path)) found = realForm(path); // nothing else has the name
+    }
+    if (path.endsWith(".yaml")) {
+      why = "only .yml files are found by name";
+      found = undefined;
+    }
+    return found !== undefined && found === realForm(path)
+      ? `name "${name}" differs from the file name; fuse-flow finds a workflow by its file name, ${stem}`
+      : `name "${name}" differs from the file name; start this workflow by its path, ${path}; ${why}`;
+  };
+
+  // The checks of `fuse-flow validate` that need other files, run on the sent
+  // text as if it were saved at `path`, which may not exist yet (Save as new
+  // sends the destination): that each workflow gate and hand-off resolves and
+  // matches what its target declares, that no chain of workflow gates leads
+  // back here, and that every review guide, as the policy files and libraries
+  // apply it, can be followed. The engine's own functions decide; only the
+  // reading of relative references next to the file, which loadWorkflow does
+  // for a file on disk, is repeated here. Text that does not parse gets no
+  // answer: the schema's problems come first, and the app has them already.
+  //
+  // Each line comes again under `problems`, with the places in the file it is
+  // about (see Place) and its `detail`, the line without the place it starts
+  // with. Errors come first, then warnings, each in the order of `errors` and
+  // `warnings`.
+  const validateText = (body: any) => {
+    const { path } = locate(body.path);
+    if (typeof body.text !== "string") throw new HttpError(400, "text is required");
+    return engineCheck(path, body.text);
+  };
+
+  const engineCheck = (path: string, text: string): { errors: string[]; warnings: string[]; problems: Problem[] } => {
+    const parsed = parseWorkflowText(text);
+    if (!parsed.ok) return { errors: [], warnings: [], problems: [] };
+    const wf = parsed.workflow;
+    const near = (ref: string) => (isWorkflowPath(ref) && !isAbsolute(ref) ? resolve(dirname(path), ref) : ref);
+    for (const step of wf.steps) {
+      for (const gate of step.gates) {
+        if (gate.guide && !isAbsolute(gate.guide)) gate.guide = resolve(dirname(path), gate.guide);
+        if (gate.kind === "workflow") gate.text = near(gate.text);
+      }
+    }
+    for (const handOff of wf.hands_off_to) handOff.workflow = near(handOff.workflow);
+    try {
+      const p = loadProject(root);
+      const guides = reviewGuideProblems(p, wf, path);
+      const { errors, warnings } = crossCheck(root, path, wf);
+      const stem = basename(path).replace(/\.ya?ml$/, "");
+      const name = wf.name !== stem ? nameWarning(wf.name, stem, path) : undefined;
+      if (name) warnings.push(name);
+
+      // Where each review-guide line arises: the engine's own check, run with
+      // one agent gate at a time and the step at its index, so a line is put
+      // on every gate it comes from. A gate's own guide is named with the
+      // step's index and id, which the line starts with.
+      const guidePlaces = new Map<string, Place[]>();
+      wf.steps.forEach((step, i) =>
+        step.gates.forEach((gate, g) => {
+          if (gate.kind !== "agent") return;
+          const alone = { ...wf, steps: wf.steps.map((s, j) => (j === i ? { ...s, gates: [gate] } : s)) };
+          for (const line of reviewGuideProblems(p, alone, path, (s) => s === alone.steps[i])) {
+            const own = line.startsWith(`${path}: steps.${i} (${step.id}): `);
+            guidePlaces.set(line, [...(guidePlaces.get(line) ?? []), { step: i, gate: g, ...(own ? { field: "guide" as const } : {}) }]);
+          }
+        }),
+      );
+      const guideProblem = (line: string): Problem => {
+        const at = guidePlaces.get(line) ?? [];
+        const own = at.find((a) => a.field === "guide");
+        const prefix = own ? `${path}: steps.${own.step} (${wf.steps[own.step!].id}): ` : "";
+        return { severity: "error", line, detail: line.startsWith(prefix) ? line.slice(prefix.length) : line, at };
+      };
+
+      // crossCheck starts each line with the hand-off or workflow gate it is
+      // about, in the words below, built from the same references it read.
+      // The same reference twice gives the same lines once for each, in
+      // order, so the n-th such line is the n-th one's.
+      const starts: { prefix: string; place: Place }[] = [
+        ...wf.hands_off_to.map((h, k) => ({ prefix: `hands_off_to ${h.workflow}: `, place: { handOff: k } })),
+        ...wf.steps.flatMap((step, i) => {
+          const g = step.gates.findIndex((x) => x.kind === "workflow");
+          return g < 0 ? [] : [{ prefix: `step ${step.id}, workflow ${step.gates[g].text}: `, place: { step: i, gate: g, field: "workflow" as const } }];
+        }),
+      ];
+      const crossProblems = (severity: Problem["severity"], lines: string[]): Problem[] => {
+        const seen = new Map<string, number>();
+        return lines.map((line) => {
+          if (line === name) return { severity, line, detail: line, at: [{ field: "name" }] };
+          const hits = starts.filter((s) => line.startsWith(s.prefix));
+          const longest = Math.max(0, ...hits.map((s) => s.prefix.length));
+          const places = hits.filter((s) => s.prefix.length === longest).map((s) => s.place);
+          const n = seen.get(line) ?? 0;
+          seen.set(line, n + 1);
+          return { severity, line, detail: line.slice(longest), at: places.length > 1 && places[n] ? [places[n]] : places };
+        });
+      };
+      return {
+        errors: [...guides, ...errors],
+        warnings,
+        problems: [...guides.map(guideProblem), ...crossProblems("error", errors), ...crossProblems("warning", warnings)],
+      };
+    } catch (e) {
+      if (!(e instanceof FlowError)) throw e;
+      return { errors: [e.message], warnings: [], problems: [{ severity: "error", line: e.message, detail: e.message, at: [] }] };
+    }
+  };
+
+  // Save and Save as new write only text that fuse-flow takes, so a save
+  // that skipped the app's own checks cannot leave a workflow fuse-flow
+  // refuses: text that is not a workflow is refused with the schema's lines,
+  // as `fuse-flow validate` gives them, and a workflow the checks above find
+  // errors in with those lines. Warnings do not stop a save.
+  const refuseInvalid = (path: string, text: string) => {
+    const parsed = parseWorkflowText(text);
+    const problems: Problem[] = parsed.ok
+      ? engineCheck(path, text).problems.filter((p) => p.severity === "error")
+      : parsed.issues.map((issue) => {
+          const [key, index, sub, gate] = issue.path;
+          const at: Place[] =
+            key === "steps" && typeof index === "number"
+              ? [{ step: index, ...(sub === "gates" && typeof gate === "number" ? { gate } : {}) }]
+              : key === "hands_off_to" && typeof index === "number"
+                ? [{ handOff: index }]
+                : [];
+          return { severity: "error", line: formatIssue(issue), detail: issue.message, at };
+        });
+    if (!problems.length) return;
+    const errors = problems.map((p) => p.line);
+    throw new HttpError(422, `fuse-flow would refuse ${path}:\n${errors.map((l) => `  ${l}`).join("\n")}`, { errors, problems });
   };
 
   // Each workstream with the runs it links to: the one it was started after,
@@ -791,6 +975,8 @@ export function startServer(options: ServerOptions): KomposerServer {
         return Response.json(library());
       case "POST /api/review-guides":
         return Response.json(reviewGuides(body));
+      case "POST /api/validate":
+        return Response.json(validateText(body));
       case "GET /api/workstreams":
         return Response.json(workstreams());
       case "GET /api/projects":
@@ -815,7 +1001,7 @@ export function startServer(options: ServerOptions): KomposerServer {
         return await handle(req, srv.port ?? options.port);
       } catch (e) {
         const status = e instanceof HttpError ? e.status : 500;
-        return Response.json({ error: (e as Error).message }, { status });
+        return Response.json({ error: (e as Error).message, ...(e instanceof HttpError ? e.fields : {}) }, { status });
       }
     },
   });

@@ -19,6 +19,8 @@ const TOKEN = "test-token";
 
 const TWO_STEPS = `version: 1
 name: two steps
+inputs:
+  - artifact: notes
 steps:
   - id: draft
     title: Draft
@@ -34,6 +36,8 @@ steps:
       - owner-action: approve the polish
         route_back_to: draft
 `;
+
+const ONE_STEP = "version: 1\nname: one-step\nsteps:\n  - id: only\n    instruction: Do it.\n";
 
 let root: string;
 let home: string;
@@ -199,6 +203,13 @@ describe("workflows", () => {
     expect(readFileSync(target, "utf8")).toBe(TWO_STEPS);
     expect(readFileSync(notes, "utf8")).toBe(TWO_STEPS);
     expect(existsSync(join(outside, "planted.yml"))).toBe(false);
+    // The files are still listed, with where they lead.
+    const listed = (await json("/api/workflows")).workflows.filter((w: any) => w.location === "project");
+    expect(listed.map((w: any) => [w.path, w.leadsTo])).toEqual([
+      [join(folder, "link.yml"), target],
+      [join(folder, "notes.yml"), notes],
+      [join(folder, "team", "target.yml"), target],
+    ]);
     expect(existsSync(join(outside, "ghost.yml"))).toBe(false);
   });
 
@@ -208,10 +219,11 @@ describe("workflows", () => {
     mkdirSync(join(home, ".konductor"), { recursive: true });
     symlinkSync(real, join(home, ".konductor", "workflows"));
     const listed = join(home, ".konductor", "workflows", "mine.yml");
-    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: listed, baseHash: hash(TWO_STEPS), text: "x" }) });
-    expect(readFileSync(path, "utf8")).toBe("x");
-    await json("/api/workflows", { method: "POST", body: JSON.stringify({ location: "personal", file: "new-one", text: "y" }) });
-    expect(readFileSync(join(real, "new-one.yml"), "utf8")).toBe("y");
+    expect((await json("/api/workflows")).workflows.find((w: any) => w.path === listed).leadsTo).toBeUndefined();
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: listed, baseHash: hash(TWO_STEPS), text: ONE_STEP }) });
+    expect(readFileSync(path, "utf8")).toBe(ONE_STEP);
+    await json("/api/workflows", { method: "POST", body: JSON.stringify({ location: "personal", file: "new-one", text: ONE_STEP.replace("one-step", "new-one") }) });
+    expect(readFileSync(join(real, "new-one.yml"), "utf8")).toBe(ONE_STEP.replace("one-step", "new-one"));
   });
 
   test("refuses a working copy that a symlink leads outside the working-copy folder, and does not read one", async () => {
@@ -245,6 +257,52 @@ describe("workflows", () => {
       const res = await api("/api/workflows", { method: "POST", body: JSON.stringify({ ...body, file: "other", ...bad }) });
       expect(res.status).toBe(400);
     }
+  });
+
+  // Save and Save as new write only text that fuse-flow takes, whatever the
+  // app checked first: text it would refuse is refused with fuse-flow's own
+  // lines and where each is, and nothing is written. A warning does not stop
+  // a save, as it does not stop fuse-flow.
+  test("refuses to write a workflow that fuse-flow would refuse, with its lines and their places", async () => {
+    const folder = join(root, ".konductor", "workflows");
+    const path = write(join(folder, "two-steps.yml"), TWO_STEPS);
+    const missingGuide = TWO_STEPS.replace("      - owner-action: approve the draft\n", "      - agent: review the draft\n        guide: nope.md\n");
+    const put = await api("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text: missingGuide }) });
+    expect(put.status).toBe(422);
+    const refused: any = await put.json();
+    const line = `${path}: steps.0 (draft): the review guide of agent(review the draft) does not exist: ${join(folder, "nope.md")}`;
+    expect(refused.errors).toEqual([line]);
+    expect(refused.error).toContain(line);
+    expect(refused.problems).toEqual([{ severity: "error", line, detail: expect.any(String), at: [{ step: 0, gate: 0, field: "guide" }] }]);
+    expect(readFileSync(path, "utf8")).toBe(TWO_STEPS);
+
+    // Text that is not a workflow at all: the schema's lines, placed where they can be.
+    const badRoute = TWO_STEPS.replace("route_back_to: draft", "route_back_to: nowhere");
+    const schema = await api("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text: badRoute }) });
+    expect(schema.status).toBe(422);
+    const schemaBody: any = await schema.json();
+    expect(schemaBody.errors).toEqual([expect.stringMatching(/^steps\.1\.gates\.0\.route_back_to: .*nowhere/)]);
+    expect(schemaBody.problems).toEqual([{ severity: "error", line: schemaBody.errors[0], detail: expect.any(String), at: [{ step: 1, gate: 0 }] }]);
+    for (const text of ["x", "a: [b\n"]) {
+      const res = await api("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text }) });
+      expect([text, res.status]).toEqual([text, 422]);
+    }
+    expect(readFileSync(path, "utf8")).toBe(TWO_STEPS);
+
+    // Save as new checks the text at its destination, which does not exist yet.
+    const parent = "version: 1\nname: parent\nsteps:\n  - id: ask\n    instruction: Ask.\n    gates:\n      - workflow: ../child.yml\n";
+    const post = await api("/api/workflows", { method: "POST", body: JSON.stringify({ location: "project", folder: "team", file: "parent", text: parent }) });
+    expect(post.status).toBe(422);
+    expect(((await post.json()) as any).problems).toEqual([expect.objectContaining({ severity: "error", at: [{ step: 0, gate: 0, field: "workflow" }] })]);
+    expect(existsSync(join(folder, "team", "parent.yml"))).toBe(false);
+    write(join(folder, "child.yml"), ONE_STEP.replace("one-step", "child"));
+    await json("/api/workflows", { method: "POST", body: JSON.stringify({ location: "project", folder: "team", file: "parent", text: parent }) });
+    expect(readFileSync(join(folder, "team", "parent.yml"), "utf8")).toBe(parent);
+
+    // A name that differs from the file name is only a warning.
+    const renamed = TWO_STEPS.replace("name: two steps", "name: renamed");
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text: renamed }) });
+    expect(readFileSync(path, "utf8")).toBe(renamed);
   });
 
   test("keeps a working copy next to the project, ignored by git, until it is removed", async () => {
@@ -309,8 +367,8 @@ describe("workflows", () => {
     expect(workflows.filter((w: any) => w.file === "mine.yml").map((w: any) => [w.location, w.path])).toEqual([["personal", listedPath]]);
     const { workstreams } = await json("/api/workstreams");
     expect(workstreams.find((w: any) => w.slug === "ws4").workflowPath).toBe(listedPath);
-    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: realPath, baseHash: hash(mine), text: "x" }) });
-    expect(readFileSync(realPath, "utf8")).toBe("x");
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: realPath, baseHash: hash(mine), text: ONE_STEP }) });
+    expect(readFileSync(realPath, "utf8")).toBe(ONE_STEP);
   });
 
   test("a .yaml workflow, which fuse-flow follows by its path, is listed, linked to and saved", async () => {
@@ -1398,5 +1456,196 @@ steps:
       expect(guide.outside).toBeUndefined();
       expect(shipped.files[guide.path]).toBe(readFileSync(guide.path, "utf8"));
     });
+  });
+});
+
+// POST /api/validate runs the checks of `fuse-flow validate` that need other
+// files on the open text, as saved at the path sent. Each case is compared
+// with what the real command says about the same file on disk.
+describe("validate", () => {
+  const validateCli = (file: string): { ok: boolean; out: string } => {
+    const proc = Bun.spawnSync([process.execPath, "run", CLI, "validate", file], {
+      cwd: root,
+      env: { ...(process.env as Record<string, string>), HOME: home },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { ok: proc.exitCode === 0, out: proc.stdout.toString() + proc.stderr.toString() };
+  };
+  const validate = (path: string, text: string) => json("/api/validate", { method: "POST", body: JSON.stringify({ path, text }) });
+  const WORKFLOWS = () => join(root, ".konductor", "workflows");
+
+  test("a missing gate guide is an error, as fuse-flow validate refuses it", async () => {
+    const text = `version: 1
+name: guided
+steps:
+  - id: draft
+    instruction: Write it.
+    gates:
+      - agent: review the draft
+        guide: nope.md
+`;
+    const path = write(join(WORKFLOWS(), "guided.yml"), text);
+    expect(validateCli(path)).toMatchObject({ ok: false });
+    const out = await validate(path, text);
+    expect(out.errors).toHaveLength(1);
+    expect(out.errors[0]).toContain("steps.0 (draft): the review guide of agent(review the draft) does not exist");
+    write(join(WORKFLOWS(), "nope.md"), "rules\n");
+    expect(validateCli(path).ok).toBe(true);
+    expect(await validate(path, text)).toEqual({ errors: [], warnings: [], problems: [] });
+  });
+
+  test("a workflow gate whose child needs an input it is not given, or that returns what the child never writes", async () => {
+    write(
+      join(WORKFLOWS(), "child.yml"),
+      `version: 1
+name: child
+inputs:
+  - artifact: request
+    required: true
+steps:
+  - id: work
+    instruction: Do it.
+`,
+    );
+    const text = `version: 1
+name: parent
+steps:
+  - id: ask
+    instruction: Ask.
+    gates:
+      - workflow: child
+        returns: [ghost]
+`;
+    const path = write(join(WORKFLOWS(), "parent.yml"), text);
+    expect(validateCli(path).ok).toBe(false);
+    const out = await validate(path, text);
+    expect(out.errors).toEqual([
+      'step ask, workflow child: child requires the input "request", and the gate\'s inputs do not give it',
+      'step ask, workflow child: returns "ghost" from "ghost", which child neither writes, returns nor takes as an input',
+    ]);
+  });
+
+  test("a workflow gate that leads back to its own workflow", async () => {
+    const text = `version: 1
+name: cycle
+steps:
+  - id: loop
+    instruction: Loop.
+    gates:
+      - workflow: cycle
+`;
+    const path = write(join(WORKFLOWS(), "cycle.yml"), text);
+    expect(validateCli(path).ok).toBe(false);
+    const out = await validate(path, text);
+    expect(out.errors).toEqual(["step loop, workflow cycle: the workflow gates lead back to this workflow (cycle -> cycle), so it would wait for itself"]);
+  });
+
+  test("checks the text at the path it would be saved to, which need not exist yet", async () => {
+    const text = `version: 1
+name: alpha
+steps:
+  - id: draft
+    instruction: Write it.
+    gates:
+      - agent: review it
+        guide: ../../README.md
+`;
+    write(join(root, "README.md"), "rules\n");
+    const here = write(join(WORKFLOWS(), "alpha.yml"), text);
+    expect(await validate(here, text)).toEqual({ errors: [], warnings: [], problems: [] });
+    const there = join(WORKFLOWS(), "team", "alpha3.yml");
+    const out = await validate(there, text);
+    expect(existsSync(there)).toBe(false);
+    expect(out.errors).toHaveLength(1);
+    expect(out.errors[0]).toContain(`the review guide of agent(review it) does not exist: ${join(root, ".konductor", "README.md")}`);
+    expect(out.warnings).toEqual(['name "alpha" differs from the file name; fuse-flow finds a workflow by its file name, alpha3']);
+    write(there, text);
+    expect(validateCli(there).ok).toBe(false);
+  });
+
+  // The warning says what fuse-flow validate says: the file name finds this
+  // workflow only for a .yml file that a lookup by that name reaches.
+  test("a name that differs from the file name gives the reference fuse-flow takes", async () => {
+    const text = (name: string) => `version: 1\nname: ${name}\nsteps:\n  - id: only\n    instruction: Do it.\n`;
+    const yaml = write(join(WORKFLOWS(), "yaml-file.yaml"), text("old-name"));
+    const one = write(join(WORKFLOWS(), "one", "same.yml"), text("old-name"));
+    write(join(WORKFLOWS(), "two", "same.yml"), text("same"));
+    const shadowed = write(join(home, ".konductor", "workflows", "shadow.yml"), text("mine"));
+    write(join(WORKFLOWS(), "shadow.yml"), text("shadow"));
+    const fresh = join(WORKFLOWS(), "fresh.yml");
+    for (const [path, why] of [
+      [yaml, "only .yml files are found by name"],
+      [one, `workflow name "same" is ambiguous`],
+      [shadowed, `the name shadow finds ${join(WORKFLOWS(), "shadow.yml")}`],
+    ]) {
+      const t = readFileSync(path, "utf8");
+      const name = (Bun.YAML.parse(t) as any).name;
+      expect(validateCli(path).out).toContain(`start this workflow by its path, ${path}; ${why}`);
+      const out = await validate(path, t);
+      expect(out.warnings).toEqual([expect.stringContaining(`name "${name}" differs from the file name; start this workflow by its path, ${path}; ${why}`)]);
+    }
+    expect((await validate(fresh, text("other"))).warnings).toEqual(['name "other" differs from the file name; fuse-flow finds a workflow by its file name, fresh']);
+  });
+
+  // Each line of the answer comes with the places in the file it is about, so
+  // the app need not read them from the engine's wording: a gate's own guide,
+  // each agent gate a policy guide applies to, a workflow gate, a hand-off by
+  // its index, and the name.
+  test("each line comes with the places it is about", async () => {
+    write(
+      join(WORKFLOWS(), "child.yml"),
+      "version: 1\nname: child\ninputs:\n  - artifact: request\n    required: true\nsteps:\n  - id: work\n    instruction: Do it.\n",
+    );
+    write(join(home, ".konductor", "policy-overrides.yml"), "review:\n  guide: gone.md\n");
+    const text = `version: 1
+name: elsewhere
+hands_off_to: [child, missing-one, child]
+steps:
+  - id: draft
+    instruction: Write it.
+    gates:
+      - agent: check it
+      - agent: review it
+        guide: nope.md
+  - id: ask
+    instruction: Ask.
+    gates:
+      - owner-action: approve
+      - workflow: child
+  - id: last
+    instruction: Done.
+    gates:
+      - agent: look again
+`;
+    const path = write(join(WORKFLOWS(), "placed.yml"), text);
+    const out = await validate(path, text);
+    const policy = join(home, ".konductor", "policy-overrides.yml");
+    const gone = `${policy} sets review.guide to gone.md, and ${join(home, ".konductor", "gone.md")} does not exist`;
+    const own = `the review guide of agent(review it) does not exist: ${join(WORKFLOWS(), "nope.md")}`;
+    const handOff = (ref: string) => `hands_off_to ${ref}: `;
+    const gate = `step ask, workflow child: `;
+    const needs = `child requires the input "request", and the gate's inputs do not give it`;
+    const noInput = "it declares no input this workflow produces, so --after gives it nothing";
+    // The lines are the ones they were; the places come next to them.
+    expect(out.errors).toEqual([gone, `${path}: steps.0 (draft): ${own}`, expect.stringContaining(handOff("missing-one")), `${gate}${needs}`]);
+    expect(out.problems).toEqual([
+      { severity: "error", line: gone, detail: gone, at: [{ step: 0, gate: 0 }, { step: 2, gate: 0 }] },
+      { severity: "error", line: out.errors[1], detail: own, at: [{ step: 0, gate: 1, field: "guide" }] },
+      { severity: "error", line: out.errors[2], detail: out.errors[2].slice(handOff("missing-one").length), at: [{ handOff: 1 }] },
+      { severity: "error", line: out.errors[3], detail: needs, at: [{ step: 1, gate: 1, field: "workflow" }] },
+      // Two hand-offs to one workflow give the same line once each, in order.
+      { severity: "warning", line: `${handOff("child")}${noInput}`, detail: noInput, at: [{ handOff: 0 }] },
+      { severity: "warning", line: `${handOff("child")}${noInput}`, detail: noInput, at: [{ handOff: 2 }] },
+      { severity: "warning", line: out.warnings[2], detail: out.warnings[2], at: [{ field: "name" }] },
+    ]);
+    expect(out.warnings).toEqual([`${handOff("child")}${noInput}`, `${handOff("child")}${noInput}`, expect.stringContaining('name "elsewhere" differs')]);
+  });
+
+  test("text that does not parse gets no answer, and a path outside the workflow locations is refused", async () => {
+    const path = join(WORKFLOWS(), "broken.yml");
+    expect(await validate(path, "version: 1\nsteps: []\n")).toEqual({ errors: [], warnings: [], problems: [] });
+    const outside = await api("/api/validate", { method: "POST", body: JSON.stringify({ path: join(root, "x.yml"), text: "" }) });
+    expect(outside.status).toBe(403);
   });
 });

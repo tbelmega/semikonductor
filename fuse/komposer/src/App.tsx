@@ -39,7 +39,7 @@ import {
   type OpenWorkflow,
   type Session,
 } from "./workflowView.ts";
-import { problemsByStep, problemsForText } from "./validate.ts";
+import { problemsByStep, problemsForText, type EngineValidation } from "./validate.ts";
 import { LOCATION_ROOT, WorkflowList } from "./WorkflowList.tsx";
 import { Compare } from "./Compare.tsx";
 import { compareOrder, comparePair, comparePick } from "./model/compare.ts";
@@ -153,8 +153,6 @@ export function App() {
 
   const workflow = useMemo(() => workflows.find((w) => workflowKey(w) === currentKey) ?? null, [workflows, currentKey]);
   const steps = useMemo(() => (workflow ? stepViews(workflow) : []), [workflow]);
-  const problems = useMemo(() => (workflow ? problemsForText(workflow.openText) : []), [workflow]);
-  const byStep = useMemo(() => problemsByStep(problems), [problems]);
   const dirty = !!workflow && workflow.openText !== workflow.text;
   const disk = currentKey ? diskVersions[currentKey] : undefined;
   // The workflow file a workstream of another project follows: shown, never
@@ -223,6 +221,44 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [workflow?.path, workflow?.openText, readOnly]);
+
+  // The engine's checks that need other files (POST /api/validate), asked
+  // like the review guides. Each answer is kept with the path and text it
+  // was given for, and counts only while the open text is that text; until
+  // then Save waits, since fuse-flow would refuse a file these checks fail.
+  const [engineCheck, setEngineCheck] = useState<{ path: string; text: string; result?: EngineValidation; error?: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!workflow || readOnly) return;
+    let current = true;
+    const { path, openText: text } = workflow;
+    const timer = window.setTimeout(() => {
+      api
+        .validate(path, text)
+        .then((result) => current && setEngineCheck({ path, text, result }))
+        .catch((e) => current && setEngineCheck({ path, text, error: e instanceof Error ? e.message : String(e) }));
+    }, 300);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [workflow?.path, workflow?.openText, readOnly]);
+  const engineAnswer =
+    workflow && engineCheck && engineCheck.path === workflow.path && engineCheck.text === workflow.openText ? engineCheck : null;
+  const problems = useMemo(
+    () => (workflow ? problemsForText(workflow.openText, engineAnswer?.result ?? null) : []),
+    [workflow, engineAnswer],
+  );
+  const byStep = useMemo(() => problemsByStep(problems), [problems]);
+  // Why Save is not offered now, or null.
+  const saveBlocked = problems.length
+    ? "Fix the problems to save"
+    : workflow?.parsed && !readOnly && !engineAnswer?.result
+      ? engineAnswer?.error
+        ? `Cannot check the workflow: ${engineAnswer.error}`
+        : "Checking the workflow…"
+      : null;
 
   // The workflows as last rendered, for handlers that finish after an await:
   // their closure may predate a save that completed meanwhile.
@@ -745,7 +781,7 @@ export function App() {
               onAllInstructions={setAllInstructions}
               status={workflowStatus(workflow, readOnly, dirty)}
               dirty={dirty && !readOnly}
-              saveBlocked={problems.length ? "Fix the problems to save" : null}
+              saveBlocked={saveBlocked}
               onSave={openSave}
               onApply={applyCompare}
               diskBanner={diskBanner}
@@ -769,7 +805,7 @@ export function App() {
               dirty={dirty}
               diskBanner={diskBanner}
               problemsChip={problemsChip}
-              problems={problems}
+              saveBlocked={saveBlocked}
               onDiscard={discard}
               onSave={openSave}
               showPaths={showPaths}
@@ -907,7 +943,7 @@ function EditCenter({
   dirty,
   diskBanner,
   problemsChip,
-  problems,
+  saveBlocked,
   onDiscard,
   onSave,
   showPaths,
@@ -922,7 +958,8 @@ function EditCenter({
   dirty: boolean;
   diskBanner: React.ReactNode;
   problemsChip: React.ReactNode;
-  problems: ReturnType<typeof problemsForText>;
+  // Why Save is not offered, or null.
+  saveBlocked: string | null;
   onDiscard: () => void;
   onSave: () => void;
   showPaths: boolean;
@@ -952,9 +989,9 @@ function EditCenter({
         )}
         {!readOnly && (
           <button
-            className={`save-btn${dirty && !problems.length ? " is-enabled" : " is-disabled"}`}
-            disabled={!dirty || !!problems.length}
-            title={problems.length ? "Fix the problems to save" : ""}
+            className={`save-btn${dirty && !saveBlocked ? " is-enabled" : " is-disabled"}`}
+            disabled={!dirty || !!saveBlocked}
+            title={saveBlocked ?? ""}
             onClick={onSave}
           >
             Save…

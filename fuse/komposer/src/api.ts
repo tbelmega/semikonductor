@@ -4,6 +4,7 @@
 // reload does not lose it, and strip it from the URL bar.
 
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
+import type { EngineValidation } from "./validate.ts";
 import type { Session, WorkflowFile } from "./workflowView.ts";
 
 const STORAGE_KEY = "komposer-token";
@@ -66,6 +67,10 @@ export const api = {
   library: () => request<{ entries: LibraryEntry[] }>("library"),
   reviewGuides: (path: string, text: string) =>
     request<ReviewGuides>("review-guides", { method: "POST", body: JSON.stringify({ path, text }) }),
+  // The checks of `fuse-flow validate` that need other files, for the text
+  // as if it were saved at path.
+  validate: (path: string, text: string) =>
+    request<EngineValidation>("validate", { method: "POST", body: JSON.stringify({ path, text }) }),
   workstreams: () => request<{ workstreams: WorkstreamSummary[] }>("workstreams"),
   projects: () => request<{ projects: ProjectSummary[]; error?: string }>("projects"),
   addProjects: (path: string) =>
