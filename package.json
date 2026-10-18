@@ -10,6 +10,6 @@
     "test:skills": "for f in tests/skills/*/*.sh; do bash \"$f\" || exit 1; done",
     "test:flow": "bun install --cwd fuse/flow --frozen-lockfile && bun run --cwd fuse/flow test --timeout 60000",
     "test:smoke": "bun install --cwd fuse/flow --frozen-lockfile && bun test --timeout 60000 ./fuse/smoke",
-    "test:komposer": "bun install --cwd fuse/komposer --frozen-lockfile && bun run --cwd fuse/komposer test --timeout 60000"
+    "test:komposer": "bun install --cwd fuse/flow --frozen-lockfile && bun install --cwd fuse/komposer --frozen-lockfile && bun run --cwd fuse/komposer test --timeout 60000 && bun run --cwd fuse/komposer typecheck && bun run --cwd fuse/komposer build"
   }
 }

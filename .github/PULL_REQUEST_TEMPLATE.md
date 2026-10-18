@@ -36,7 +36,7 @@ Fixes # (issue)
 
 ## Testing
 
-- [ ] `bun run test` passes (type check, and repository, skill, fuse-flow, smoke harness and Komposer tests)
+- [ ] `bun run test` passes (type check, and repository, skill, fuse-flow, smoke harness and Komposer tests, with Komposer's type check and build)
 - [ ] If a skill or SOP changed: installed it and exercised it in Kiro CLI or Claude Code
 - [ ] New or changed code files carry the required SPDX header (see AGENTS.md's License headers
       rule); formats without comment syntax (e.g. JSON) are exempt
