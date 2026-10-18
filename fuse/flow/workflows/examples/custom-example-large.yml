@@ -44,8 +44,9 @@ steps:
       - artifact: design
         path: .konductor/{slug}/design.md
     instruction: >
-      Write the system design, after the design interview in interview.md next to the design guide
-      (fuse/flow/library/artifacts/design/ in the fuse-konductor clone).
+      Write the system design following the design guide (fuse/flow/library/artifacts/design/ in
+      the fuse-konductor clone), with its design interview in interview.md where the guide says it
+      applies.
     consumes:
       - codebase-analysis
       - user-stories

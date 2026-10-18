@@ -41,8 +41,9 @@ steps:
       involved, what are the integration points, and what tests exist. Add more as needed. Do not
       synthesize while a question is unanswered; gather more context instead. (3) Check every
       complexity indicator, never skipping the check: an architecture decision is required, or the
-      change coordinates three or more components (run the design interview,
-      fuse/flow/library/artifacts/design/interview.md in the fuse-konductor clone); this is
+      change coordinates three or more components (write a design following
+      fuse/flow/library/artifacts/design/guide.md in the fuse-konductor clone, which says when its
+      AWS design interview applies); this is
       debugging after two or more failed fix attempts (gather context again, focused on the root
       cause); the change has security implications (run the applicable security review or write a
       threat model with fuse/flow/library/artifacts/threat-model/guide.md); or it is a simple
@@ -61,8 +62,8 @@ steps:
     title: Additional analysis
     instruction: >
       Run the further analysis the complexity assessment requires, for every indicator that holds,
-      before any implementation: the design interview
-      (fuse/flow/library/artifacts/design/interview.md in the fuse-konductor clone) for an
+      before any implementation: a design following fuse/flow/library/artifacts/design/guide.md in
+      the fuse-konductor clone, with its design interview only where that guide says it applies, for an
       architecture decision or coordination across three or more components; a fresh pass of context
       gathering focused on the root cause, as in the analysis step, for debugging after two or more
       failed fix attempts; the applicable security review or a threat model following

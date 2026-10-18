@@ -42,7 +42,15 @@ steps:
       purpose and rough scope are settled, write a first draft of the spec, marked as a draft,
       with the questions still open; from then on, record each decision in the draft when it is
       made. When the request already settles the purpose and scope, write the draft straight away
-      and say so. Do not order the draft for review yet, and do not change code.
+      and say so. Before you write it, check where this workstream's documents go and whether they
+      are committed. By default they go to the docs/specs/ paths and are committed with the work.
+      Where the house rules keep such documents elsewhere, use that place and record it in
+      .konductor/policy-overrides.yml under `artifacts:`, by artifact id. Where the house rules keep
+      them private, as files that git ignores and nobody publishes, keep them in that ignored place
+      and do not commit, push or land them; every later instruction to commit or land this
+      workstream's documents then applies to the code only. If git ignores docs/specs/ and the house
+      rules say nothing about it, ask the owner whether the documents stay private there or go to a
+      place that is committed. Do not order the draft for review yet, and do not change code.
     consumes: [build-order, requirements, design, product-brief]
     produces:
       - artifact: feature-spec
@@ -60,7 +68,12 @@ steps:
       as your decisions so the owner can object. Record what is deferred. Keep the spec as short
       as the feature allows. When nothing material is open, order the spec for review: the
       decisions the owner must make or check, and your own decisions and assumptions, come first,
-      most important first. Do not change code until the owner approves the spec. Commit the spec.
+      most important first. The implementation and code review steps run the project's default
+      check at their gates without the owner, so if the project's policy binds no command to it
+      yet, find the command, put it to the owner with the spec, and record it in
+      .konductor/policy-overrides.yml as `checks: { default: <command> }`; the owner's approval of
+      the spec confirms it. Do not change code until the owner approves the spec. Commit the spec,
+      unless this workstream's documents are kept private.
     updates:
       - artifact: feature-spec
         path: docs/specs/{date}-{slug}.md
@@ -96,10 +109,12 @@ steps:
     phase: Review
     mode: unattended
     instruction: >
-      Make the work ready for the owner to land. If the integration branch has moved, rebase the
-      work onto it first. Get the work through review. Before the last round, fold fixups and
-      review fixes into the commits it should land as, normally one commit for the feature, with a
-      subject that stands on its own. Do not merge it into the integration branch or push it to a
+      Make the work ready for the owner to land. If the integration branch has moved, bring the work
+      up to date with it first, the way the house rules ask, by default by rebasing it onto the
+      integration branch. Get the work through review. Before the last round, shape the history the
+      way the house rules ask; by default, fold fixups and review fixes into the commits it should
+      land as, normally one commit for the feature, with a subject that stands on its own. Do not
+      merge it into the integration branch or push it to a
       shared branch; the owner lands it. Then find out whether this project uses pull requests or
       a similar code review process: look in the project's and the user's house rules, the
       history of the integration branch, such as merge commits of pull requests or review links

@@ -61,7 +61,8 @@ Every `design.md` MUST contain exactly these six sections, in this order.
 - A component diagram of how this feature's components interact.
 - The integration points with existing system components.
 - The data flow for the primary use case.
-- At least one Mermaid diagram.
+- At least one diagram, in the tool the house rules name. Without one, use Mermaid, which Kiro
+  renders inline in `design.md`; the examples below use it.
 
 Example sequence diagram:
 
@@ -209,7 +210,7 @@ diagrams are easier to read than one large one.
 
 **IMPORTANT (should fix):**
 
-- No Mermaid diagram.
+- No diagram, in the house rules' diagram tool or else Mermaid.
 - Missing error scenarios for operations that call external services or accept user input.
 - A testing strategy without one of the three levels: unit, integration, end-to-end.
 - Shared components designed again in full instead of referenced.

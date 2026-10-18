@@ -1,8 +1,8 @@
 ---
 name: verification
-description: 'Use whenever a task producing a testable outcome (code, build artifacts, generated documents, or infrastructure changes) is about to be declared complete. MUST USE before presenting any such result: run the TDD workflow and show evidence it works, integrated with the maker-checker pattern.'
+description: 'Use whenever a task producing a testable outcome (code, build artifacts, generated documents, or infrastructure changes) is about to be declared complete. MUST USE before presenting any such result: show evidence it works, with a failing reproduction first for every bug fix, integrated with the maker-checker pattern.'
 version: 1.0.0
-tags: [skill, behavioral, verification, tdd, evidence, quality]
+tags: [skill, behavioral, verification, evidence, quality]
 ---
 
 # Verification
@@ -15,14 +15,20 @@ Evidence collection protocol that ensures no task is declared complete without p
 
 This skill is always active. It applies whenever an agent completes a task that produces a testable outcome: code, build artifacts, generated documents, or infrastructure changes. No explicit activation needed.
 
-## TDD Workflow
+## Verification Workflow
 
-Follow these phases in order. Do not skip phases.
+This workflow does not force a red-green loop on every change. Use test-first development (write a
+failing test, make it pass, refactor) only where the house rules, the running workflow or the owner
+selected it; otherwise how you test internal units is your call.
 
-1. **SPEC**: Define success criteria before implementation. What must be true when done?
-2. **RED**: Write a failing test. Run it. Confirm it FAILS. Show the output.
-3. **GREEN**: Write minimal code to make the test pass. Run it. Confirm it PASSES. Show the output.
-4. **REFACTOR**: Clean up code. Run tests again. Confirm they stay GREEN. Show the output.
+1. **SPEC**: Define success criteria before implementation. What must be true when done? Take
+   acceptance tests from the requirement or spec, not from the code you wrote.
+2. **REPRODUCE** (bug fixes): Start every bug fix with a test or command that reproduces the bug.
+   Run it. Confirm it FAILS. Show the output.
+3. **SHOW IT CAN FAIL** (new tests): For each new test, show that it can fail: run it before the
+   code exists, or break the code briefly and watch it go red. Show the output.
+4. **BUILD AND CHECK**: Make the change. Run the relevant tests. Confirm they PASS. Show the output.
+   Never weaken, skip or delete a test to get to green.
 5. **VERIFY**: Run the full test suite. Confirm all tests pass. Show the output.
 
    ```bash
@@ -147,7 +153,8 @@ These patterns produce wrong conclusions:
 **IMPORTANT (must fix before proceeding):**
 
 - Evidence provided but incomplete (e.g., exit code shown but output omitted)
-- TDD phase skipped (e.g., jumped from SPEC to GREEN without RED)
+- Bug fix without a failing reproduction shown first
+- New test never shown to fail (neither run before the code nor against briefly broken code)
 - Manual test described vaguely ("it works") instead of specific observations
 
 **SUGGESTION:**

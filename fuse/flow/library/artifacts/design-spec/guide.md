@@ -50,7 +50,8 @@ status: draft
 ```
 
 Change it to `approved` when the owner approves the spec. If the owner later sends the work back
-to this step, set it to `draft` again while you revise. Commit the spec.
+to this step, set it to `draft` again while you revise. Commit the spec, unless the house rules
+keep such documents private and uncommitted.
 
 ## Self-review
 

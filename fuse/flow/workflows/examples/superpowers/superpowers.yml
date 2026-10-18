@@ -65,7 +65,8 @@ steps:
       create a feature branch from HEAD, named after the workstream unless the owner prefers
       another name. Never implement on the integration branch without the owner's explicit
       consent. Commit the approved spec and plan, with their status set to approved, on the
-      branch. Then run the project's setup, such as installing dependencies, and establish a clean
+      branch, unless the house rules keep such documents private and uncommitted, as files that
+      git ignores; then leave them where they are, uncommitted. Then run the project's setup, such as installing dependencies, and establish a clean
       test baseline. If the baseline fails, do not fix it here: run `continue <slug> --blocked
       "baseline red: <failing tests>"`, so the owner decides whether to accept it or investigate
       first.

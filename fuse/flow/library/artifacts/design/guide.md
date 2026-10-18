@@ -4,9 +4,12 @@ How to write and structure a design document, such as a system design, RFC, tech
 architecture proposal or one-pager. `review.md` next to this file says how the document is
 reviewed.
 
-When the document designs a new architecture, first follow `interview.md` next to this file to
-gather the requirements and constraints and choose the patterns. Take each answer from the step's
-inputs and the existing documents first, and ask only what they leave unresolved.
+When the document designs a new architecture for a system that targets AWS, or when the owner
+chooses it for another system, first follow `interview.md` next to this file to gather the
+requirements and constraints and choose the patterns; its questions assume an AWS solution. Take
+each answer from the step's inputs and the existing documents first, and ask only what they leave
+unresolved. For any other system, gather what the design needs from the step's instruction and
+inputs instead.
 
 ## Structure (outside-in)
 
@@ -100,7 +103,9 @@ The test for any sentence: if deleting it loses no information, delete it. If a 
 
 ## Diagrams
 
-- Use Mermaid (not ASCII art). Renders in most Markdown viewers.
+- Use the diagram tool the house rules name. Without one, use Mermaid (not ASCII art); it renders
+  in most Markdown viewers. The next four points are for Mermaid; with another tool, use its
+  equivalents.
 - `sequenceDiagram` for multi-component interactions
 - `flowchart` for decision trees and data flows
 - `stateDiagram-v2` for lifecycle states

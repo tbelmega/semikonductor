@@ -39,11 +39,11 @@ earlier commit messages, or every commit made directly on the integration branch
   choice: fuse-flow applies it, and it wins. Where no policy file sets it, the house rules still
   apply to it, as below.
 - Where a fuse workflow, guide or skill says in prose how to do something that a house rule also
-  covers, such as branching, how a change gets reviewed or merged, how a reviewer is started, or
-  where and in what format decision records are kept, do not let fuse win by default. Follow the
-  owner's ruling if there is one. Otherwise follow the house rule when it clearly applies, and say
-  that you did. When it is unclear which applies, ask the owner, with your recommendation. Record
-  the answer as the `fuse-workstream` skill says.
+  covers, such as branching, commits and their messages, how a change gets reviewed or merged, how
+  a reviewer is started, or where and in what format decision records are kept, do not let fuse
+  win by default. Follow the owner's ruling if there is one. Otherwise follow the house rule when it
+  clearly applies, and say that you did. When it is unclear which applies, ask the owner, with your
+  recommendation. Record the answer as the `fuse-workstream` skill says.
 - When both ask for the same work, such as two reviews of one change, do it once.
 
 ## While a workstream runs
@@ -71,7 +71,8 @@ that it explains itself to that reader.
   reused. Do not point at a decision further down the document, in another file, or in the
   conversation; say what it is instead.
 - Write commit subjects that describe the change on their own terms, without plan, task, finding
-  or review-round identifiers.
+  or review-round identifiers, unless the house rules' commit format asks for one, such as a
+  ticket number.
 - Keep fuse-flow behind the scenes. Name the next step, phase or artifact in plain words, such as
   "next, the code review". Do not show fuse-flow commands, flags or the workstream's state file,
   and do not assume the owner knows how fuse-flow works. When the owner asks how it works,

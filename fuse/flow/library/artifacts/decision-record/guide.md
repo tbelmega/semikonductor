@@ -350,9 +350,9 @@ without table-level locking; RDS Aurora peaks at about 10k writes/s on db.r6g.2x
 same load test (verified against the AWS documentation with `doc-accuracy-analyzer`)."
 
 Set the status: `Accepted` for decisions made while writing the design, `Proposed` when the owner
-has not confirmed the choice. Include an architecture diagram (Mermaid) when the decision changes
-the topology, describe the integration points with other systems, and consider the operational
-impact: monitoring, on-call and deployment.
+has not confirmed the choice. Include an architecture diagram, in the diagram tool the house rules
+name or else Mermaid, when the decision changes the topology, describe the integration points with
+other systems, and consider the operational impact: monitoring, on-call and deployment.
 
 ### 3. Number and place it
 

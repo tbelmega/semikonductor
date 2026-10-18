@@ -55,8 +55,10 @@ steps:
   - id: design
     title: 3. Design
     instruction: >
-      Write the design document. For system architecture, data models and infrastructure also use
-      the design interview in interview.md next to the design guide. Cite code for every claim about
+      Write the design document. For system architecture, data models and infrastructure of a
+      system that targets AWS, or when the owner chooses it, also use the design interview in
+      interview.md next to the design guide; for any other system, follow the design guide's
+      general path. Cite code for every claim about
       current behaviour; mark what could not be verified. When the codebase analysis found no code,
       name the language, framework and runtime; implementation scaffolds from them.
     produces:

@@ -7,7 +7,11 @@ idiomatic code once they know the exact interface and the exact test, and that t
 reasonable choice wherever the plan leaves one open. What they cannot know is what you decided:
 which files, which names and signatures, which values from the spec, and which tests prove each
 task. The plan records those decisions and nothing else. Keep it free of repetition and of
-features the spec does not ask for, test-first, with frequent commits.
+features the spec does not ask for. Take each task's tests from the spec's wording, not from the
+code you expect, and have each shown to fail once, before the code exists or with the code briefly
+broken. Order the steps test-first, and commit after each task, when the workflow or the house
+rules ask for it; otherwise the plan's step order and commit points are a default the implementer
+may adapt.
 
 ## Before the tasks
 
@@ -44,7 +48,7 @@ Each step is one action with a checkable result:
 - **A code step** gives the exact signature and file, and the values the spec fixes. The
   implementer writes the body. Show a body only for an algorithm the signature and tests do not
   determine, or for exact text the spec fixes.
-- **A commit step** gives the files and the commit message.
+- **A commit step** gives the files and the commit message, in the project's commit format.
 
 A step is done when the implementer can write exactly one reasonable thing from it. A line that
 decides nothing, such as "handle edge cases" or "add tests for the above", is a gap. A plan longer

@@ -41,9 +41,11 @@ a reasonable person would expect, most likely first. Each one has its test in th
 - Consumes: <exact signatures from earlier tasks, or "nothing">
 - Produces: <exact names, parameters and return types later tasks rely on>
 
-- [ ] **Step 1: Write the failing test** `<test name>`, asserting <the spec's exact values>.
-- [ ] **Step 2: Run it and watch it fail.** Run: `<command>`. Expected: FAIL with "<message>".
+- [ ] **Step 1: Write the test** `<test name>` from the spec's wording, asserting <the spec's
+  exact values>.
+- [ ] **Step 2: Show it can fail.** Run: `<command>` before the code exists, or with the code
+  briefly broken. Expected: FAIL with "<message>".
 - [ ] **Step 3: Implement `<signature>` in `<file>`.** <One line on the approach, only when the
   signature and the test leave a choice.>
 - [ ] **Step 4: Run it and watch it pass.** Run: `<command>`. Expected: PASS.
-- [ ] **Step 5: Commit.** `git add <files> && git commit -m "<message>"`
+- [ ] **Step 5: Commit**, the way the house rules ask. Files: `<files>`. Message: "<message>".

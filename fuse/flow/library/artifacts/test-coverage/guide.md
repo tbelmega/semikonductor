@@ -16,8 +16,9 @@ Use the paths the step or its consumed artifacts give you; search only for what 
 
 ## 1. Choose the testing model
 
-Find the architecture type from the code and the design, and judge the test distribution against
-the model that fits it:
+When the house rules set a testing model or a test distribution for the project, judge the tests
+against it. Otherwise find the architecture type from the code and the design, and judge the test
+distribution against the model below that fits it; the ratios are rules of thumb, not targets:
 
 | Architecture                      | Model         | Expected distribution                                          |
 | --------------------------------- | ------------- | -------------------------------------------------------------- |

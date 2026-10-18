@@ -6,7 +6,8 @@ assumptions behind each choice, and recommends proven patterns. `guide.md` next 
 how the design document itself is written, and `review.md` how it is reviewed.
 
 The questions assume an AWS-based solution built with CDK or CloudFormation that customers deploy
-in their own AWS accounts.
+in their own AWS accounts. Use this interview when the system targets AWS, or when the owner
+chooses it for another system; for any other system the design guide does without it.
 
 A step that only checks a design against these questions, for example while reviewing it, needs
 only the "Design checklist" section at the end.
@@ -147,8 +148,11 @@ what has been established at the end of each phase.
 
 ## Outputs
 
-The interview produces the content of four documents. Write each to the path the step gives it;
-for standalone use, put them together with the design document.
+The interview supplies the content of the design document, and can supply three companion
+documents: a threat model input, an architecture diagram description and a design review handoff.
+Write a companion document only when the step declares it or the owner asks for it, to the path the
+step gives it, or next to the design document when the interview is used on its own. Otherwise put
+what the design needs from it into the design document, and leave out the rest.
 
 ### 1. The design document
 

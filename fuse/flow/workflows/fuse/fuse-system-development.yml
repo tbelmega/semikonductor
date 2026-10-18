@@ -6,9 +6,10 @@
 # new channels. Work that extends code within the existing architecture uses
 # fuse-feature-development; a migration needs its own workflow. The owner approves what to build
 # and how, and independent agent review raises the bar before each owner decision. The workflow ends
-# with the approved requirements, design and build order on the integration branch. Each entry of
-# the build order, or a few of them combined, is then built as its own fuse-feature-development
-# workstream, by the owner or by teammates in parallel where the order allows. Each feature is
+# with the approved requirements, design and build order on the integration branch, unless the
+# house rules keep such documents private. Each entry of the build order, or a few of them
+# combined, is then built as its own fuse-feature-development workstream, by the owner or by
+# teammates in parallel where the order allows. Each feature is
 # tested and reviewed as it is integrated with what has landed so far, so there is no separate
 # build or final test phase here. The steps say what to achieve and leave the how to the agent and
 # its harness. Step and artifact names follow _k-phase-chain and _k-full-sdlc where they fit;
@@ -40,7 +41,15 @@ steps:
       settled, write a first draft of the requirements, marked as a draft, with the questions
       still open; from then on, record each decision in the draft when it is made. When the
       request already settles the purpose and scope, write the draft straight away and say so.
-      Do not order the draft for review yet.
+      Before you write it, check where this workstream's documents go and whether they are
+      committed. By default they go to the docs/specs/ paths and are committed with the work. Where
+      the house rules keep such documents elsewhere, use that place and record it in
+      .konductor/policy-overrides.yml under `artifacts:`, by artifact id. Where the house rules keep
+      them private, as files that git ignores and nobody publishes, keep them in that ignored place
+      and do not commit, push or land them; every later instruction to commit or land this
+      workstream's documents then applies to the code only. If git ignores docs/specs/ and the house
+      rules say nothing about it, ask the owner whether the documents stay private there or go to a
+      place that is committed. Do not order the draft for review yet.
     consumes: [product-brief]
     produces:
       - artifact: requirements
@@ -133,9 +142,9 @@ steps:
       own fuse-feature-development workstream, with its own spec, review and landing, so the split
       is a proposal, not a rule: tell the owner that features too small to be worth that
       ceremony can be combined, now in the build order or later when a feature workstream starts,
-      and point out the ones you would combine. Commit the requirements, the design and the build
-      order. Do not merge them into the integration branch or push them to a shared branch; the
-      owner lands them.
+      and point out the ones you would combine. Unless this workstream's documents are kept
+      private, commit the requirements, the design and the build order, and do not merge them into
+      the integration branch or push them to a shared branch; the owner lands them.
     consumes: [requirements, design]
     produces:
       - artifact: build-order
@@ -144,5 +153,6 @@ steps:
       - agent: review the build order against the approved requirements and the design
         guide: review.md
         max_rounds: 2
-      - owner-action: approve the design and the build order, then land them
+      - owner-action: >-
+          approve the design and the build order, then land them unless they are kept private
         route_back_to: [requirements, system-design]

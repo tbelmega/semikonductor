@@ -17,12 +17,18 @@ change from one to the other is small.
 What needs the owner's attention most goes on top of the draft. The owner should be able to open
 the file, read until the first section that needs nothing from them, and stop.
 
-The draft is filled in by an interview with the owner, run with the socratic-elicitation skill.
+The draft is filled in by an interview with the owner, one or a few questions at a time, each
+with your recommended answer. The questions are not a script and have no fixed number: each answer
+can raise the next. The question dimensions of the socratic-elicitation skill can help you find
+what to ask, but its question cap, its requirements summary and its rule against drafting before
+the summary do not apply here: this document is the record, and it is drafted from the start.
 The draft changes every turn: each answer is folded into the body and removed from the top in the
 turn it is given, so nothing answered stays on top and nothing lives only in the conversation.
-Each turn ends with a local commit of this file alone, so the owner reviews one turn's diff
-instead of rereading the whole document. The commits are the change log; do not keep a "changes
-since last time" section in the document.
+Unless the house rules shape commits otherwise, each turn ends with a local commit of this file
+alone, so the owner reviews one turn's diff instead of rereading the whole document. The commits
+are then the change log; do not keep a "changes since last time" section in the document. Where
+the house rules keep such documents private and uncommitted, as files that git ignores, do not
+commit the file at all; tell the owner in each turn what changed in it instead.
 
 ## The working draft
 
@@ -59,8 +65,9 @@ agreed while the question it depends on is still open.
 
 ## The durable form
 
-When nothing is open and the owner has approved the requirements, make the document durable, as its
-own commit with no other changes, so the owner can see it is only a restructuring:
+When nothing is open and the owner has approved the requirements, make the document durable, as a
+change of its own with nothing else in it, by default its own commit when the document is
+committed, so the owner can see it is only a restructuring:
 
 1. Remove the attention section.
 2. Make sure every approved agent decision is in the body: as a requirement, as a constraint, in

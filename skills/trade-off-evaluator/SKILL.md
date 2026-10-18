@@ -186,7 +186,7 @@ requirement.
 
 ### Step 5: Write Report
 
-Write the full trade-off report to `docs/design/<name>-tradeoffs.md`. If a calling workflow asks for it, embed the table in the relevant ADR's Alternatives section.
+Write the full trade-off report to the path the calling step gives. Without one, put it where the house rules keep design documents, or else at `docs/design/<name>-tradeoffs.md`. If a calling workflow asks for it, embed the table in the relevant ADR's Alternatives section.
 
 ## Pitfalls
 
@@ -211,4 +211,4 @@ The trade-off evaluation passes when:
 - At least 2 options are scored
 - All five dimensions are addressed (or explicitly excluded with justification)
 - The recommendation names the chosen option and references at least 2 dimension scores
-- The report is written to `docs/design/<name>-tradeoffs.md` or embedded in the ADR
+- The report is written to the path chosen in Step 5, or embedded in the ADR

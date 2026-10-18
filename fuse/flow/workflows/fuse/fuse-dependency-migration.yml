@@ -32,7 +32,15 @@ steps:
       time. As soon as they are settled, write a first draft of the migration spec, marked as a
       draft, with the questions still open; from then on, record each decision in the draft when
       it is made. When the request already settles the purpose and scope, write the draft straight
-      away and say so. Do not order the draft for review yet, and do not change code.
+      away and say so. Before you write it, check where this workstream's documents go and whether
+      they are committed. By default they go to the docs/specs/ paths and are committed with the
+      work. Where the house rules keep such documents elsewhere, use that place and record it in
+      .konductor/policy-overrides.yml under `artifacts:`, by artifact id. Where the house rules keep
+      them private, as files that git ignores and nobody publishes, keep them in that ignored place
+      and do not commit, push or land them; every later instruction to commit or land this
+      workstream's documents then applies to the code only. If git ignores docs/specs/ and the house
+      rules say nothing about it, ask the owner whether the documents stay private there or go to a
+      place that is committed. Do not order the draft for review yet, and do not change code.
     produces:
       - artifact: migration-spec
         path: docs/specs/{date}-{slug}/spec.md
@@ -48,7 +56,10 @@ steps:
       what behavior it protects. Run the ones you can, and record their current result; a check
       that fails before the migration is a pre-existing defect, recorded as such so it is not
       blamed on the migration later. The full check is the project's default check, the command
-      the check gates of the later steps run when each step finishes. When it takes more than a
+      the check gates of the later steps run when each step finishes. Those steps run without the
+      owner, so if the project's policy binds no command to it yet, record the one you propose in
+      .konductor/policy-overrides.yml as `checks: { default: <command> }` and list it among the
+      decisions the owner checks at this step's gate. When it takes more than a
       few minutes, start it in the background as soon as you know its command, on a checkout
       whose code matches its last commit, keep its output in a file, and go on with the catalogue
       while it runs. Wait for it
@@ -135,7 +146,8 @@ steps:
       full check again when the catalogue already records a result of it for the current commit,
       with the captured files the comparison needs, from the catalogue step's background run;
       when the guardrails step ran and nothing has changed since, its gate's passing run of the
-      full check is that result, so record it with the commit. Commit the catalogue.
+      full check is that result, so record it with the commit. Commit the catalogue, unless this
+      workstream's documents are kept private.
     consumes: [check-catalogue]
     updates:
       - artifact: check-catalogue
@@ -194,9 +206,10 @@ steps:
       with the commit it ran on; the pre-existing defects and whether the migration touched them;
       the behavior changes accepted on purpose; the risks no check covers and what the owner
       should try by hand; and where the decisions file records the decisions you made alone. If
-      the integration branch has moved, rebase the work onto it first and run again the checks
-      other than the full check. When
-      the rebase or any fix changes the code after the migration step's gate, the report must
+      the integration branch has moved, bring the work up to date with it first, the way the house
+      rules ask, by default by rebasing it onto the integration branch, and run again the checks
+      other than the full check. When that update or any fix changes the code after the migration
+      step's gate, the report must
       not present that gate's result as the result for the final commit: run the full check
       again before the last review round when the report compares its captured outputs or
       numbers; otherwise say in the report that the full check on the final commit is this
@@ -204,11 +217,12 @@ steps:
       from review or for a failed gate, run again the checks other than the full check that it
       could affect, update the comparison and the report, and have the change reviewed before
       you finish again. Get the work and the report through review. Before the last round,
-      fold fixups into the commits it should land as, keeping the increments. When you finish
-      this step, its gate runs the full check on the code as it is, so commit everything first,
-      the report and the catalogue included, and do not run the full check yourself just before
-      finishing, even where the finishing instructions list it. Do not merge into the
-      integration branch or push to a shared branch;
+      fold fixups into the commits it should land as, the way the house rules ask, keeping the
+      increments. When you finish this step, its gate runs the full check on the code as it is, so
+      commit everything first, the report and the catalogue included unless this workstream's
+      documents are kept private, and do not run the full check yourself just before finishing, even
+      where the finishing instructions list it. Do not merge into the integration branch or push to
+      a shared branch;
       the owner lands it.
     consumes: [migration-spec, check-catalogue]
     produces:

@@ -55,7 +55,8 @@ steps:
       Read every unanswered comment and review on the pull request. Check each against the code
       before you act on it: fix what is right, and reply with your reasons where it is wrong or
       out of scope. Find the root cause of each confirmed finding and look for other instances of
-      it in the change. Start each code fix with a test that fails because of the finding. Commit
+      it in the change. Start the fix of each confirmed defect with a test that reproduces it and
+      fails; how you show that other fixes hold, such as naming or style, is your call. Commit
       the fixes the way the house rules ask, and publish them to the request the way the process
       found in the first step does, such as a new revision of a code review or a push to the
       request's branch; push only when that process needs it. Reply to each comment with what you
