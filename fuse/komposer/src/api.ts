@@ -69,7 +69,8 @@ export const api = {
   workstreams: () => request<{ workstreams: WorkstreamSummary[] }>("workstreams"),
   projects: () => request<{ projects: ProjectSummary[]; error?: string }>("projects"),
   addProjects: (path: string) =>
-    request<{ found: string[]; added: string[] }>("projects", { method: "POST", body: JSON.stringify({ path }) }),
+    // truncated: the scan stopped at its folder limit, so some may be missing.
+    request<{ found: string[]; added: string[]; truncated?: true }>("projects", { method: "POST", body: JSON.stringify({ path }) }),
   removeProject: (path: string) =>
     request<{ removed: boolean }>("projects", { method: "DELETE", body: JSON.stringify({ path }) }),
   watchUrl: (path: string) => `/api/watch?path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}`,
@@ -99,6 +100,9 @@ export interface FileRef {
   // Set when the file lies outside the locations Komposer reads guides from;
   // its text is not sent then.
   outside?: boolean;
+  // Set when the file may be read but reading it failed: the reason. Its
+  // text is not sent then, and it is not a file that does not exist.
+  unreadable?: string;
 }
 
 export type ReviewGuideSource =
@@ -113,7 +117,7 @@ export interface ReviewGuides {
     gateGuide?: FileRef & { exists: boolean };
     reviews: { artifact?: string; guide?: FileRef & { source: ReviewGuideSource }; ownGuide?: FileRef }[];
   }[];
-  // The text of every file named above that exists, by path.
+  // The text of every file named above that exists and can be read, by path.
   files: Record<string, string>;
 }
 

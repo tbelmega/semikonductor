@@ -245,6 +245,14 @@ select {
   font: 400 11px "JetBrains Mono", monospace;
   color: var(--text-muted);
 }
+.lane-row.lane-row-unavailable {
+  cursor: default;
+  opacity: 0.75;
+}
+.lane-row-unavailable .lane-row-meta {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .lane-empty {
   padding: 12px;
   font-size: 13px;

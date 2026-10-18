@@ -586,6 +586,8 @@ export function App() {
         }
       }}
       workstreams={workstreams}
+      unavailable={unavailable.filter((u) => u.location !== "run")}
+      locationPaths={Object.fromEntries(session.locations.map((x) => [x.id, x.path]))}
       onNew={createNew}
       allWorkstreams={allWorkstreams}
       onAllWorkstreams={() => {

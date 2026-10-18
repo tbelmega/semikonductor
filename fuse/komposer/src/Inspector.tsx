@@ -814,15 +814,7 @@ function StepTab({
                             }
                           />
                           {gateGuides(fileIndex)?.gateGuide && (
-                            <button
-                              type="button"
-                              className="text-button"
-                              disabled={!gateGuides(fileIndex)!.gateGuide!.exists && !gateGuides(fileIndex)!.gateGuide!.outside}
-                              title={gateGuides(fileIndex)!.gateGuide!.path}
-                              onClick={() => onViewFile("Gate guide", gateGuides(fileIndex)!.gateGuide!)}
-                            >
-                              {gateGuides(fileIndex)!.gateGuide!.exists || gateGuides(fileIndex)!.gateGuide!.outside ? "Open" : "Not found"}
-                            </button>
+                            <GateGuideButton guide={gateGuides(fileIndex)!.gateGuide!} onView={(file) => onViewFile("Gate guide", file)} />
                           )}
                         </span>
                       </label>
@@ -1615,6 +1607,25 @@ function ReviewInEffect({
   );
 }
 
+// The button beside a gate's guide field: it opens the guide, or says the
+// guide is missing. A guide that exists but cannot be read opens the viewer,
+// which says why.
+function GateGuideButton({ guide, onView }: { guide: FileRef & { exists: boolean }; onView: (file: FileRef) => void }) {
+  const unreadable = guide.unreadable !== undefined;
+  const opens = unreadable || guide.exists || !!guide.outside;
+  return (
+    <button
+      type="button"
+      className="text-button"
+      disabled={!opens}
+      title={unreadable ? `${guide.path} cannot be read: ${guide.unreadable}` : guide.path}
+      onClick={() => onView(guide)}
+    >
+      {unreadable ? "Cannot be read" : opens ? "Open" : "Not found"}
+    </button>
+  );
+}
+
 // A guide file opened from a gate, over the whole panel.
 function GuideViewer({
   title,
@@ -1644,6 +1655,8 @@ function GuideViewer({
         <div className="inspector-empty guide-viewer-note">
           Komposer shows guides only from the project, the libraries and the workflow locations.
         </div>
+      ) : file.unreadable !== undefined ? (
+        <div className="inspector-empty guide-viewer-note">The file cannot be read: {file.unreadable}</div>
       ) : text === undefined ? (
         <div className="inspector-empty guide-viewer-note">The file does not exist.</div>
       ) : (

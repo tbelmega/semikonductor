@@ -154,8 +154,8 @@ export function ProjectList({
       {adding && (
         <AddProjectsModal
           onClose={() => setAdding(false)}
-          onAdded={(message) => {
-            setAdding(false);
+          onAdded={(message, stay) => {
+            if (!stay) setAdding(false);
             onMessage(message);
             onChanged();
           }}
@@ -165,7 +165,9 @@ export function ProjectList({
   );
 }
 
-function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: (message: string) => void }) {
+// onAdded's stay keeps the dialog open, as when the search stopped early and
+// says so.
+function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: (message: string, stay?: boolean) => void }) {
   const [path, setPath] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -174,10 +176,16 @@ function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
     setBusy(true);
     setError("");
     try {
-      const { found, added } = await api.addProjects(path);
-      if (!found.length) setError("No fuse-flow workstreams in this folder or the four folder levels below it.");
-      else if (!added.length) setError(`Found ${found.length} project${found.length === 1 ? "" : "s"} there, all listed already.`);
-      else onAdded(`Added ${added.length} project${added.length === 1 ? "" : "s"}`);
+      const { found, added, truncated } = await api.addProjects(path);
+      // The search stops at a folder limit; what it found is kept, but more may lie beyond it.
+      const partly = truncated ? " The search stopped after 20,000 folders, so some projects may be missing." : "";
+      if (!found.length) setError(`No fuse-flow workstreams in this folder or the four folder levels below it.${partly}`);
+      else if (!added.length) setError(`Found ${found.length} project${found.length === 1 ? "" : "s"} there, all listed already.${partly}`);
+      else {
+        const message = `Added ${added.length} project${added.length === 1 ? "" : "s"}.`;
+        if (partly) setError(`${message}${partly}`);
+        onAdded(message, !!partly);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

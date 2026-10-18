@@ -176,6 +176,64 @@ describe("workflows", () => {
     expect(existsSync(join(root, ".konductor", "workflows", "notes.txt"))).toBe(false);
   });
 
+  test("refuses a write that a symlink leads outside the workflow locations", async () => {
+    const outside = join(root, "outside");
+    const target = write(join(outside, "target.yml"), TWO_STEPS);
+    const notes = write(join(outside, "notes.md"), TWO_STEPS);
+    const folder = join(root, ".konductor", "workflows");
+    mkdirSync(folder, { recursive: true });
+    symlinkSync(target, join(folder, "link.yml"));
+    symlinkSync(notes, join(folder, "notes.yml"));
+    symlinkSync(outside, join(folder, "team"));
+    symlinkSync(join(outside, "ghost.yml"), join(folder, "ghost.yml"));
+    for (const path of [join(folder, "link.yml"), join(folder, "notes.yml"), join(folder, "team", "target.yml")]) {
+      const res = await api("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text: "x" }) });
+      expect(res.status).toBe(403);
+    }
+    for (const body of [
+      { location: "project", folder: "team", file: "planted", text: "x" },
+      { location: "project", file: "ghost", text: "x" },
+    ]) {
+      expect((await api("/api/workflows", { method: "POST", body: JSON.stringify(body) })).status).toBe(403);
+    }
+    expect(readFileSync(target, "utf8")).toBe(TWO_STEPS);
+    expect(readFileSync(notes, "utf8")).toBe(TWO_STEPS);
+    expect(existsSync(join(outside, "planted.yml"))).toBe(false);
+    expect(existsSync(join(outside, "ghost.yml"))).toBe(false);
+  });
+
+  test("a workflow location that is itself a symlink is written to", async () => {
+    const real = join(root, "dotfiles", "workflows");
+    const path = write(join(real, "mine.yml"), TWO_STEPS);
+    mkdirSync(join(home, ".konductor"), { recursive: true });
+    symlinkSync(real, join(home, ".konductor", "workflows"));
+    const listed = join(home, ".konductor", "workflows", "mine.yml");
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: listed, baseHash: hash(TWO_STEPS), text: "x" }) });
+    expect(readFileSync(path, "utf8")).toBe("x");
+    await json("/api/workflows", { method: "POST", body: JSON.stringify({ location: "personal", file: "new-one", text: "y" }) });
+    expect(readFileSync(join(real, "new-one.yml"), "utf8")).toBe("y");
+  });
+
+  test("refuses a working copy that a symlink leads outside the working-copy folder, and does not read one", async () => {
+    const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
+    const editor = join(root, ".konductor", "editor");
+    const outside = join(root, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, editor);
+    expect((await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x" }) })).status).toBe(403);
+    expect((await api("/api/working-copies", { method: "DELETE", body: JSON.stringify({ path }) })).status).toBe(403);
+    expect(existsSync(join(outside, ".gitignore"))).toBe(false);
+    expect(existsSync(join(outside, "project", "two-steps.yml"))).toBe(false);
+
+    rmSync(editor);
+    const secret = write(join(outside, "secret.md"), "SECRET\n");
+    mkdirSync(join(editor, "project"), { recursive: true });
+    symlinkSync(secret, join(editor, "project", "two-steps.yml"));
+    expect((await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x" }) })).status).toBe(403);
+    expect(readFileSync(secret, "utf8")).toBe("SECRET\n");
+    expect((await json("/api/workflows")).workflows.find((w: any) => w.path === path).workingCopy).toBeUndefined();
+  });
+
   test("saves a new file, and refuses an existing name or one that breaks the naming rule", async () => {
     const body = { location: "project", folder: "team/flows", file: "new-flow", text: TWO_STEPS };
     const created = await json("/api/workflows", { method: "POST", body: JSON.stringify(body) });
@@ -204,6 +262,73 @@ describe("workflows", () => {
     expect((await json("/api/workflows")).workflows.find((w: any) => w.path === path).workingCopy).toBeUndefined();
   });
 
+  test("a folder or file of a workflow location that cannot be read is listed as unavailable; the rest still loads", async () => {
+    const mine = join(home, ".konductor", "workflows");
+    write(join(mine, "fine.yml"), TWO_STEPS);
+    const unread = write(join(mine, "unread.yml"), TWO_STEPS);
+    const locked = join(mine, "locked");
+    write(join(locked, "inner.yml"), TWO_STEPS);
+    chmodSync(unread, 0o000);
+    chmodSync(locked, 0o000);
+    try {
+      const { workflows, unavailable } = await json("/api/workflows");
+      expect(workflows.filter((w: any) => w.location === "personal").map((w: any) => w.file)).toEqual(["fine.yml"]);
+      expect(unavailable.filter((u: any) => u.location === "personal")).toEqual([
+        { location: "personal", kind: "folder", path: locked, reason: expect.stringContaining("EACCES") },
+        { location: "personal", kind: "file", path: unread, reason: expect.stringContaining("EACCES") },
+      ]);
+    } finally {
+      chmodSync(locked, 0o755);
+      chmodSync(unread, 0o644);
+    }
+  });
+
+  test("a workflow link whose target is missing is listed as unavailable, with its target", async () => {
+    const folder = join(root, ".konductor", "workflows");
+    mkdirSync(folder, { recursive: true });
+    symlinkSync("/nonexistent/broken.yml", join(folder, "broken.yml"));
+    const { unavailable } = await json("/api/workflows");
+    expect(unavailable.filter((u: any) => u.location === "project")).toEqual([
+      { location: "project", kind: "link", path: join(folder, "broken.yml"), reason: "it is a link to /nonexistent/broken.yml, which does not exist" },
+    ]);
+  });
+
+  test("with a symlinked home, a personal workflow a run names by its real path is listed once and saved", async () => {
+    const realHome = join(root, "real-home");
+    mkdirSync(realHome);
+    home = join(root, "linked-home");
+    symlinkSync(realHome, home);
+    server.stop();
+    process.env.HOME = home;
+    server = startServer({ root, port: 0, token: TOKEN });
+    const mine = "version: 1\nname: mine\nsteps:\n  - id: only\n    instruction: Do it.\n";
+    const listedPath = write(join(home, ".konductor", "workflows", "mine.yml"), mine);
+    const realPath = join(realHome, ".konductor", "workflows", "mine.yml");
+    flow("start", "ws4", "--workflow", realPath);
+    const { workflows } = await json("/api/workflows");
+    expect(workflows.filter((w: any) => w.file === "mine.yml").map((w: any) => [w.location, w.path])).toEqual([["personal", listedPath]]);
+    const { workstreams } = await json("/api/workstreams");
+    expect(workstreams.find((w: any) => w.slug === "ws4").workflowPath).toBe(listedPath);
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: realPath, baseHash: hash(mine), text: "x" }) });
+    expect(readFileSync(realPath, "utf8")).toBe("x");
+  });
+
+  test("a .yaml workflow, which fuse-flow follows by its path, is listed, linked to and saved", async () => {
+    const one = "version: 1\nname: extension\nsteps:\n  - id: only\n    instruction: Do it.\n";
+    const folder = join(root, ".konductor", "workflows");
+    const path = write(join(folder, "extension.yaml"), one);
+    flow("start", "yaml-run", "--workflow", ".konductor/workflows/extension.yaml");
+    const { workflows, unavailable } = await json("/api/workflows");
+    expect(workflows.filter((w: any) => w.path === path).map((w: any) => [w.location, w.file])).toEqual([["project", "extension.yaml"]]);
+    const { workstreams } = await json("/api/workstreams");
+    expect(workstreams.find((w: any) => w.slug === "yaml-run").workflowPath).toBe(path);
+    const link = resolveWorkflowRef("extension.yaml", join(folder, "parent.yml"), workflows, folder, unavailable);
+    expect(link).toMatchObject({ ok: true, target: { path } });
+    const text = one.replace("Do it.", "Do it well.");
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(one), text }) });
+    expect(readFileSync(path, "utf8")).toBe(text);
+  });
+
   test("tells a watcher when the open file changes on disk", async () => {
     const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
     const res = await fetch(`${server.url}/api/watch?path=${encodeURIComponent(path)}&token=${TOKEN}`);
@@ -221,6 +346,29 @@ describe("workflows", () => {
     }
     await reader.cancel();
     expect(seen).toContain(`"hash":"${hash(changed)}"`);
+  });
+
+  test("a watched file that becomes unreadable is reported to its watcher as unreadable; the server keeps serving", async () => {
+    const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
+    const res = await fetch(`${server.url}/api/watch?path=${encodeURIComponent(path)}&token=${TOKEN}`);
+    const reader = res.body!.getReader();
+    setTimeout(() => chmodSync(path, 0o000), 100);
+    try {
+      let seen = "";
+      const deadline = Date.now() + 5000;
+      while (!seen.includes("EACCES") && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        seen += new TextDecoder().decode(value);
+      }
+      await reader.cancel();
+      expect(seen).toContain(`"hash":null`);
+      expect(seen).toContain("EACCES");
+      const { unavailable } = await json("/api/workflows");
+      expect(unavailable).toContainEqual({ location: "project", kind: "file", path, reason: expect.stringContaining("EACCES") });
+    } finally {
+      chmodSync(path, 0o644);
+    }
   });
 });
 
@@ -332,6 +480,21 @@ describe("library", () => {
     // A shipped guide that links to a fuse-konductor skill.
     const doc = entries.find((e: any) => e.id === "doc-accuracy" && e.level === "package");
     expect(doc.links["guide.md"].display).toBe("skills/doc-accuracy-analyzer/SKILL.md");
+  });
+
+  test("a library file that cannot be read is left out of its entry with the reason; the listing still loads", async () => {
+    const folder = join(root, ".konductor", "library", "artifacts", "locked");
+    const guide = write(join(folder, "guide.md"), "guide\n");
+    write(join(folder, "review.md"), "review\n");
+    chmodSync(guide, 0o000);
+    try {
+      const { entries } = await json("/api/library");
+      expect(entries.find((e: any) => e.id === "locked").files).toEqual({ "review.md": "review\n" });
+      // It is named with the reason, so it is not taken for a missing file.
+      expect(entries.find((e: any) => e.id === "locked").unreadable).toEqual({ "guide.md": expect.stringContaining("EACCES") });
+    } finally {
+      chmodSync(guide, 0o644);
+    }
   });
 
   test("every entry that ships with fuse-flow has a description", async () => {
@@ -685,7 +848,8 @@ describe("projects", () => {
     chmodSync(file, 0o000);
     try {
       const { unavailable } = await json("/api/workflows");
-      expect(unavailable).toEqual([{ location: "run", project: other, kind: "file", path: file, reason: expect.stringContaining("EACCES") }]);
+      // Only another project's: a broken link in a local location is listed too.
+      expect(unavailable.filter((u: any) => u.location === "run")).toEqual([{ location: "run", project: other, kind: "file", path: file, reason: expect.stringContaining("EACCES") }]);
       expect(() => flowIn(other, "start", "again", "--workflow", "one")).toThrow(/EACCES/);
       const link = await resolveIn(other, "one");
       expect(link).toMatchObject({ ok: false, unavailable: { path: file } });
@@ -708,7 +872,8 @@ describe("projects", () => {
     chmodSync(locked, 0o000);
     try {
       const { unavailable } = await json("/api/workflows");
-      expect(unavailable).toEqual([{ location: "run", project: other, kind: "folder", path: folder, reason: expect.stringContaining("EACCES") }]);
+      // Only another project's: a broken link in a local location is listed too.
+      expect(unavailable.filter((u: any) => u.location === "run")).toEqual([{ location: "run", project: other, kind: "folder", path: folder, reason: expect.stringContaining("EACCES") }]);
       expect(() => flowIn(other, "start", "again", "--workflow", "child")).toThrow(/EACCES/);
       for (const ref of ["child", "one"]) {
         const link = await resolveIn(other, ref);
@@ -779,6 +944,20 @@ describe("projects", () => {
     });
   });
 
+  test("a scan that stops at its folder limit says so instead of reporting no workstreams", async () => {
+    const area = join(root, "scan");
+    for (let i = 0; i <= 20_010; i++) mkdirSync(join(area, "aaa", String(i)), { recursive: true });
+    const res = await api("/api/projects", { method: "POST", body: JSON.stringify({ path: area }) });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toContain("stopped after reading 20,000 folders");
+    const found = runFile(join(area, "0-first"));
+    expect(await json("/api/projects", { method: "POST", body: JSON.stringify({ path: area }) })).toEqual({
+      found: [found],
+      added: [found],
+      truncated: true,
+    });
+  }, 30_000); // it makes 20,011 folders
+
   // Sorted, a/b/c/link comes before z; the scan meets z there at its depth
   // limit first, and must still search z below it when it reaches z directly.
   test("a folder first reached through a deep symlink is still searched where it lies shallower", async () => {
@@ -819,6 +998,16 @@ describe("projects", () => {
 
     const self = await api("/api/projects", { method: "DELETE", body: JSON.stringify({ path: root }) });
     expect(self.status).toBe(400);
+  });
+
+  test("removing a project listed once for two spellings removes both registrations", async () => {
+    const other = join(root, "other");
+    mkdirSync(join(other, ".git"), { recursive: true });
+    symlinkSync(other, join(root, "other-alias"));
+    write(projectsFile(), `projects:\n  - ${join(root, "other-alias")}\n  - ${other}\n`);
+    expect((await json("/api/projects")).projects.map((p: any) => p.path)).toEqual([root, join(root, "other-alias")]);
+    expect(await json("/api/projects", { method: "DELETE", body: JSON.stringify({ path: join(root, "other-alias") }) })).toEqual({ removed: true });
+    expect((await json("/api/projects")).projects.map((p: any) => p.path)).toEqual([root]);
   });
 });
 
@@ -883,6 +1072,24 @@ describe("example runs", () => {
 
     const remove = await api("/api/projects", { method: "DELETE", body: JSON.stringify({ path: EXAMPLES }) });
     expect(remove.status).toBe(400);
+  });
+
+  test("a registered path that leads through a symlink to this project or the examples is not listed again", async () => {
+    const links = join(root, "links");
+    mkdirSync(links);
+    symlinkSync(EXAMPLES, join(links, "examples"));
+    symlinkSync(root, join(links, "here"));
+    const other = join(root, "other");
+    mkdirSync(join(other, ".git"), { recursive: true });
+    symlinkSync(other, join(links, "other"));
+    write(
+      join(home, ".konductor", "projects.yml"),
+      `projects:\n  - ${join(links, "examples")}\n  - ${join(links, "here")}\n  - ${join(links, "other")}\n  - ${other}\n`,
+    );
+    const listed = (await json("/api/projects")).projects;
+    expect(listed.map((p: any) => p.path)).toEqual([root, join(links, "other"), EXAMPLES]);
+    // The five example runs, counted once.
+    expect((await json("/api/workstreams")).workstreams.map((w: any) => w.project)).toEqual(Array(5).fill(EXAMPLES));
   });
 
   test("a broken projects file still leaves the example runs", async () => {
@@ -965,6 +1172,21 @@ steps:
       guide: { path: missing, display: ".konductor/workflows/rules/missing.md", source: "gate" },
     });
     expect(out.files[missing]).toBeUndefined();
+  });
+
+  test("a guide that exists but cannot be read says why, instead of looking missing", async () => {
+    if (process.getuid?.() === 0) return; // root reads every file
+    const text = FLOW.replace("rules/review.md", "rules/locked.md");
+    const path = write(join(root, ".konductor", "workflows", "reviewed.yml"), text);
+    const locked = write(join(root, ".konductor", "workflows", "rules", "locked.md"), "rules\n");
+    chmodSync(locked, 0o000);
+    try {
+      const out = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text }) });
+      expect(out.gates[0].gateGuide).toMatchObject({ path: locked, exists: true, unreadable: expect.stringContaining("EACCES") });
+      expect(out.files[locked]).toBeUndefined();
+    } finally {
+      chmodSync(locked, 0o644);
+    }
   });
 
   test("names every source of a review guide, in the engine's order", async () => {
@@ -1124,6 +1346,17 @@ steps:
       expect(Object.values(out.files)).not.toContain("not for Komposer\n");
     });
 
+    test("the library sends no text of a project library file that links outside, and names where it leads", async () => {
+      const folder = join(root, ".konductor", "library", "artifacts", "leak");
+      write(join(folder, "guide.md"), "own guide\n");
+      symlinkSync(secret, join(folder, "review.md"));
+      const { entries } = await json("/api/library");
+      const leak = entries.find((e: any) => e.id === "leak");
+      expect(leak.files).toEqual({ "guide.md": "own guide\n" });
+      expect(leak.links).toEqual({ "review.md": { path: secret, display: secret, outside: true } });
+      expect(JSON.stringify(entries)).not.toContain("not for Komposer");
+    });
+
     test("refuses another skill file in the clone that no shipped library entry names", async () => {
       const skill = join(import.meta.dir, "..", "..", "..", "..", "skills", "humanize-writing", "SKILL.md");
       expect(existsSync(skill)).toBe(true);
@@ -1136,6 +1369,18 @@ steps:
       const missing = join(outsideDir, "missing.md");
       const out = await askFor(missing);
       expect(out.gates[0].gateGuide).toEqual({ path: missing, display: missing, outside: true, exists: false });
+    });
+
+    test("a guide inside them that cannot be read is named without its text; the answer still loads", async () => {
+      const guide = write(join(root, ".konductor", "workflows", "rules", "review.md"), "gate rules\n");
+      chmodSync(guide, 0o000);
+      try {
+        const out = await askFor("rules/review.md");
+        expect(out.gates[0].gateGuide).toMatchObject({ path: guide, exists: true });
+        expect(out.files[guide]).toBeUndefined();
+      } finally {
+        chmodSync(guide, 0o644);
+      }
     });
 
     test("still reads a guide inside them, and a shipped guide that links to a skill", async () => {

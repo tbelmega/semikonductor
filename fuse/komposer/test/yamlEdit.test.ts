@@ -3,7 +3,7 @@
 // real engine parser. No mocks of our own code.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseWorkflowText } from "../../flow/src/parse.ts";
 import YAML from "yaml";
@@ -12,12 +12,14 @@ import { applyEdit, verifyEdit, type Edit } from "../src/model/yamlEdit.ts";
 const WORKFLOWS_DIR = resolve(import.meta.dir, "..", "..", "flow", "workflows");
 
 // Every *.yml under the workflows directory, at any depth, following
-// symlinks (personal/ and team/ are symlinks to the real files).
+// symlinks (personal/ and team/ are symlinks to the real files). A link whose
+// target is missing is skipped, as fuse-flow's own lookup skips it.
 function listWorkflowFiles(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     if (name === "schemas") continue;
     const full = join(dir, name);
+    if (!existsSync(full)) continue;
     const real = realpathSync(full);
     const st = statSync(real);
     if (st.isDirectory()) out.push(...listWorkflowFiles(real));

@@ -5,7 +5,11 @@
 // page the lane also offers "All workstreams" and the workflows of other
 // projects that workstreams follow, and each row counts its workstreams. On
 // the Compare page the selected row is tagged "left", the right workflow's
-// row "right", and every other row offers "as right".
+// row "right", and every other row offers "as right". What a location holds
+// that fuse-flow cannot use (a folder that cannot be searched, a file that
+// cannot be read, a link whose target is missing), and a working copy or
+// working-copy folder that cannot be read, is listed at the end of its
+// section, with the reason, so it is not hidden.
 
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
@@ -16,6 +20,7 @@ import { problemsForText } from "./validate.ts";
 import { stepViews } from "./workflowView.ts";
 import { laneCount, plural } from "./model/workstreams.ts";
 import { projectName } from "./runView.ts";
+import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 
 const LOCATION_LABEL: Record<WorkflowLocation, string> = {
   project: "Project",
@@ -39,7 +44,26 @@ function stem(file: string) {
 // among the files beside the folder.
 const inLocation = (w: OpenWorkflow) => (w.dir ? `${w.dir}/${w.file}` : w.file);
 
+// An unavailable entry's path inside its location, or the whole path when
+// the location's folder is unknown or the entry lies outside it.
+const shownPath = (path: string, root: string | undefined) =>
+  root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : root === path ? "./" : path;
+
 export type LaneMode = "edit" | "workstreams";
+
+// An unavailable entry as the server lists it. Besides the kinds the link
+// resolver reads, it sends "working-copy" for a working copy, its base
+// record or a working-copy folder that cannot be read, and "link" for a link
+// whose target is missing.
+type ListedUnavailable = Omit<UnavailableWorkflow, "kind"> & { kind: string };
+
+// What the row of an unavailable entry says, before the reason. A working
+// copy that cannot be read is left where it is, not removed.
+const UNAVAILABLE_NOTE: Record<string, { meta: string; dot: string }> = {
+  folder: { meta: "folder cannot be searched", dot: "Cannot be used" },
+  "working-copy": { meta: "unsaved edits here cannot be read and are kept", dot: "Working copy cannot be read" },
+};
+const unavailableNote = (kind: string) => UNAVAILABLE_NOTE[kind] ?? { meta: "cannot be used", dot: "Cannot be used" };
 
 export function WorkflowList({
   mode,
@@ -52,6 +76,8 @@ export function WorkflowList({
   onAllWorkstreams,
   compareRight,
   onCompareRight,
+  unavailable = [],
+  locationPaths = {},
 }: {
   mode: LaneMode;
   workflows: OpenWorkflow[];
@@ -67,6 +93,10 @@ export function WorkflowList({
   // the other pages.
   compareRight?: string | null;
   onCompareRight?: (key: string) => void;
+  // What the three locations hold that cannot be used, as the server lists it.
+  unavailable?: ListedUnavailable[];
+  // Each location's folder, by which an unavailable entry's path is shown.
+  locationPaths?: Partial<Record<WorkflowLocation, string>>;
 }) {
   const comparing = compareRight !== undefined;
   const [query, setQuery] = useState("");
@@ -78,9 +108,14 @@ export function WorkflowList({
       const inLoc = workflows
         .filter((w) => w.location === loc && (!q || inLocation(w).toLowerCase().includes(q)))
         .sort((a, b) => inLocation(a).localeCompare(inLocation(b)));
-      return { loc, workflows: inLoc };
+      const root = locationPaths[loc];
+      const broken = unavailable
+        .filter((u) => u.location === loc && (!q || u.path.toLowerCase().includes(q)))
+        .map((u) => ({ ...u, shown: shownPath(u.path, root) }))
+        .sort((a, b) => a.shown.localeCompare(b.shown));
+      return { loc, workflows: inLoc, broken };
     });
-  const shownGroups = groups.filter((g) => g.workflows.length > 0);
+  const shownGroups = groups.filter((g) => g.workflows.length > 0 || g.broken.length > 0);
 
   const folders = useFolderState("komposer-workflow-folders");
   // A section or folder is shown open while searching, so no match is hidden.
@@ -195,6 +230,18 @@ export function WorkflowList({
                     </div>
                   );
                 })}
+              {sectionOpen(group.loc) &&
+                group.broken.map((u) => (
+                  <div key={`unavailable:${u.path}`} className="lane-row lane-row-unavailable" title={`${u.path}: ${u.reason}`}>
+                    <span className="lane-row-head">
+                      <span className="lane-row-name">{u.shown}</span>
+                      <span className="dot dot-problem" title={unavailableNote(u.kind).dot} />
+                    </span>
+                    <span className="lane-row-meta">
+                      {unavailableNote(u.kind).meta}: {u.reason}
+                    </span>
+                  </div>
+                ))}
             </div>
           );
         })}
