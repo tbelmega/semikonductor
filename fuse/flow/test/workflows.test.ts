@@ -136,6 +136,7 @@ describe("invalid workflows are refused with the reason", () => {
     ["a bad artifact id", ONE_STEP + "    produces: { artifact: Spec, path: x.md }\n", "lowercase letters"],
     ["max_fix_cycles, which fuse-flow no longer reads", "version: 1\nname: one\nmax_fix_cycles: 2\nsteps:\n  - id: only\n    instruction: x\n", "max_fix_cycles"],
     ["bad step id", "version: 1\nname: x\nsteps:\n  - id: Design\n    instruction: x\n", "lowercase letters"],
+    ["an agent gate's review guide that does not exist", ONE_STEP + "    gates: { agent: review, guide: reviews/missing.md }\n", "steps.0 (only): the review guide of agent(review) does not exist:"],
     ["a workflow gate slug that is the parent's own", ONE_STEP + '    gates: { workflow: other, slug: "{slug}" }\n', "slug must add to {slug}, such as {slug}-review, or the child would take the parent's own slug"],
   ];
   for (const [name, yaml, message] of cases) {

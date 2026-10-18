@@ -130,7 +130,8 @@ The step fields have these effects:
   reports nothing to read only when there is none. For a folder artifact, `READ` lists the files the source step recorded in it rather than
   the whole folder. `READ` names the document, or the files in a folder, that the source step
   recorded, also after an edit moved the artifact's path, as a later workstream's input does; a
-  later workstream's input is then the folder that holds the recorded files. Each document read, also a file
+  later workstream's input is then the folder that holds the recorded files, the repository root
+  `.` when they have no deeper folder in common. Each document read, also a file
   recorded in a folder and a document the step's own child returned, is reported when it is no
   longer on disk.
 - `produces` contains one artifact mapping or a list. Each mapping has an `artifact` identifier,
@@ -154,7 +155,11 @@ The step fields have these effects:
   artifact. A file inside the paths of two artifacts, such as a report inside the code at `.`, is
   refused until the agent names the artifact with `--updated <artifact>=<file>`; it repeats the
   flag for each artifact the file counts for. The step block lists such paths under
-  `FILES IN TWO ARTIFACTS`.
+  `FILES IN TWO ARTIFACTS`. A relative path is read from the current directory, else from the
+  repository root. A file in neither place, such as a deleted one, is read where a path of the
+  step holds it, for the artifact named if one is; where both places or neither are held, where
+  git knows it, in the index or in the history of HEAD, so a staged or committed deletion still
+  names the file where it was.
 - `--unchanged` and `--not-produced` name an artifact by its identifier or by its path, relative
   to the current directory, else to the repository root, as the step block prints it. An
   identifier wins when a name is both. A path that several of the
@@ -172,7 +177,17 @@ The step fields have these effects:
   is the run fuse-flow makes on `continue`.
 - `agent: <review>` tells the maker to obtain an independent review. `max_rounds`, at least 1,
   caps review rounds that end with a required fix. The default is 2. `guide` may name a review
-  guide relative to the workflow file or by absolute path. fuse-flow prints these instructions;
+  guide relative to the workflow file or by absolute path. The guide that applies, after policy
+  and the library have had their say, must be a file; one that a more specific guide replaces
+  need not exist. A new workstream and `validate` refuse a guide that cannot be followed in any
+  step. A running workstream refuses one only in the steps not finished yet, whose step blocks
+  print it, and `--back-to` in the steps it would reopen; the owner's `--skip`, `--forward-to`
+  and a new workstream's `--from` check only the steps from the one they reach, so the owner can
+  pass over a review whose guide is gone. `--from` likewise does not check the review guides of
+  the child workflows of the delegating steps it skips. When the hand-out moves the current
+  step first and the decision is not applied, the steps from the one the hand-out reached are
+  checked instead. A delegating step's existing child that refuses such a guide cannot be used. `status` and `list` read the workstream
+  whatever its guides. fuse-flow prints these instructions;
   the maker counts the rounds and reports `--blocked` at the cap.
 - `owner-action: <action>` leaves the completed work in `AWAITING_OWNER` until the owner decides.
 - Any gate mapping may have `route_back_to`, as one step identifier or a list. Each target is the
@@ -252,7 +267,10 @@ steps:
   step, or approve one awaiting the owner, while its child is unfinished, such as after its
   workflow gained a step; the hand-over block then offers finishing the child first or skipping
   the step instead of the approval, and `VERIFICATION` says the child recorded complete is
-  unfinished now.
+  unfinished now. It offers finishing the child only when finishing it would satisfy the gate:
+  for a recorded child whose state file is gone it offers restoring that file or sending the work
+  back for a new child, and for a child that cannot be used, such as one that follows another
+  workflow than the edited gate, correcting what the `STATUS` line names.
 - `returns` lists the child's documents that later steps may consume, as a list of ids or a
   mapping from the id in this workflow to the id in the child, to rename one that would clash,
   as in `returns: { system-design: design }`. A returned id resolves to the newest child's
@@ -281,7 +299,7 @@ steps:
 
 | Command | What it does |
 |---|---|
-| `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
+| `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a resumed workstream, `--workflow` names the workflow it follows, or, when that file is gone, its new path. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
 | `continue <slug>` | Finish the current step after its artifacts are accounted for and its mechanical gates pass, then print the next step or hand-over block. A step that this command hands out first, such as one added to the workflow or reached because a condition now skips the step before it, is printed and not finished; an owner's decision is likewise not applied when the hand-out moved the current step. |
 | `continue <slug> [--updated [<artifact>=]<file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. A file inside the paths of two artifacts takes the identifier of the one it counts for. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
@@ -292,7 +310,7 @@ steps:
 | `continue <slug> --more-rounds <n> [--note <text>]` | Add one or more review rounds to an agent gate on an `IN_PROGRESS` or `BLOCKED` step. |
 | `continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes, and its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
-| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`. Each file shows once, under the latest step that records it. `approved` means the step's gates passed, whoever ran them; it is the owner's approval only where the step has an owner gate. |
+| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. |
 | `list` | List the project's workstreams with their workflow and current step, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
 | `help`, `--help`, `-h` | Print command usage, lookup paths and state location. |
@@ -447,7 +465,15 @@ starts the reviewer the way the house rules ask, and else as a subagent. In the 
 started, the reviewer writes its findings to `.konductor/reviews/<slug>/<step>-round-<n>.json`,
 following `workflows/schemas/review-findings.schema.json`, and the agent reads them from there; the
 directory is gitignored, so a review guide does not belong there; `review.guide` is relative to
-the policy file that sets it. A row of `reviewers` may carry its own `launch`, for a reviewer model the
+the policy file that sets it. In a step with several reviews, the file name carries the review's number
+in the step block's list, the number `--gate` takes, as in `<step>-gate<g>-round-<n>.json`.
+Before this numbering, fuse-flow counted only the reviews, so `-gate<k>` was the k-th review of the
+step. In a step with a check, script or child workstream before two or more reviews, a review that
+was running during the upgrade therefore has findings files under its old number, which can be the
+new number of another review: with a check and two reviews, the old `-gate2` was the second review
+and is now the first. Before resuming such a step, rename each old file from the k-th review's
+old number to the number the step block prints for that review, starting with the highest, so no
+file is overwritten. A row of `reviewers` may carry its own `launch`, for a reviewer model the
 author's harness cannot run. `rulings` are the owner's decisions where fuse-flow and the house rules,
 such as another installed skill or always-on instruction, overlap; fuse-flow prints them with every step.
 
@@ -461,7 +487,8 @@ always gives each artifact a path, so user policy may not set `artifacts` and is
 does. Review `max_rounds` uses local or project policy, then
 the gate, then user policy, then the engine default. A review guide uses local or project policy,
 the project's artifact `review.md`, the gate's `guide`, user policy, then the user and package
-artifact review guides.
+artifact review guides. Only the guide that applies is checked: a command refuses when it is not
+a file, and a guide it replaces may be missing.
 
 ### Decisions
 
@@ -486,7 +513,9 @@ also records the workstream it was started after (`after`), its parent workstrea
 (`parent`), the inputs bound when it started (`inputs`), each delegating step's child per
 pass (`children`), and its base (`base`): the commit HEAD was at when it started, with its
 subject. An agent gate tells the reviewer that code changes are those since the base. When a
-rebase or squash has rewritten the base, fuse-flow finds it by its subject, else uses the newest
+rebase or squash has rewritten the base, fuse-flow finds it by its subject, written before the
+workstream started and, while git still has the recorded commit, by the same author at the same
+time; a subject that several such commits share does not decide then. Else it uses the newest
 commit made before the workstream started, else the first commit of the history, and says which;
 outside a git repository there is no base, and nothing is refused.
 Only fuse-flow writes it. The directory is gitignored.
@@ -497,15 +526,23 @@ Only fuse-flow writes it. The directory is gitignored.
 - **States.** `PENDING` has not been handed out. `IN_PROGRESS` is with the agent.
   `AWAITING_OWNER` has finished work waiting on an owner action. `BLOCKED` means the planned path
   broke down. `COMPLETED` and `SKIPPED` are terminal; a skipped step records `skip_reason`.
-- **Artifacts.** Recorded artifacts are `draft` while an owner action waits and `approved` when
-  their step completes, including steps without an owner gate. Sending work back makes approved
-  artifacts draft again. `superseded` is available for a later artifact replacement process.
+- **Artifacts.** Recorded artifacts are `draft` while an owner action waits, the step is blocked
+  or the work was sent back. A step without an owner gate records them as `done` when it
+  completes: its gates passed, but no owner approved them. They are `approved` once the owner
+  approves the step, or the next later step with an owner gate, which approves the work of the
+  steps without an owner gate before it too. State files written by earlier fuse-flow versions
+  record `approved` also for steps without an owner gate, and are read as they are. Sending work
+  back makes `done` and `approved` artifacts draft again. `superseded` is available for a later
+  artifact replacement process.
 - **Refusals.** A missing unreported `produces` artifact, an unaccounted `updates` artifact, an
   unbound check, or a failed mechanical gate refuses `continue` and repeats the step block. The
   refusal is recorded but does not block the step or consume a review round. A `continue` whose
   step was sent back while its checks ran records nothing, refusal or results, in the new pass.
-- **Review cap.** The maker classifies findings, fixes required ones and repeats until a round is
-  clean. A round ending with a required fix counts. At the printed cap, the maker reports the step
+- **Review cap.** The maker classifies each finding as a required fix, optional or a false
+  positive, fixes the required ones and repeats until a round ends with no required fix. Unless the
+  review guide says otherwise, P0 and P1 findings are required and P2 and P3 findings optional,
+  fixed when cheap or listed as deferred. A round with no required fix passes and ends the review;
+  fixing its optional findings starts no further round. A round ending with a required fix counts. At the printed cap, the maker reports the step
   blocked rather than starting another round. The owner can approve as is, grant rounds or send
   work back.
 - **Jumps.** `--from`, `--forward-to`, `--back-to`, and skipping a mandatory step are owner

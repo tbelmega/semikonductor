@@ -162,9 +162,10 @@ const KIND_DOCS: Record<GateKind, string> = {
     "A shell command, run from the repository root when the step is continued. Engine effect: `continue` is " +
     "refused unless the command exits 0.",
   agent:
-    "What an independent agent reviews. The agent that did the work classifies each finding as fix required or " +
+    "What an independent agent reviews. The agent that did the work classifies each finding as a required fix " +
+    "(P0 or P1, unless the review guide says otherwise), optional (P2 or P3, fixed when cheap or deferred) or a " +
     "false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the " +
-    "review guide says. Engine effect: none; the text, the review guide and the round cap are printed with the " +
+    "review guide says; fixing optional findings after that round starts no further round. Engine effect: none; the text, the review guide and the round cap are printed with the " +
     "step, and the agent that did the work counts the rounds.",
   workflow:
     "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step " +

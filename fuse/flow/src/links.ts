@@ -9,7 +9,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { posix, resolve } from "node:path";
 import { FlowError } from "./errors.ts";
 import { has, own } from "./own.ts";
-import { artifactPath, loadProject } from "./policy.ts";
+import { artifactPath, loadProject, reviewGuideProblems } from "./policy.ts";
 import { findWorkflow } from "./project.ts";
 import { DEFAULT_CHILD_SLUG } from "./schemas/gate.ts";
 import { type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
@@ -202,8 +202,9 @@ export function documentsOf(wf: Workflow): Set<string> {
 // workflow gate names a workflow that resolves, that a gate's inputs and
 // returns match what its child declares, and that no chain of workflow gates
 // leads back to this workflow. A hand-off whose target takes none of this
-// workflow's documents is only a warning.
-export function crossCheck(root: string, file: string, wf: Workflow): { errors: string[]; warnings: string[] } {
+// workflow's documents is only a warning. A child's review guides are checked
+// only for the steps `only` keeps, the steps a new workstream will reach.
+export function crossCheck(root: string, file: string, wf: Workflow, only: (step: Step) => boolean = () => true): { errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
   const load = (ref: string): { wf: Workflow; path: string } | string => {
@@ -215,6 +216,11 @@ export function crossCheck(root: string, file: string, wf: Workflow): { errors: 
       return e.message.split("\n")[0];
     }
   };
+  // The review guides of a workflow this one starts, as they apply in this
+  // project: the new workstream could not start without them.
+  const guides = (at: string, target: { wf: Workflow; path: string }) => {
+    for (const problem of reviewGuideProblems(loadProject(root), target.wf, target.path)) errors.push(`${at}: ${problem}`);
+  };
   const ours = documentsOf(wf);
   for (const handOff of wf.hands_off_to) {
     const target = load(handOff.workflow);
@@ -222,6 +228,7 @@ export function crossCheck(root: string, file: string, wf: Workflow): { errors: 
       errors.push(`hands_off_to ${handOff.workflow}: ${target}`);
       continue;
     }
+    guides(`hands_off_to ${handOff.workflow}`, target);
     if (!target.wf.inputs.some((i) => ours.has(i.artifact))) {
       warnings.push(`hands_off_to ${handOff.workflow}: it declares no input this workflow produces, so --after gives it nothing`);
     }
@@ -236,6 +243,7 @@ export function crossCheck(root: string, file: string, wf: Workflow): { errors: 
       errors.push(`${at}: ${target}`);
       continue;
     }
+    if (only(step)) guides(at, target);
     const declared = new Map(target.wf.inputs.map((i) => [i.artifact, i]));
     for (const id of Object.keys(gate.inputs ?? {})) {
       if (!declared.has(id)) errors.push(`${at}: inputs names "${id}", which ${target.wf.name} does not declare as an input`);

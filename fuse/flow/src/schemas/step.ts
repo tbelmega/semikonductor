@@ -95,7 +95,8 @@ export const StepSchema = z
     gates: GateListSchema.meta({
       description:
         "What must hold before the step counts as done: one gate or a list, in any combination of kinds. " +
-        "Engine effect: they run in a fixed order, checks first, then the agent review, then the owner.",
+        "Engine effect: they run in a fixed order, whatever the list order: the workflow gate's child workstream first, " +
+        "then checks and scripts, then agent reviews, then the owner.",
     }),
   })
   .strict()

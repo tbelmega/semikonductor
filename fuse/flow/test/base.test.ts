@@ -117,6 +117,77 @@ describe("base", () => {
     expect(out).toContain(`base:     ${short(root)} (Everything), the first commit of the history`);
   });
 
+  test("after a rebase, a base found by its message is never one of the workstream's own commits with the same message", () => {
+    initGit();
+    const start = commit("Start", "a.txt", "2020-01-01T00:00:00Z");
+    commit("wip", "src/parser.ts", "2020-01-02T00:00:00Z");
+    repo.start("feat", WORKFLOW);
+    // The workstream's own commit, with the same message as its base.
+    commit("wip", "src/change.ts");
+    // Rewrite both commits: a cherry-pick keeps each one's message and author date.
+    const [base, own] = git(["rev-list", "--reverse", `${start}..HEAD`]).split("\n");
+    git(["reset", "-q", "--hard", start]);
+    git(["cherry-pick", base]);
+    const rewritten = git(["rev-parse", "HEAD"]);
+    git(["cherry-pick", own]);
+
+    const out = repo.ok("start", "feat");
+    expect(out).toContain(`base:     ${short(rewritten)} (wip), found by its commit message`);
+  });
+
+  test("after a rebase, an older commit with the base's message, cherry-picked during the workstream, is not taken for the base", () => {
+    initGit();
+    const start = commit("Start", "a.txt", "2020-01-01T00:00:00Z");
+    // A topic commit, written before the workstream, on a branch of its own.
+    git(["checkout", "-q", "-b", "topic"]);
+    const topic = commit("wip", "src/imported.ts", "2020-01-01T12:00:00Z");
+    git(["checkout", "-q", "-"]);
+    const base = commit("wip", "src/parser.ts", "2020-01-02T00:00:00Z");
+    repo.start("feat", WORKFLOW);
+    // The base is replayed onto a changed upstream, then the topic commit is
+    // brought in as the workstream's work; a cherry-pick keeps its old author date.
+    git(["reset", "-q", "--hard", start]);
+    commit("Upstream", "b.txt", "2020-01-01T06:00:00Z");
+    git(["cherry-pick", base]);
+    const rewritten = git(["rev-parse", "HEAD"]);
+    git(["cherry-pick", topic]);
+
+    const out = repo.ok("start", "feat");
+    expect(out).toContain(`base:     ${short(rewritten)} (wip), found by its commit message`);
+  });
+
+  test("a cherry-picked commit with the base's message, author and author time is not taken for the base", () => {
+    initGit();
+    const start = commit("Start", "a.txt", "2020-01-01T00:00:00Z");
+    // Both commits carry the same author, email and second: git cannot tell
+    // them apart by their metadata.
+    git(["checkout", "-q", "-b", "topic"]);
+    const topic = commit("wip", "src/imported.ts", "2020-01-02T00:00:00Z");
+    git(["checkout", "-q", "-"]);
+    const base = commit("wip", "src/parser.ts", "2020-01-02T00:00:00Z");
+    repo.start("feat", WORKFLOW);
+    git(["reset", "-q", "--hard", start]);
+    commit("Upstream", "b.txt", "2020-01-01T06:00:00Z");
+    git(["cherry-pick", base]);
+    const rewritten = git(["rev-parse", "HEAD"]);
+    git(["cherry-pick", topic]);
+
+    const out = repo.ok("start", "feat");
+    expect(out).toContain(`base:     ${short(rewritten)} (wip), found by its commit message`);
+  });
+
+  test("a workstream started before the repository's first commit reviews that first commit too", () => {
+    initGit();
+    repo.start("feat", WORKFLOW);
+    expect(repo.state("feat").base).toBeUndefined();
+    const first = commit("Scaffold the project", "src/main.ts");
+    commit("Build the change", "src/change.ts");
+
+    const out = repo.ok("start", "feat");
+    expect(out).toContain(`base:     ${short(first)} (Scaffold the project), the first commit of the history`);
+    expect(out).toContain("so the review covers that first commit too");
+  });
+
   test("a state file without a base, from an earlier fuse-flow, falls back the same way", () => {
     initGit();
     const older = commit("Start", "a.txt", "2020-01-01T00:00:00Z");

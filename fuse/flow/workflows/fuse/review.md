@@ -48,15 +48,19 @@ The reviewer says for each finding whether it is a single instance or a broken p
 A reviewer is not an authority: it can be wrong, and it lacks context you have. P0 and P1
 findings are required fixes once you have checked them against the code; record a rejected
 finding as a false positive with the reason. For a pattern, look for every other occurrence in the
-change and fix them in the same pass. Fix P2 and P3
-findings when the fix is cheap; list the rest as deferred in the hand-over.
+change and fix them in the same pass. P2 and P3 findings are optional: fix them when the fix
+is cheap; list the rest as deferred in the hand-over. An optional finding never needs another
+round.
 
 ## A round
 
 Fix every required finding in one pass. In code, start each fix with a test that fails because
 of the finding. Run the checks, then start the next round with a fresh reviewer on the whole
-artifact again, told how each earlier finding was handled. A round passes when it leaves no P0 or
-P1 open. When the round cap is reached with required fixes open, make the last round's fixes
+artifact again, told how each earlier finding was handled. The reviewer marks an earlier finding
+that was fixed and has come back as `regressed` in the findings file's list of earlier findings,
+and does not report it again as a new finding. A round passes when it leaves no P0 or
+P1 open, and a passing round ends the review: fixing its optional findings starts no further
+round. When the round cap is reached with required fixes open, make the last round's fixes
 anyway, start no further review, and report the step blocked, naming the fixes no reviewer has
 seen. The owner decides, and can grant a round to review them.
 

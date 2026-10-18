@@ -282,9 +282,11 @@ steps:
     expect(out).toContain(
       "  1. Have an independent agent review the diff against the spec. It reviews src/. " +
         subagent(".konductor/reviews/feat/review-gate1-round-<n>.json") +
-        "Classify each finding as fix " +
-        "required or false positive, with the reason; a finding the owner already accepted or deferred is not a " +
-        "required fix. Fix what is required and review again, until a round ends with no required fix. Every round " +
+        "Classify each finding as a required fix, optional or a false positive, with the reason; a finding the owner " +
+        "already accepted or deferred is not a required fix. A P0 or P1 finding you have checked is a required fix; " +
+        "a P2 or P3 finding is optional: fix it when the fix is cheap, and list the rest as deferred in the hand-over. " +
+        "Fix what is required and review again, until a round ends with no required fix. That round passes and ends " +
+        "the review: fixing optional findings after it starts no further round. Every round " +
         "that ends with a required fix counts, whatever the cause. After 3 such rounds, make the last round's fixes anyway, start no further " +
         "review, and report the step blocked, naming the fixes no reviewer has seen: run " +
         '`fuse-flow continue feat --blocked "<what is still open, and the fixes no reviewer has seen>" --gate 1`.',
@@ -412,6 +414,8 @@ steps:
 test("a project guide stays a house rule when it is a symlink, and when a shipped review guide checks the artifact", () => {
   const r = new Repo();
   try {
+    // The gate's guide exists before the workstream starts, as a workflow's guide does.
+    r.write("shipped-review.md", "# review\n");
     r.start(
       "feat",
       `version: 1
@@ -427,7 +431,6 @@ steps:
         guide: shipped-review.md
 `,
     );
-    r.write("shipped-review.md", "# review\n");
     // The project's guide is a symlink to a skill outside the library; where it leads does not make it shipped.
     r.write("skills/essay-writing/SKILL.md", "# guide\n");
     r.write(".konductor/library/artifacts/essay/.keep");
@@ -514,9 +517,14 @@ steps:
     );
     const out = r.ok("start", "feat", "--workflow", `${r.root}/flows/wf.yml`);
     expect(out).toContain(
-      `It reviews essay.md against flows/review-rules.md. ${subagent(".konductor/reviews/feat/write-round-<n>.json")}Classify each finding as fix required or false positive`,
+      `It reviews essay.md against flows/review-rules.md. ${subagent(".konductor/reviews/feat/write-round-<n>.json")}Classify each finding as a required fix, optional or a false positive`,
     );
-    expect(out).toContain("no required fix. The review guide decides what counts as a required fix and when a round passes.");
+    expect(out).toContain(
+      "is not a required fix. The review guide decides what counts as a required fix and when a round passes; where it " +
+        "does not say, a P0 or P1 finding you have checked is a required fix; a P2 or P3 finding is optional: fix it when " +
+        "the fix is cheap, and list the rest as deferred in the hand-over. Fix what is required and review again, until a " +
+        "round ends with no required fix. That round passes and ends the review: fixing optional findings after it starts no further round.",
+    );
 
     r.write(".konductor/library/artifacts/essay/review.md", "# house rules\n");
     expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/library/artifacts/essay/review.md.");
@@ -1141,6 +1149,28 @@ test("a failing continue that was running while the owner sent the work back rec
   } finally {
     same.cleanup();
   }
+});
+
+test("the findings file of each review carries the review's --gate number", () => {
+  repo.write(".konductor/policy-overrides.yml", "checks:\n  default: \"true\"\n");
+  const out = repo.start(
+    "f",
+    `version: 1
+name: f
+steps:
+  - id: build
+    instruction: Build it.
+    gates:
+      - check: default
+      - agent: review the code
+      - agent: review the docs
+`,
+  );
+  expect(out).toContain(".konductor/reviews/f/build-gate2-round-<n>.json");
+  expect(out).toContain(".konductor/reviews/f/build-gate3-round-<n>.json");
+  expect(out).toContain('" --gate 2`.');
+  expect(out).toContain('" --gate 3`.');
+  expect(out).not.toContain("build-gate1-round");
 });
 
 test("a step without an owner gate records its work as done, and a later owner gate approves it", () => {

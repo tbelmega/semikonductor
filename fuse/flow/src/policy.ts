@@ -13,10 +13,12 @@ import YAML from "yaml";
 import { FlowError } from "./errors.ts";
 import { own } from "./own.ts";
 import { libraryDirs, policyFiles } from "./project.ts";
+import { describeGate } from "./parse.ts";
 import { DEFAULT_MAX_ROUNDS, type Gate } from "./schemas/gate.ts";
 import { LibraryEntrySchema } from "./schemas/library.ts";
 import { type Policy, PolicySchema } from "./schemas/policy.ts";
-import type { Artifact } from "./schemas/step.ts";
+import type { Artifact, Step } from "./schemas/step.ts";
+import type { Workflow } from "./schemas/workflow.ts";
 
 interface Layer {
   file: string;
@@ -43,6 +45,8 @@ function readLayer(file: string): Layer | undefined {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join(".") || "(top level)"}: ${i.message}`);
     throw new FlowError(`${file} is not a valid policy file:\n${issues.join("\n")}`);
   }
+  // Whether review.guide is there is checked where it applies, by
+  // reviewGuideProblems: a more specific file's guide replaces it.
   return { file, policy: parsed.data };
 }
 
@@ -198,6 +202,51 @@ export function reviewGuideSource(
 
 export function reviewGuide(p: Project, gate: Gate, artifactId: string | undefined): string | undefined {
   return reviewGuideSource(p, gate, artifactId)?.path;
+}
+
+// Why a review guide cannot be followed, or undefined when it can: the step
+// block tells the reviewer to follow it, so it must be a file, a symlink to
+// one counting as one.
+function notAGuide(path: string): string | undefined {
+  try {
+    const stat = statSync(path);
+    return stat.isFile() ? undefined : stat.isDirectory() ? "is a folder, not a file" : "is not a file";
+  } catch {
+    return "does not exist";
+  }
+}
+
+// The review guides the workflow's agent gates use, once the policy files and
+// the libraries have had their say, that cannot be followed: one line each,
+// naming where the guide was set. A guide that a more specific one replaces is
+// never read, so it need not exist. `file` is the workflow file. With
+// `only`, the steps it names; the step block prints the guides of those alone.
+export function reviewGuideProblems(p: Project, wf: Workflow, file: string, only?: (step: Step) => boolean): string[] {
+  const problems = new Set<string>();
+  wf.steps.forEach((step, i) => {
+    if (only && !only(step)) return;
+    const ids = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
+    for (const gate of step.gates) {
+      if (gate.kind !== "agent") continue;
+      for (const id of ids.length ? ids : [undefined]) {
+        const found = reviewGuideSource(p, gate, id);
+        const why = found && notAGuide(found.path);
+        if (!found || !why) continue;
+        const layer = { "local policy": p.local, "team policy": p.team, "user policy": p.user }[found.source as string];
+        if (layer) problems.add(`${layer.file} sets review.guide to ${layer.policy.review?.guide}, and ${found.path} ${why}`);
+        else if (found.source === "gate") problems.add(`${file}: steps.${i} (${step.id}): the review guide of ${describeGate(gate)} ${why}: ${found.path}`);
+        else problems.add(`the review guide ${found.path} of artifact ${id} ${why}`);
+      }
+    }
+  });
+  return [...problems];
+}
+
+// Refuse a workflow whose review guides, as they apply, cannot be followed;
+// with `only`, in the steps it names.
+export function refuseBadReviewGuides(p: Project, wf: Workflow, file: string, only?: (step: Step) => boolean): void {
+  const problems = reviewGuideProblems(p, wf, file, only);
+  if (problems.length) throw new FlowError(`a review guide cannot be followed:\n${problems.map((l) => `  ${l}`).join("\n")}`);
 }
 
 // Whether a review guide comes from where the owner or the project put it, in

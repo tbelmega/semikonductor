@@ -31,6 +31,8 @@ import {
   reviewers,
   ownersReviewGuide,
   reviewGuide,
+  refuseBadReviewGuides,
+  reviewGuideProblems,
   reviewGuideSource,
   rulings,
 } from "./policy.ts";
@@ -90,11 +92,23 @@ interface Ctx {
   date: string; // the day the workstream started, for {date} in artifact paths
 }
 
-function context(root: string, slug: string, ws: Workstream): Ctx {
-  const c = { root, slug, wf: loadWorkflow(findWorkflow(root, ws.workflow)), p: loadProject(root), date: startedOn(ws) };
+// A review guide that cannot be followed is refused for the steps still to
+// finish, whose step blocks print it; `readOnly` commands, which print no
+// step block, read the workstream whatever its guides. Steps before index
+// `from` of the workflow are not checked: the command passes over them.
+function context(root: string, slug: string, ws: Workstream, readOnly = false, from: (wf: Workflow) => number = () => 0): Ctx {
+  const file = findWorkflow(root, ws.workflow);
+  const c = { root, slug, wf: loadWorkflow(file), p: loadProject(root), date: startedOn(ws) };
+  if (!readOnly) {
+    const first = from(c.wf);
+    refuseBadReviewGuides(c.p, c.wf, file, (step) => c.wf.steps.indexOf(step) >= first && unfinishedIn(ws)(step));
+  }
   convertOldState(c, ws);
   return c;
 }
+
+// The steps the workstream has not finished yet.
+const unfinishedIn = (ws: Workstream) => (step: Step) => !finished(stateOf(ws, step.id).status);
 
 const currentStep = (wf: Workflow, ws: Workstream) => firstUnfinished(wf, ws);
 
@@ -448,7 +462,8 @@ function returnedLine(c: Ctx, ws: Workstream, source: Step, id: string, childId:
 }
 
 // Refuses a workstream under the child's slug that is not this step's child:
-// one that follows another workflow, or belongs to another parent step.
+// one that follows another workflow, or belongs to another parent step; and
+// a child whose next step blocks cannot be printed.
 function checkChild(c: Ctx, step: Step, gate: Gate, slug: string): void {
   const child = readWorkstream(c.root, slug);
   if (workflowFile(c.root, child.workflow) !== workflowFile(c.root, gate.text)) {
@@ -475,6 +490,10 @@ function checkChild(c: Ctx, step: Step, gate: Gate, slug: string): void {
         ". Rename that workstream's state file, or give the gate a slug of its own",
     );
   }
+  // The child's step blocks print the review guides of the steps it has not
+  // finished, as its own commands check them.
+  const file = findWorkflow(c.root, child.workflow);
+  refuseBadReviewGuides(c.p, loadWorkflow(file), file, unfinishedIn(child));
 }
 
 // Why the step may not complete yet because of its child, or undefined when
@@ -519,7 +538,7 @@ function newChild(c: Ctx, step: Step, gate: Gate, slug: string): { target: Workf
   const targetPath = findWorkflow(c.root, gate.text);
   const target = loadWorkflow(targetPath);
   // The checks a new workstream of that workflow gets from start.
-  const { errors } = crossCheck(c.root, targetPath, target);
+  const errors = [...reviewGuideProblems(c.p, target, targetPath), ...crossCheck(c.root, targetPath, target).errors];
   if (errors.length) throw new FlowError(`workflow ${target.name} cannot start: ${errors.join("; ")}`);
   const inputs: Record<string, string> = {};
   for (const [childId, parentId] of Object.entries(gate.inputs ?? {})) {
@@ -1098,9 +1117,11 @@ function statusCap(c: Ctx, g: Gate, state: StepState): string {
 }
 
 // Where a review gate's reviewer writes its findings, with <n> for the round.
+// With several reviews, the file carries the review's number in the step
+// block's list, the number --gate takes.
 function findingsFile(c: Ctx, g: Gate, step: Step, state: StepState): string {
   const agentGates = step.gates.filter((x) => x.kind === "agent");
-  const gateName = agentGates.length > 1 ? `-gate${agentGates.indexOf(g) + 1}` : "";
+  const gateName = agentGates.length > 1 ? `-gate${gateNumber(step, g)}` : "";
   return `${display(c.p, reviewsDir(c.root, c.slug))}/${step.id}${gateName}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
 }
 
@@ -1173,11 +1194,19 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
   text +=
     ` The reviewer writes its findings to ${findings}, where <n> is the round, following ` +
     `${display(c.p, FINDINGS_SCHEMA)}; read them from there.`;
+  // The three classes of the fuse review guide, so a valid P2 or P3 finding
+  // is not taken for a required fix that costs another round.
+  const levels =
+    "a P0 or P1 finding you have checked is a required fix; a P2 or P3 finding is optional: fix it when the fix " +
+    "is cheap, and list the rest as deferred in the hand-over.";
   text +=
-    " Classify each finding as fix required or false positive, with the reason; a finding the owner already " +
-    "accepted or deferred is not a required fix. Fix what is required and review again, until a round ends with " +
-    "no required fix.";
-  if (guided.length) text += " The review guide decides what counts as a required fix and when a round passes.";
+    " Classify each finding as a required fix, optional or a false positive, with the reason; a finding the owner " +
+    "already accepted or deferred is not a required fix. " +
+    (guided.length
+      ? `The review guide decides what counts as a required fix and when a round passes; where it does not say, ${levels}`
+      : capitalize(levels)) +
+    " Fix what is required and review again, until a round ends with no required fix. That round passes and ends " +
+    "the review: fixing optional findings after it starts no further round.";
   if (guided.length || authoring.length) {
     text += ` Give the reviewer the step instruction as well: ${guidePrecedence(c, precedence, "reviewer")}`;
   }
@@ -1499,9 +1528,11 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   const fromIndex = from === undefined ? 0 : wf.steps.findIndex((s) => s.id === from);
   if (fromIndex < 0) throw new FlowError(`no step "${from}" in workflow ${wf.name}`);
   const p = loadProject(root);
+  // A new workstream started --from a later step skips the steps before it.
+  refuseBadReviewGuides(p, wf, path, resumed ? unfinishedIn(readWorkstream(root, slug)) : (step) => wf.steps.indexOf(step) >= fromIndex);
   let inputs: Record<string, string> = {};
   if (!resumed) {
-    const { errors } = crossCheck(root, path, wf);
+    const { errors } = crossCheck(root, path, wf, (step) => wf.steps.indexOf(step) >= fromIndex);
     if (errors.length) throw new FlowError([`workflow ${wf.name} cannot start:`, ...errors.map((e) => `  ${e}`)].join("\n"));
     inputs = bindInputs(root, p, wf, slug, given);
   }
@@ -1620,7 +1651,15 @@ export interface Named {
 
 export function continueWorkstream(root: string, slug: string, input: Continue): string[] {
   const initial = readWorkstream(root, slug);
-  const c = context(root, slug, initial);
+  // The owner's skip, or jump forward, passes over the steps before the one
+  // it reaches, so their review guides are never printed and need not exist.
+  const reached = (wf: Workflow) => {
+    const at = currentStep(wf, initial);
+    if (at && input.skip !== undefined) return wf.steps.indexOf(at) + 1;
+    if (at && input.forwardTo !== undefined) return Math.max(0, wf.steps.findIndex((s) => s.id === input.forwardTo));
+    return 0;
+  };
+  const c = context(root, slug, initial, false, reached);
   handOut(c);
   const ws = readWorkstream(root, slug);
   const step = currentStep(c.wf, ws);
@@ -1633,12 +1672,17 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
   const aimed = currentStep(c.wf, initial);
   const decides = [input.forwardTo, input.skip, input.moreRounds, input.backTo].some((v) => v !== undefined) || input.ownerApproved;
   if (decides && aimed && aimed !== step) {
+    // The guide check above passed over the steps the decision would have
+    // skipped; the decision is not applied, so the steps from the one the
+    // hand-out reached print their guides and must have them.
+    const first = c.wf.steps.indexOf(step);
+    const problems = reviewGuideProblems(c.p, c.wf, findWorkflow(root, ws.workflow), (s) => c.wf.steps.indexOf(s) >= first && unfinishedIn(ws)(s));
     throw new FlowError(
       [
         `step "${aimed.id}" is ${stateOf(ws, aimed.id).status} now, so this command did not apply its decision to it, nor to step ` +
           `"${step.id}", which the workstream moved on to and which is handed out now. Tell the owner, then run the command again if the decision still holds.`,
         "",
-        ...present(c),
+        ...(problems.length ? ["a review guide cannot be followed:", ...problems.map((l) => `  ${l}`)] : present(c)),
       ].join("\n"),
     );
   }
@@ -2209,6 +2253,9 @@ function sendBack(c: Ctx, step: Step, target: string, note: string | undefined, 
   const at = c.wf.steps.indexOf(step);
   if (from < 0) throw new FlowError(`no step "${target}" in workflow ${c.wf.name}`);
   if (from > at) throw new FlowError(`step "${target}" comes after "${step.id}"; --back-to names "${step.id}" or a step before it`);
+  // The reopened steps print their review guides again.
+  const reopens = new Set(c.wf.steps.slice(from));
+  refuseBadReviewGuides(c.p, c.wf, findWorkflow(c.root, readWorkstream(c.root, c.slug).workflow), (s) => reopens.has(s));
   const named = namedFiles(c, step, given);
   const reopened: StepState["artifacts"] = [];
   updateWorkstream(c.root, c.slug, (ws) => {
@@ -2319,7 +2366,7 @@ function acceptReview(c: Ctx, step: Step, n: number, note?: string): string[] {
 
 export function status(root: string, slug: string): string[] {
   const ws = readWorkstream(root, slug);
-  const c = context(root, slug, ws);
+  const c = context(root, slug, ws, true);
   const width = Math.max(...c.wf.steps.map((s) => s.id.length));
   const current = currentStep(c.wf, ws);
   // Each file shows once, under the latest step that records it; the earlier
@@ -2388,14 +2435,14 @@ export function list(root: string): string[] {
   for (const slug of slugs) {
     try {
       const ws = readWorkstream(root, slug);
-      const c = context(root, slug, ws);
+      const c = context(root, slug, ws, true);
       const step = currentStep(c.wf, ws);
       const where = step ? `step ${step.id}, ${position(c, step)}, ${stateOf(ws, step.id).status}` : "workflow complete";
       const from = [ws.after && `after ${ws.after}`, ws.parent && `child of ${ws.parent.slug}, step ${ws.parent.step}`].filter(Boolean).join(", ");
       lines.push(`  ${slug} (${c.wf.name}, started ${c.date}${from ? `, ${from}` : ""}): ${where}`);
     } catch (e) {
       if (!(e instanceof FlowError)) throw e;
-      lines.push(`  ${slug}: cannot be read: ${e.message}`);
+      lines.push(`  ${slug}: cannot be read: ${e.message.replaceAll("\n", "\n    ")}`);
     }
   }
 
@@ -2471,7 +2518,11 @@ export function validate(root: string, refs: string[]): string[] {
       try {
         const wf = loadWorkflow(file);
         const { errors, warnings } = crossCheck(root, file, wf);
-        if (errors.length) {
+        const guides = reviewGuideProblems(loadProject(root), wf, file);
+        if (guides.length) {
+          invalid += 1;
+          lines.push(`invalid: ${file} names a review guide that cannot be followed:`, ...guides.map((g) => `  ${g}`));
+        } else if (errors.length) {
           invalid += 1;
           lines.push(`invalid: ${file} refers to other workflows wrongly:`, ...errors.map((e) => `  ${e}`));
         } else {

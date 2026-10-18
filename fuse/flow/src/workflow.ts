@@ -25,6 +25,8 @@ export function loadWorkflow(path: string): Workflow {
   // A gate's review guide, and a workflow named by its path, are relative to
   // the workflow file, so a workflow and the files it names can be moved
   // together.
+  // Whether a gate's guide is there is checked once the policy files have had
+  // their say, by reviewGuideProblems: a guide they replace is never read.
   const near = (ref: string) => (isWorkflowPath(ref) && !isAbsolute(ref) ? resolve(dirname(path), ref) : ref);
   for (const step of parsed.workflow.steps) {
     for (const gate of step.gates) {

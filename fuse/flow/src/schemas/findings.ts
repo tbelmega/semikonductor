@@ -25,8 +25,11 @@ const FindingSchema = z
 const EarlierSchema = z
   .object({
     title: z.string().min(1).meta({ description: "The earlier finding, as the author reported it." }),
-    status: z.enum(["fixed", "still-open", "regressed", "accepted"]).meta({
-      description: "How the earlier finding stands now; accepted means the author's reason for not fixing it holds.",
+    status: z.enum(["fixed", "still-open", "regressed", "accepted", "moot", "deferred"]).meta({
+      description:
+        "How the earlier finding stands now. accepted: the author's reason for not fixing it holds. regressed: it was " +
+        "fixed and has come back. moot: a later owner ruling made it irrelevant. deferred: the owner deferred it, or the author left it for the " +
+        "hand-over as an optional finding, P2 or P3, as the review guide allows; it needs no further round.",
     }),
     evidence: z.string().min(1),
   })
