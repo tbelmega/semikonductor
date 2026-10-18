@@ -442,8 +442,19 @@ workflow is useful for real work; say so, so the user does not read a pass as mo
 fuse-flow reads the workflow again on every command, and a workstream's progress is stored by step
 id. Before you rename, remove or reorder steps of a workflow that is in use, look for workstreams
 on it in `.konductor/workstreams/` of the projects that use it, and tell the user what would
-break. Adding a step, changing an instruction or adding a gate is safe for running workstreams;
-the change applies from the next command.
+break. Adding a step or changing an instruction is safe for running workstreams; the change
+applies from the next command. Adding or changing a gate applies from the next command too, with
+two consequences to tell the user about:
+
+- A step that already waits for the owner keeps the work the agent recorded, but cannot be
+  approved until the gates added or changed since have run on it. Its hand-over names them, and
+  the owner sends the work back to that step to run them.
+- A review counts as the same review only while its text, its number in the step's list of gates
+  and each guide it follows, with the artifact the guide applies to and the guide's content, are
+  unchanged. Editing any of these, in the workflow, a guide or a policy file, takes back the
+  owner's acceptance of that review: it runs again with its rounds counted afresh, reviews that
+  had passed before it run again, the step block says so, and the owner can no longer accept that
+  review alone from a step blocked at it.
 
 ### Signs a workflow has grown too heavy
 

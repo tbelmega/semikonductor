@@ -52,6 +52,17 @@ export const WrittenSchema = z
   })
   .strict();
 
+// A review named as "review <n> (<its text>)", <n> its number in the step
+// block's list of gates, followed, when it follows review guides, by
+// " following <guide> (sha256 <digest>)" for each, and the reviews before it
+// that passed, named so.
+export const ReviewEvidenceSchema = z
+  .object({
+    review: z.string(),
+    passed: z.array(z.string()),
+  })
+  .strict();
+
 export const StepStateSchema = z
   .preprocess(
     (raw) => {
@@ -85,10 +96,27 @@ export const StepStateSchema = z
             "While the step is BLOCKED: the review the agent reported it blocked at, with --gate, by its number in " +
             "the step block's list of gates.",
         }),
+        blocked_review: ReviewEvidenceSchema.optional().meta({
+          description:
+            "With blocked_gate: the review the agent reported the step blocked at, and the reviews before it, which " +
+            "passed, as the workflow named them then. An edit that changes or moves that review voids --gate.",
+        }),
         accepted_gates: z.array(z.number().int().min(1)).optional().meta({
           description:
             "The reviews the owner accepted as they were in this pass, with --owner-approved --gate, by their " +
             "number in the step block's list of gates. The agent does not run them again.",
+        }),
+        accepted_reviews: z.array(ReviewEvidenceSchema).optional().meta({
+          description:
+            "For each review in accepted_gates: the review and the reviews before it, which passed, as the workflow " +
+            "named them when the step was blocked. An acceptance, and what it says passed before it, counts only " +
+            "while the workflow still names those reviews so: the same text at the same number, following the same " +
+            "guides with the same content, each for the same artifact.",
+        }),
+        reviews_passed: z.array(z.string()).optional().meta({
+          description:
+            "When the agent recorded the work for the owner: the step's reviews, named as in accepted_reviews. A " +
+            "review the workflow names otherwise now, such as one an edit added, has not run on the recorded work.",
         }),
         artifacts: z.array(RecordedArtifactSchema).meta({
           description: "The artifacts recorded for the step, as later steps and workstreams read them; derived from `files`.",

@@ -133,3 +133,13 @@ test("a step awaiting the owner whose owner gate was removed from the workflow s
   expect(out).toContain("  - Approve the step's work.\n");
   expect(out).not.toContain("asked to .");
 });
+
+test("status and list show recorded steps that the workflow no longer has", () => {
+  repo.start("o", OWNED);
+  repo.ok("continue", "o");
+  repo.ok("continue", "o", "--owner-approved");
+  repo.write("workflow-source.yml", OWNED.replace("  - id: design\n", "  - id: architecture\n"));
+  const status = repo.ok("status", "o");
+  expect(status).toContain("recorded steps the workflow no longer has: design (COMPLETED)");
+  expect(repo.ok("list")).toContain("1 recorded step the workflow no longer has: design");
+});

@@ -24,8 +24,10 @@ export const EVENT = {
   skippedOnRequest: (reason: string) => `skipped on the owner's request: ${reason}`,
   roundsGranted: (n: number, note?: string) => `owner granted ${n} more review round${n === 1 ? "" : "s"}${withNote(note)}`,
   // The owner accepted the review the step was blocked at, and the step went
-  // back to the agent for the gates still ahead.
-  reviewAccepted: (gate: string, note?: string) => `owner accepted ${gate} as it is${withNote(note)}`,
+  // back to the agent for the gates still ahead. The review's text is quoted
+  // as a JSON string, so no text can end it early and the note is what
+  // follows it.
+  reviewAccepted: (n: number, text: string, note?: string) => `owner accepted review ${n} ${JSON.stringify(text)} as it is${withNote(note)}`,
   sentBack: (from: string, to: string, note?: string) => `owner sent the work back from ${from} to ${to}${withNote(note)}`,
   approved: (note?: string) => `owner approved${withNote(note)}`,
   childCreated: (slug: string) => `created child workstream ${slug}`,
@@ -100,8 +102,14 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
     (m) => ({ kind: "rounds-granted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
   ],
   [
-    /^owner accepted (review \d+ \([\s\S]*?\)) as it is(?:: ([\s\S]*))?$/,
-    (m) => ({ kind: "review-accepted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[2] }),
+    /^owner accepted review \d+ "(?:[^"\\]|\\.)*" as it is(?:: ([\s\S]*))?$/,
+    (m) => ({ kind: "review-accepted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
+  ],
+  // As an earlier fuse-flow wrote it, with the text in parentheses; a text
+  // that itself contains ") as it is" makes the note ambiguous there.
+  [
+    /^owner accepted review \d+ \([\s\S]*?\) as it is(?:: ([\s\S]*))?$/,
+    (m) => ({ kind: "review-accepted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
   ],
   [
     /^owner sent the work back from (\S+) to (\S+?)(?:: ([\s\S]*))?$/,
@@ -128,12 +136,15 @@ const body = (line: string) => line.match(TIME)?.[2] ?? line;
 // step's current pass began, oldest first. The send-back that reopened the
 // step begins the pass, and its note belongs to it.
 export function ownerNotes(history: string[]): string[] {
-  const from = Math.max(0, history.findLastIndex((h) => read(body(h)).kind === "sent-back"));
-  return history.slice(from).flatMap((h) => {
+  return thisPass(history).flatMap((h) => {
     const note = read(body(h)).note;
     return note ? [note] : [];
   });
 }
+
+// One step's history since its current pass began: from the send-back that
+// reopened the step, or from the start.
+const thisPass = (history: string[]) => history.slice(Math.max(0, history.findLastIndex((h) => read(body(h)).kind === "sent-back")));
 
 // Every event of the workstream, oldest first. Each step's events are
 // replayed from PENDING, so each event knows the state it left.

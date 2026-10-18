@@ -119,8 +119,11 @@ The step fields have these effects:
   `agent` mapping. A `check` or `script` condition runs when the engine reaches the step: exit 0
   runs it and another result skips it. A `check` condition whose kind the policy binds to `none`
   counts as passed, as a `check` gate does, so the step runs, and the `CONDITION` line says the
-  check is not configured. An `agent` condition is judged by the agent. An `owner-action`
-  condition asks the owner. A step without a condition is mandatory.
+  check is not configured. A `check` condition whose kind is not bound at all holds the step in
+  `PENDING`, not handed out, until the kind is bound; such a step cannot be reported blocked, and
+  the block it prints offers `--skip` for when the owner decides it should not run. An `agent`
+  condition is judged by the agent. An `owner-action` condition asks the owner. A step without a
+  condition is mandatory.
 - `consumes` lists artifact identifiers from earlier steps. The step block prints each resolved
   input as `READ`, including the source step. A missing input is reported rather than refused, so
   the agent can recover it after a jump. A step that was skipped because it was not needed, or
@@ -305,13 +308,13 @@ steps:
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
 | `continue <slug> [--not-produced <artifact> <reason>]...` | Report each required `produces` artifact deliberately not written. Repeat the flag as needed. |
 | `continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...` | Record that the agent cannot finish the current step, such as at the review round cap. `--gate` names the review it is blocked at, by its number in the step block. The files of the step's `produces` paths on disk, and the files named with `--updated`, are recorded as draft, so the hand-over lists them and acceptance keeps them. The owner decides what happens next. |
-| `continue <slug> --skip <why>` | Skip a conditional step, or skip any step after the owner explicitly asks. Records the reason. |
-| `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. A step that delegates to a child workstream is approved only while the child is complete; otherwise the owner skips it. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. |
+| `continue <slug> --skip <why>` | Skip a conditional step, or skip any step after the owner explicitly asks. Records the reason, as the agent's decision for an agent condition it judged and as the owner's otherwise. |
+| `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. A step that delegates to a child workstream is approved only while the child is complete; otherwise the owner skips it. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. An acceptance, a block at a review and the reviews a step passed before the owner are each bound to the review's identity as recorded then: its number, its text, and each guide it follows with the artifact the guide applies to and a digest of the guide's content. They hold only while the workflow names the review exactly so. When an edit of the workflow, of a guide or of the policy changes an accepted review, the step block prints a `TAKEN BACK` line that names it and asks the agent to tell the owner; the review runs again with its rounds counted afresh, in findings files with `-redo` in the name, and the reviews that passed before it run again once an edit changes one of them. When the edit removed the review or moved it to another number, the line says so, and the hand-over's `VERIFICATION` line names the acceptance that was taken back. A change of the review the step is blocked at refuses `--gate` and leaves the owner the other decisions. A record an earlier fuse-flow wrote without the identity is bound to the reviews as the workflow names them at the first command that reads it. An `AWAITING_OWNER` step whose work a check, script or review that an edit added or changed has not run on cannot be approved: the hand-over names those gates, and the owner sends the work back to the step, which runs them. |
 | `continue <slug> --more-rounds <n> [--note <text>]` | Add one or more review rounds to an agent gate on an `IN_PROGRESS` or `BLOCKED` step. |
 | `continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes, and its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
-| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. |
-| `list` | List the project's workstreams with their workflow and current step, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
+| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
+| `list` | List the project's workstreams with their workflow and current step, and how many recorded steps the workflow no longer has, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
 | `help`, `--help`, `-h` | Print command usage, lookup paths and state location. |
 
@@ -401,7 +404,9 @@ The schemas in `src/schemas/` define the fields. `bun run schema` writes editor 
 `workflows/schemas/`. A workflow may point its editor at `workflow.schema.json`. fuse-flow checks
 cross-field rules, including unique step identifiers, valid `consumes` references and backward
 `route_back_to` targets. It reads the workflow again on every command, so edits affect running
-workstreams.
+workstreams. An edit of a step's gates holds back the approval of work already recorded for the owner until
+they run on it, and it takes back the owner's acceptance of a review it changes;
+`continue --owner-approved` under Commands describes both.
 
 ### Artifact library
 
@@ -515,7 +520,9 @@ pass (`children`), and its base (`base`): the commit HEAD was at when it started
 subject. An agent gate tells the reviewer that code changes are those since the base. When a
 rebase or squash has rewritten the base, fuse-flow finds it by its subject, written before the
 workstream started and, while git still has the recorded commit, by the same author at the same
-time; a subject that several such commits share does not decide then. Else it uses the newest
+time; a subject that several such commits share does not decide then. When several commits still
+match, as a cherry-pick in the same second can make them, the one with the recorded commit's
+patch is the base, else the oldest of them. Else it uses the newest
 commit made before the workstream started, else the first commit of the history, and says which;
 outside a git repository there is no base, and nothing is refused.
 Only fuse-flow writes it. The directory is gitignored.

@@ -9,7 +9,8 @@
 // owner's.
 
 import { spawnSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readSync, realpathSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { currentBase, resolveBase } from "./base.ts";
@@ -104,6 +105,7 @@ function context(root: string, slug: string, ws: Workstream, readOnly = false, f
     refuseBadReviewGuides(c.p, c.wf, file, (step) => c.wf.steps.indexOf(step) >= first && unfinishedIn(ws)(step));
   }
   convertOldState(c, ws);
+  recordOldReviews(c, ws);
   return c;
 }
 
@@ -151,6 +153,97 @@ function reviewNumbered(step: Step, n: number): Gate {
     `--gate names one of the step's reviews by its number in the step's list: ` +
       reviews.map((x) => `${gateNumber(step, x)} (${x.text})`).join(", "),
   );
+}
+
+// A review as acceptances and blocks name it: its number in the step block's
+// list of gates and its text.
+const reviewLabel = (n: number, g: Gate) => `review ${n} (${g.text})`;
+
+// The guides review `g` follows now, as the review text names them: for each
+// artifact it reviews, the review guide that applies, else the artifact's own
+// guide, with the artifact it applies to; with no artifact, the review guide
+// alone. Each with a digest of its content, so an edit of the guide's text
+// counts as a change of the review.
+function reviewGuidesNow(c: Ctx, step: Step, g: Gate): string[] {
+  const named = (path: string) => {
+    let digest = "unreadable";
+    try {
+      digest = `sha256 ${createHash("sha256").update(readFileSync(path)).digest("hex").slice(0, 12)}`;
+    } catch {}
+    return `${display(c.p, path)} (${digest})`;
+  };
+  const ids = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
+  if (!ids.length) {
+    const guide = reviewGuide(c.p, g, undefined);
+    return guide ? [named(guide)] : [];
+  }
+  return ids.flatMap((id) => {
+    const guide = reviewGuide(c.p, g, id) ?? libraryEntry(c.p, id)?.guide;
+    return guide ? [`${named(guide)} for ${id}`] : [];
+  });
+}
+
+// A review's identity, as the state file records it: its label, and the
+// guides it follows. An acceptance, a block or a pass is bound to the identity
+// recorded at the time and holds only while the workflow names the review
+// exactly so; any difference means the review is another one now.
+function reviewId(c: Ctx, step: Step, n: number, g: Gate): string {
+  const guides = reviewGuidesNow(c, step, g);
+  return guides.length ? `${reviewLabel(n, g)} following ${guides.join(", ")}` : reviewLabel(n, g);
+}
+
+// A recorded review as the agent and the owner read it, without the digests.
+const shown = (id: string) => id.replace(/ \((?:sha256 [0-9a-f]+|unreadable)\)/g, "");
+
+// The review numbered `n` as the workflow names it now; undefined when the
+// gate at that number is not a review.
+function reviewNow(c: Ctx, step: Step, n: number): string | undefined {
+  const g = gatesInOrder(step)[n - 1];
+  return g?.kind === "agent" ? reviewId(c, step, n, g) : undefined;
+}
+
+// The reviews before review `n`, as the workflow names them now. Reviews run
+// in list order, so an agent at review `n` has passed these in this pass.
+const reviewsBefore = (c: Ctx, step: Step, n: number) =>
+  gatesInOrder(step)
+    .slice(0, n - 1)
+    .flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : []));
+
+// The record of the owner's acceptance of review `n` in this pass.
+const acceptanceOf = (state: StepState, n: number) => state.accepted_reviews?.find((r) => r.review.startsWith(`review ${n} (`));
+
+// The reviews the owner accepted in this pass, by number, whose acceptance
+// still holds: the workflow names the review as the acceptance recorded it.
+function acceptedGates(c: Ctx, step: Step, state: StepState): number[] {
+  return (state.accepted_gates ?? []).filter((n) => {
+    const now = reviewNow(c, step, n);
+    return now !== undefined && acceptanceOf(state, n)?.review === now;
+  });
+}
+
+// The acceptances in this pass that an edit took back, each with the review
+// as the acceptance named it, and whether there is still a review at its
+// number, which runs again.
+function takenBack(c: Ctx, step: Step, state: StepState): { n: number; review: string; runsAgain: boolean }[] {
+  const holds = acceptedGates(c, step, state);
+  return (state.accepted_gates ?? [])
+    .filter((n) => !holds.includes(n))
+    .map((n) => ({ n, review: acceptanceOf(state, n)?.review ?? `review ${n}`, runsAgain: reviewNow(c, step, n) !== undefined }));
+}
+
+// The reviews that passed before a review the owner accepted, as the workflow
+// still names them. An edit that changes, inserts or moves one of them means
+// it runs again.
+function passedBeforeAccepted(c: Ctx, step: Step, state: StepState): Set<string> {
+  return new Set(acceptedGates(c, step, state).flatMap((n) => acceptanceOf(state, n)!.passed));
+}
+
+// The number of the review a blocked step was reported blocked at, while the
+// workflow still names that review as it did then; undefined once an edit
+// removed, changed or moved it.
+function blockedReview(c: Ctx, step: Step, state: StepState): number | undefined {
+  const at = state.blocked_gate;
+  return at !== undefined && state.blocked_review !== undefined && reviewNow(c, step, at) === state.blocked_review.review ? at : undefined;
 }
 
 interface Placed {
@@ -833,12 +926,22 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   // A step instruction may deliberately depart from a shared guide; say which
   // wins. A guide the owner or the project put in place is a house rule.
   if (guides.any()) lines.push(`GUIDES: ${guidePrecedence(c, guides, "author")}`);
+  for (const r of takenBack(c, step, state)) {
+    lines.push(
+      `TAKEN BACK: the owner accepted ${shown(r.review)} as it was, but an edit ` +
+        (r.runsAgain
+          ? "of the workflow, of a review guide or of the policy has changed that review since, so the acceptance no longer " +
+            "holds and the review runs again below; its rounds count afresh, from findings files of its own."
+          : "has removed that review or moved it to another number, so the acceptance no longer holds.") +
+        " Tell the owner in your hand-over; the owner's note on that acceptance is not an acceptance now.",
+    );
+  }
   lines.push("WHEN THE WORK IS DONE:");
   let n = 0;
-  // Reviews run in list order, so the agent reached the latest review the
-  // owner accepted only after the reviews before it had passed in this pass.
-  const accepted = state.accepted_gates ?? [];
-  const lastAccepted = Math.max(0, ...accepted);
+  // Reviews run in list order, so the agent reached a review the owner
+  // accepted only after the reviews before it had passed in this pass.
+  const accepted = acceptedGates(c, step, state);
+  const passedEarlier = passedBeforeAccepted(c, step, state);
   for (const g of gatesInOrder(step)) {
     if (g.kind === "workflow") {
       lines.push(
@@ -863,7 +966,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
       lines.push(
         accepted.includes(n)
           ? `  ${n}. The owner accepted this review (${g.text}) as it was; do not run it again.`
-          : n < lastAccepted
+          : passedEarlier.has(reviewId(c, step, n, g))
             ? `  ${n}. This review (${g.text}) passed earlier in this pass; do not run it again.`
             : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)}`,
       );
@@ -1119,10 +1222,13 @@ function statusCap(c: Ctx, g: Gate, state: StepState): string {
 // Where a review gate's reviewer writes its findings, with <n> for the round.
 // With several reviews, the file carries the review's number in the step
 // block's list, the number --gate takes.
+// A review whose acceptance an edit took back is another review now: its
+// rounds count afresh, in files of its own.
 function findingsFile(c: Ctx, g: Gate, step: Step, state: StepState): string {
   const agentGates = step.gates.filter((x) => x.kind === "agent");
   const gateName = agentGates.length > 1 ? `-gate${gateNumber(step, g)}` : "";
-  return `${display(c.p, reviewsDir(c.root, c.slug))}/${step.id}${gateName}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
+  const redo = takenBack(c, step, state).some((r) => r.runsAgain && r.n === gateNumber(step, g)) ? "-redo" : "";
+  return `${display(c.p, reviewsDir(c.root, c.slug))}/${step.id}${gateName}${redo}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
 }
 
 // `n` is the gate's number in the step block's list; `notes` whether the
@@ -1291,13 +1397,18 @@ function verificationLine(c: Ctx, step: Step, state: StepState): string {
   for (const g of gatesInOrder(step)) {
     if (g.kind === "agent") parts.push(reviewResult(c, g, step, state, "<any required fix still open, and any fix made after the last review, which no reviewer has seen>"));
   }
+  for (const r of takenBack(c, step, state)) {
+    if (!r.runsAgain) parts.push(`${shown(r.review)}: the owner's acceptance was taken back, since an edit removed that review or moved it to another number`);
+  }
   return `VERIFICATION: ${parts.join("; ") || "none"}`;
 }
 
 // A review gate's part of a VERIFICATION line, with `rest` after the rounds.
 function reviewResult(c: Ctx, g: Gate, step: Step, state: StepState, rest: string): string {
-  if ((state.accepted_gates ?? []).includes(gateNumber(step, g))) return `review (${g.text}): accepted by the owner as it was`;
-  return `review (${g.text}): <rounds used> of ${capOf(c, g, state)} rounds, ${rest}`;
+  const n = gateNumber(step, g);
+  if (acceptedGates(c, step, state).includes(n)) return `review (${g.text}): accepted by the owner as it was`;
+  const back = takenBack(c, step, state).some((r) => r.n === n) ? " (the owner's acceptance of this review was taken back, since an edit changed it)" : "";
+  return `review (${g.text}): <rounds used> of ${capOf(c, g, state)} rounds, ${rest}${back}`;
 }
 
 function stepsWithArtifacts(c: Ctx, step: Step): string {
@@ -1309,6 +1420,25 @@ function stepsWithArtifacts(c: Ctx, step: Step): string {
     })
     .join(", ");
 }
+
+// The gates of a step awaiting the owner that have not run on the work the
+// agent recorded, because an edit added or changed them since, as the
+// hand-over names them.
+function notRunOnWork(c: Ctx, step: Step, state: StepState): string[] {
+  const verified = state.verification ?? [];
+  const passed = state.reviews_passed ?? [];
+  return gatesInOrder(step)
+    .filter((g, i) =>
+      g.kind === "check" || g.kind === "script"
+        ? !verified.some((v) => [`${mechanical(c, g).label}: passed`, `${mechanical(c, g).label}: not configured in this project`].includes(v))
+        : g.kind === "agent" && !passed.includes(reviewId(c, step, i + 1, g)),
+    )
+    .map((g) => gateLabel(c, step, state, g));
+}
+
+// The command that sends the work back to `step`, so that the step runs again
+// with every gate.
+const redo = (c: Ctx, step: Step) => `run \`${FUSE_FLOW} continue ${c.slug} --back-to ${step.id} --note "<the owner's decision>"\``;
 
 // When it is the owner's turn: the hand-over block, pre-filled.
 function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
@@ -1396,8 +1526,13 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
     // A child that became unfinished, such as when its workflow gained a
     // step, holds the approval back, as continue --owner-approved does.
     const pending = waitingFor(c, step);
+    const notRun = notRunOnWork(c, step, state);
+    const unrun = notRun.length
+      ? ` An edit of the workflow added or changed gates after the work was recorded, and they have not run on it: ${notRun.join(", ")}. ` +
+        "It cannot be approved until they have run."
+      : "";
     lines.push(
-      `STATUS: awaiting owner action. The owner is asked to ${asks}.${pending ? ` It cannot be approved yet: ${pending.why}.` : ""}`,
+      `STATUS: awaiting owner action. The owner is asked to ${asks}.${unrun}${pending ? ` It cannot be approved yet: ${pending.why}.` : ""}`,
       producedLine(c, step, state),
       verificationLine(c, step, state),
       "NEXT STEP:",
@@ -1424,6 +1559,9 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       }
       lines.push(`  - Skip this step, without what workstream ${pending.slug} would return.`);
       commands.push(`  - The owner skips the step: run \`${ff} --skip "<the owner's reason>"\`.`);
+    } else if (notRun.length) {
+      lines.push(`  - Redo this step, so that the gates that have not run on its work run: ${notRun.join(", ")}.`);
+      commands.push(`  - The owner has the step redone: ${redo(c, step)}.`);
     } else {
       lines.push(`  - ${capitalize(asks)}.`);
       commands.push(`  - The owner does what the step asks (${asks}): run \`${ff} --owner-approved --note "<what the owner said>"\`.`);
@@ -1442,13 +1580,17 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       // run; the options name them. When the agent said which review it was
       // blocked at, the owner can accept that review alone instead.
       const gates = gatesInOrder(step);
-      const open = (i: number) => gates[i].kind !== "owner-action" && !(state.accepted_gates ?? []).includes(i + 1);
-      const at = state.blocked_gate;
+      const open = (i: number) => gates[i].kind !== "owner-action" && !acceptedGates(c, step, state).includes(i + 1);
+      const at = blockedReview(c, step, state);
       const passed = (g: Gate) =>
         g.kind === "workflow" ||
         ((g.kind === "check" || g.kind === "script") &&
           (state.verification ?? []).some((v) => v === `${mechanical(c, g).label}: passed` || v === `${mechanical(c, g).label}: not configured in this project`));
-      const skipped = gates.filter((g, i) => open(i) && (at === undefined ? !passed(g) : i >= at)).map((g) => gateLabel(c, step, state, g));
+      // A review before the blocked one passed only as the workflow named it
+      // when the agent reported the block.
+      const before = new Set(state.blocked_review?.passed ?? []);
+      const ahead = (g: Gate, i: number) => i >= at! || (i < at! - 1 && g.kind === "agent" && !before.has(reviewId(c, step, i + 1, g)));
+      const skipped = gates.filter((g, i) => open(i) && (at === undefined ? !passed(g) : ahead(g, i))).map((g) => gateLabel(c, step, state, g));
       // Accepting the whole step also completes it without the owner's actions.
       const owners = ownerGates(step).map((g) => gateLabel(c, step, state, g));
       const bypassed = [...skipped, ...owners];
@@ -1568,6 +1710,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   const ws = readWorkstream(root, slug);
   const c: Ctx = { root, slug, wf, p, date: startedOn(ws) };
   convertOldState(c, ws);
+  recordOldReviews(c, ws);
   const header = [`${resumed ? "resumed" : "minted"} workstream ${slug}`, `workflow: ${path}`, `state:    ${workstreamFile(root, slug)}`];
   const base = baseText(root, ws, true);
   if (base) header.push(`base:     ${base}`);
@@ -1939,6 +2082,11 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     setOrDelete(state, "unchanged", Object.keys(input.unchanged).length ? input.unchanged : undefined);
     setOrDelete(state, "not_produced", Object.keys(input.notProduced).length ? input.notProduced : undefined);
     setOrDelete(state, "verification", verification.length ? verification : undefined);
+    setOrDelete(
+      state,
+      "reviews_passed",
+      awaitsOwner ? gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : [])) : undefined,
+    );
     state.status = awaitsOwner ? "AWAITING_OWNER" : "COMPLETED";
     state.history.push(stamp(awaitsOwner ? EVENT.awaitingOwner() : EVENT.completed()));
   });
@@ -2123,6 +2271,35 @@ function convertOldState(c: Ctx, ws: Workstream): void {
   });
 }
 
+// A state file an earlier fuse-flow wrote records an acceptance, a block at a
+// review or work handed to the owner without the identity of the reviews it
+// concerns. Each is recorded once, as the workflow names the reviews at the
+// first command that reads it, and from then on holds like any other record.
+function recordOldReviews(c: Ctx, ws: Workstream): void {
+  const reviews = (step: Step) => gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : []));
+  const missing = (step: Step, s: StepState) => ({
+    accepted: (s.accepted_gates ?? []).filter((n) => !acceptanceOf(s, n) && reviewNow(c, step, n) !== undefined),
+    blocked: s.status === "BLOCKED" && s.blocked_gate !== undefined && !s.blocked_review && reviewNow(c, step, s.blocked_gate) !== undefined,
+    handedOver: s.status === "AWAITING_OWNER" && s.reviews_passed === undefined,
+  });
+  const old = (step: Step, s: StepState) => {
+    const m = missing(step, s);
+    return m.accepted.length > 0 || m.blocked || m.handedOver;
+  };
+  if (!c.wf.steps.some((step) => ws.steps[step.id] && old(step, ws.steps[step.id]))) return;
+  updateWorkstream(c.root, c.slug, (fresh) => {
+    for (const step of c.wf.steps) {
+      const s = fresh.steps[step.id];
+      if (!s || !old(step, s)) continue;
+      const m = missing(step, s);
+      const evidence = (n: number) => ({ review: reviewNow(c, step, n)!, passed: reviewsBefore(c, step, n) });
+      if (m.accepted.length) s.accepted_reviews = [...(s.accepted_reviews ?? []), ...m.accepted.map(evidence)];
+      if (m.blocked) s.blocked_review = evidence(s.blocked_gate!);
+      if (m.handedOver) s.reviews_passed = reviews(step);
+    }
+  });
+}
+
 // The agent reports the step blocked. What it has written so far is recorded
 // as draft, as when the step finishes, so the hand-over lists it, the
 // owner's acceptance keeps it, and a later finish or block in this pass
@@ -2134,6 +2311,7 @@ function blockStep(c: Ctx, step: Step, reason: string, gate: number | undefined,
     const state = expectState(c, ws, step, ["IN_PROGRESS"]);
     record(c, step, state, named, "draft", "block");
     setOrDelete(state, "blocked_gate", gate);
+    setOrDelete(state, "blocked_review", gate === undefined ? undefined : { review: reviewNow(c, step, gate)!, passed: reviewsBefore(c, step, gate) });
     state.status = "BLOCKED";
     state.history.push(stamp(EVENT.blocked(reason)));
   });
@@ -2175,6 +2353,7 @@ function grantRounds(c: Ctx, step: Step, n: number, note?: string): string[] {
     state.status = "IN_PROGRESS";
     state.rounds_granted = (state.rounds_granted ?? 0) + n;
     delete state.blocked_gate;
+    delete state.blocked_review;
     state.history.push(stamp(EVENT.roundsGranted(n, note)));
   });
   return [`${step.id}: owner granted ${n} more review round${n === 1 ? "" : "s"}; the step is IN_PROGRESS`, "", ...present(c)];
@@ -2192,7 +2371,18 @@ function reopen(state: StepState, line: string): void {
   state.status = "PENDING";
   for (const a of [...state.artifacts, ...(state.files ?? [])]) if (a.status === "approved" || a.status === "done") a.status = "draft";
   for (const f of state.files ?? []) f.pass = "earlier";
-  for (const key of ["rounds_granted", "blocked_gate", "accepted_gates", "unchanged", "not_produced", "verification", "skip_reason"] as const) {
+  for (const key of [
+    "rounds_granted",
+    "blocked_gate",
+    "blocked_review",
+    "accepted_gates",
+    "accepted_reviews",
+    "reviews_passed",
+    "unchanged",
+    "not_produced",
+    "verification",
+    "skip_reason",
+  ] as const) {
     delete state[key];
   }
   state.history.push(line);
@@ -2314,8 +2504,16 @@ function approveStep(c: Ctx, step: Step, note?: string): string[] {
     if (state.status !== "AWAITING_OWNER" && state.status !== "BLOCKED") {
       throw new FlowError(`step "${step.id}" is ${state.status}, not awaiting the owner or blocked; finish it and run continue without --owner-approved`);
     }
+    const notRun = state.status === "AWAITING_OWNER" ? notRunOnWork(c, step, state) : [];
+    if (notRun.length) {
+      throw new FlowError(
+        `step ${step.id} cannot be approved yet: gates an edit added or changed have not run on its recorded work: ${notRun.join(", ")}. ` +
+          `To run them, the owner sends the work back to the step: ${redo(c, step).replace(/^run /, "")}`,
+      );
+    }
     state.status = "COMPLETED";
     delete state.blocked_gate;
+    delete state.blocked_review;
     for (const a of [...state.artifacts, ...(state.files ?? [])]) a.status = "approved";
     // The owner's gate also approves the work of the steps before it that
     // have no owner gate of their own, such as a design that a later step's
@@ -2339,7 +2537,7 @@ function approveStep(c: Ctx, step: Step, note?: string): string[] {
 // accepted review is not run again in this pass.
 function acceptReview(c: Ctx, step: Step, n: number, note?: string): string[] {
   const g = reviewNumbered(step, n);
-  const label = `review ${n} (${g.text})`;
+  const label = reviewLabel(n, g);
   updateWorkstream(c.root, c.slug, (ws) => {
     const state = stateOf(ws, step.id);
     if (state.status !== "BLOCKED") {
@@ -2351,18 +2549,36 @@ function acceptReview(c: Ctx, step: Step, n: number, note?: string): string[] {
         `the agent did not say which review step "${step.id}" is blocked at; the owner accepts the whole step with --owner-approved alone`,
       );
     }
+    const blocked = state.blocked_review;
+    if (blockedReview(c, step, state) === undefined || !blocked) {
+      const now = reviewNow(c, step, at);
+      const why =
+        now === undefined || !blocked
+          ? `the step was blocked at review ${at}, which the workflow no longer has, since it was edited`
+          : `the step was blocked at ${shown(blocked.review)}, and an edit has changed it since: it is now ${shown(now)}`;
+      throw new FlowError(
+        `${why}; the owner accepts the whole step with --owner-approved alone, grants more rounds with --more-rounds, or sends ` +
+          "the work back with --back-to",
+      );
+    }
     if (at !== n) {
       throw new FlowError(`the step was blocked at review ${at} (${gatesInOrder(step)[at - 1].text}); --gate ${n} accepts only that review`);
     }
     state.status = "IN_PROGRESS";
     delete state.blocked_gate;
+    delete state.blocked_review;
     state.accepted_gates = [...new Set([...(state.accepted_gates ?? []), n])];
-    state.history.push(stamp(EVENT.reviewAccepted(label, note)));
+    state.accepted_reviews = [...(state.accepted_reviews ?? []).filter((r) => r !== acceptanceOf(state, n)), blocked];
+    state.history.push(stamp(EVENT.reviewAccepted(n, g.text, note)));
   });
   return [`${step.id}: owner accepted ${label} as it is; the step is IN_PROGRESS`, "", ...present(c)];
 }
 
 // -------------------------------------------------------------------- status
+
+// The steps the state file records that the workflow no longer has, because
+// the workflow was edited after they ran, such as a step renamed or removed.
+const orphans = (c: Ctx, ws: Workstream) => Object.keys(ws.steps).filter((id) => !c.wf.steps.some((s) => s.id === id));
 
 export function status(root: string, slug: string): string[] {
   const ws = readWorkstream(root, slug);
@@ -2400,6 +2616,8 @@ export function status(root: string, slug: string): string[] {
     const columns = [step.id.padEnd(width), state.status.padEnd(14), `gates ${gates.padEnd(6)}`];
     return `${marker}${[...columns, details.join("; ")].join("  ")}`.trimEnd();
   });
+  const gone = orphans(c, ws);
+  if (gone.length) rows.push(`  recorded steps the workflow no longer has: ${gone.map((id) => `${id} (${ws.steps[id].status})`).join(", ")}`);
   const footer = current ? `current step: ${current.id}; ${FUSE_FLOW} start ${slug} prints what to do` : "workflow complete";
   const related = links(root, slug, ws);
   const header = [`workstream ${slug} (${c.wf.name})`];
@@ -2439,7 +2657,9 @@ export function list(root: string): string[] {
       const step = currentStep(c.wf, ws);
       const where = step ? `step ${step.id}, ${position(c, step)}, ${stateOf(ws, step.id).status}` : "workflow complete";
       const from = [ws.after && `after ${ws.after}`, ws.parent && `child of ${ws.parent.slug}, step ${ws.parent.step}`].filter(Boolean).join(", ");
-      lines.push(`  ${slug} (${c.wf.name}, started ${c.date}${from ? `, ${from}` : ""}): ${where}`);
+      const gone = orphans(c, ws);
+      const note = gone.length ? `; ${gone.length} recorded step${gone.length === 1 ? "" : "s"} the workflow no longer has: ${gone.join(", ")}` : "";
+      lines.push(`  ${slug} (${c.wf.name}, started ${c.date}${from ? `, ${from}` : ""}): ${where}${note}`);
     } catch (e) {
       if (!(e instanceof FlowError)) throw e;
       lines.push(`  ${slug}: cannot be read: ${e.message.replaceAll("\n", "\n    ")}`);

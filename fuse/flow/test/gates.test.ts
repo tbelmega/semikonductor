@@ -836,6 +836,326 @@ test("after the owner accepts a later review, the step block does not ask again 
   }
 });
 
+test("a review the owner accepted no longer counts as accepted once the workflow changes that review", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the design review does not converge", "--gate", "2");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "2");
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("- agent: review the design\n", "- agent: review all security properties\n"));
+    const resumed = r.ok("start", "feat");
+    expect(resumed).not.toContain("The owner accepted this review");
+    expect(resumed).toContain("  2. Have an independent agent review all security properties.");
+    const done = r.ok("continue", "feat");
+    expect(done).not.toContain("accepted by the owner as it was");
+    expect(done).toContain("review (review all security properties): <rounds used> of 2 rounds");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a review the owner accepted no longer counts as accepted once an edit moves it to another number", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "3");
+    // The accepted review is now number 2, and a new review is number 3.
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("      - agent: review the design\n", "").replace("- owner-action:", "- agent: review the tests\n      - owner-action:"));
+    const resumed = r.ok("start", "feat");
+    expect(resumed).not.toContain("The owner accepted this review");
+    expect(resumed).toContain("  3. Have an independent agent review the tests.");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("accepting the review a step was blocked at is refused, not a crash, when an edit removed that review", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    const blocked = r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    expect(blocked).toContain("--owner-approved --gate 3");
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("      - agent: review the design\n", ""));
+    const refused = r.run(["continue", "feat", "--owner-approved", "--gate", "2"]);
+    expect(refused.code).toBe(1);
+    expect(refused.out).not.toContain("TypeError");
+    expect(refused.out).toContain(
+      "the step was blocked at review 3, which the workflow no longer has, since it was edited; the owner accepts the whole step " +
+        "with --owner-approved alone, grants more rounds with --more-rounds, or sends the work back with --back-to",
+    );
+    expect(r.status("feat", "design")).toBe("BLOCKED");
+    // The hand-over no longer offers accepting that review alone.
+    const handOver = r.ok("start", "feat");
+    expect(handOver).not.toContain("--owner-approved --gate");
+    expect(handOver).toContain("  - Accept the whole step as it is, without the gates not recorded as passed:");
+    r.ok("continue", "feat", "--owner-approved");
+    expect(r.status("feat", "design")).toBe("COMPLETED");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a later acceptance does not exempt an earlier review once an edit changes that review", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the design review does not converge", "--gate", "2");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "2");
+    r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "3");
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("- agent: review the design\n", "- agent: review data protection\n"));
+    const resumed = r.ok("start", "feat");
+    expect(resumed).not.toContain("passed earlier in this pass");
+    expect(resumed).toContain("  2. Have an independent agent review data protection.");
+    expect(resumed).toContain("  3. The owner accepted this review (review the design as a principal engineer) as it was; do not run it again.\n");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a review inferred to have passed before an accepted one runs again once an edit changes it", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "3");
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("- agent: review the design\n", "- agent: review data protection\n"));
+    const resumed = r.ok("start", "feat");
+    expect(resumed).not.toContain("passed earlier in this pass");
+    expect(resumed).toContain("  2. Have an independent agent review data protection.");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("accepting the review a step was blocked at is refused once an edit puts another review at its number", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    // Review 3 is now another review: the first review is gone and a new one follows.
+    r.write(
+      "workflow-source.yml",
+      TWO_REVIEWS.replace("      - agent: review the design\n", "").replace("- owner-action:", "- agent: review the tests\n      - owner-action:"),
+    );
+    const handOver = r.ok("start", "feat");
+    expect(handOver).not.toContain("--owner-approved --gate");
+    expect(handOver).toContain("  - Accept the whole step as it is, without the gates not recorded as passed:");
+    const refused = r.run(["continue", "feat", "--owner-approved", "--gate", "3"]);
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain(
+      "the step was blocked at review 3 (review the design as a principal engineer), and an edit has changed it since: it is now " +
+        "review 3 (review the tests); the owner accepts the whole step with --owner-approved alone, grants more " +
+        "rounds with --more-rounds, or sends the work back with --back-to",
+    );
+    expect(r.status("feat", "design")).toBe("BLOCKED");
+    expect(r.state("feat").steps.design.accepted_gates).toBeUndefined();
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a block an earlier fuse-flow recorded by number is bound to the review as the first command after the upgrade reads it", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the principal review does not converge", "--gate", "3");
+    // A state file an earlier fuse-flow wrote records only the number.
+    const old = r.state("feat");
+    delete old.steps.design.blocked_review;
+    r.write(join(".konductor", "workstreams", "feat.yml"), Bun.YAML.stringify(old, null, 2));
+    expect(r.state("feat").steps.design.blocked_review).toBeUndefined();
+    expect(r.ok("start", "feat")).toContain("--owner-approved --gate 3");
+    expect(r.state("feat").steps.design.blocked_review.review).toBe("review 3 (review the design as a principal engineer)");
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("- agent: review the design as a principal engineer\n", "- agent: review the risks\n"));
+    expect(r.refused("continue", "feat", "--owner-approved", "--gate", "3")).toContain(
+      "the step was blocked at review 3 (review the design as a principal engineer), and an edit has changed it since: it is now " +
+        "review 3 (review the risks); the owner accepts the whole step with --owner-approved alone",
+    );
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("an accepted review stays accepted when its text contains the words of the history line", () => {
+  const r = new Repo();
+  try {
+    const text = "review the patch (security) as it is: check input validation";
+    r.start("feat", TWO_REVIEWS.replace("review the design\n", `"${text}"\n`));
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the security review does not converge", "--gate", "2");
+    const accepted = r.ok("continue", "feat", "--owner-approved", "--gate", "2", "--note", "approved");
+    expect(accepted).toContain(`  2. The owner accepted this review (${text}) as it was; do not run it again.\n`);
+    expect(accepted).not.toContain(`Have an independent agent ${text}`);
+    // The owner's note is the note, not the end of the review's text.
+    expect(accepted).toContain('OWNER SAID: "approved"\n');
+    expect(accepted).not.toContain("OWNER SAID: \"check input validation");
+  } finally {
+    r.cleanup();
+  }
+});
+
+// One review whose guide sits beside the workflow file.
+const GUIDED = (guide: string) => `version: 1
+name: w
+steps:
+  - id: review
+    instruction: Review the change.
+    updates:
+      - artifact: reviewed-code
+        path: src/
+    gates:
+      - agent: inspect the change
+        guide: ${guide}
+      - owner-action: approve the result
+  - id: release
+    instruction: Release it.
+`;
+
+// Block the review, have the owner accept it, then apply `edit`.
+function acceptThenEdit(r: Repo, edit: () => void): string {
+  r.write("review-first.md", "# Check only the spelling\n");
+  r.write("review-second.md", "# Check access controls and reject any authorization bypass\n");
+  r.start("feat", GUIDED("review-first.md"));
+  r.write("src/change.ts");
+  r.ok("continue", "feat", "--blocked", "the review was inconclusive", "--gate", "1", "--updated", "src/change.ts");
+  expect(r.ok("continue", "feat", "--owner-approved", "--gate", "1", "--note", "accept")).toContain(
+    "  1. The owner accepted this review (inspect the change) as it was; do not run it again.\n",
+  );
+  edit();
+  return r.ok("start", "feat");
+}
+
+const TAKEN_BACK =
+  "TAKEN BACK: the owner accepted review 1 (inspect the change) following review-first.md for reviewed-code as it was, but an " +
+  "edit of the workflow, of a review guide or of the policy has changed that review since, so the acceptance no longer holds and " +
+  "the review runs again below; its rounds count afresh, from findings files of its own. Tell the owner in your hand-over; the " +
+  "owner's note on that acceptance is not an acceptance now.\n";
+
+test("an accepted review runs again, and the step block says why, once an edit gives it another review guide", () => {
+  const r = new Repo();
+  try {
+    const resumed = acceptThenEdit(r, () => r.write("workflow-source.yml", GUIDED("review-second.md")));
+    expect(resumed).not.toContain("The owner accepted this review");
+    expect(resumed).toContain(TAKEN_BACK);
+    expect(resumed).toContain("  1. Have an independent agent inspect the change. It reviews src/ against review-second.md.");
+    const handOver = r.ok("continue", "feat", "--updated", "src/change.ts");
+    expect(handOver).not.toContain("accepted by the owner as it was");
+    expect(handOver).toContain("review (inspect the change): <rounds used> of 2 rounds, ");
+    expect(handOver).toContain(" (the owner's acceptance of this review was taken back, since an edit changed it)");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("an accepted review runs again once the text of its review guide changes", () => {
+  const r = new Repo();
+  try {
+    const resumed = acceptThenEdit(r, () => r.write("review-first.md", "# Check access controls as well\n"));
+    expect(resumed).not.toContain("The owner accepted this review");
+    expect(resumed).toContain(TAKEN_BACK);
+    expect(resumed).toContain("  1. Have an independent agent inspect the change. It reviews src/ against review-first.md.");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("an accepted review stays accepted while its text, number and review guide are unchanged", () => {
+  const r = new Repo();
+  try {
+    const resumed = acceptThenEdit(r, () => r.write("workflow-source.yml", GUIDED("review-first.md").replace("Release it.", "Release it now.")));
+    expect(resumed).toContain("  1. The owner accepted this review (inspect the change) as it was; do not run it again.\n");
+    expect(resumed).not.toContain("TAKEN BACK");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("an acceptance an earlier fuse-flow recorded by number only is taken back with a notice once the review's text changes after the upgrade", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.ok("continue", "feat", "--blocked", "the design review does not converge", "--gate", "2");
+    r.ok("continue", "feat", "--owner-approved", "--gate", "2", "--note", "accept");
+    // A state file an earlier fuse-flow wrote names the acceptance only by number and history line.
+    const old = r.state("feat");
+    delete old.steps.design.accepted_reviews;
+    r.write(join(".konductor", "workstreams", "feat.yml"), Bun.YAML.stringify(old, null, 2));
+    // The first command after the upgrade binds the acceptance to the review as the workflow names it then.
+    r.ok("status", "feat");
+    r.write("workflow-source.yml", TWO_REVIEWS.replace("- agent: review the design\n", "- agent: review the design and its risks\n"));
+    const resumed = r.ok("start", "feat");
+    expect(resumed).toContain('OWNER SAID: "accept"\n');
+    expect(resumed).toContain("TAKEN BACK: the owner accepted review 2 (review the design) as it was, but an edit of the workflow");
+    expect(resumed).toContain("  2. Have an independent agent review the design and its risks.");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("accepting the review a step was blocked at is refused once its review guide changed", () => {
+  const r = new Repo();
+  try {
+    r.write("review-first.md", "# Check only the spelling\n");
+    r.write("review-second.md", "# Check access controls\n");
+    r.start("feat", GUIDED("review-first.md"));
+    r.write("src/change.ts");
+    r.ok("continue", "feat", "--blocked", "the review was inconclusive", "--gate", "1", "--updated", "src/change.ts");
+    r.write("workflow-source.yml", GUIDED("review-second.md"));
+    expect(r.ok("start", "feat")).not.toContain("--owner-approved --gate");
+    expect(r.refused("continue", "feat", "--owner-approved", "--gate", "1")).toContain(
+      "the step was blocked at review 1 (inspect the change) following review-first.md for reviewed-code, and an edit has changed " +
+        "it since: it is now review 1 (inspect the change) following review-second.md for reviewed-code; the owner accepts the " +
+        "whole step with --owner-approved alone",
+    );
+    expect(r.status("feat", "review")).toBe("BLOCKED");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a step awaiting the owner names the gates an edit added after its work was recorded, and is not approved until they run", () => {
+  const r = new Repo();
+  try {
+    const flow = (gates: string) => `version: 1
+name: add-gate
+steps:
+  - id: work
+    instruction: Do the work.
+    gates:
+${gates}      - owner-action: approve the work
+  - id: finish
+    instruction: Finish.
+`;
+    r.start("feat", flow(""));
+    r.ok("continue", "feat");
+    expect(r.status("feat", "work")).toBe("AWAITING_OWNER");
+    expect(r.ok("start", "feat")).not.toContain("have not run on it");
+    r.write("workflow-source.yml", flow("      - script: \"false\"\n      - agent: review the work\n"));
+    const handOver = r.ok("start", "feat");
+    expect(handOver).toContain(
+      "STATUS: awaiting owner action. The owner is asked to approve the work. An edit of the workflow added or changed gates " +
+        "after the work was recorded, and they have not run on it: script `false`, review (review the work). It cannot be " +
+        "approved until they have run.\n",
+    );
+    expect(handOver).toContain("  - Redo this step, so that the gates that have not run on its work run: script `false`, review (review the work).\n");
+    // Approving would not run them, so it is refused until the step runs them.
+    expect(r.refused("continue", "feat", "--owner-approved")).toContain("step work cannot be approved yet");
+    expect(r.status("feat", "work")).toBe("AWAITING_OWNER");
+  } finally {
+    r.cleanup();
+  }
+});
+
 const NOTES = `version: 1
 name: w
 steps:
