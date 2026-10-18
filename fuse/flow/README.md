@@ -114,7 +114,10 @@ steps:
 
 The step fields have these effects:
 
-- `instruction` opens the step block and says what the step must achieve.
+- `instruction` opens the step block and says what the step must achieve. It is printed as
+  written: a literal block (`|`) keeps its line breaks and indentation, and a folded one (`>`)
+  keeps the breaks between its paragraphs. Only blank lines before the text and whitespace after
+  it are dropped.
 - `condition` makes the step optional. It is written as one `owner-action`, `check`, `script` or
   `agent` mapping. A `check` or `script` condition runs when the engine reaches the step: exit 0
   runs it and another result skips it. A `check` condition whose kind the policy binds to `none`
@@ -178,7 +181,12 @@ The step fields have these effects:
   workstream's slug, and `FUSE_FLOW_STEP`, the step's id. The step block prints the command with
   both set, as `FUSE_FLOW_SLUG=<slug> FUSE_FLOW_STEP=<step> sh -c '<command>'`, so a run by hand
   is the run fuse-flow makes on `continue`.
-- `agent: <review>` tells the maker to obtain an independent review. `max_rounds`, at least 1,
+- `agent: <review>` tells the maker to obtain an independent review. `continue` is refused until
+  the reviewer has written a findings file for at least one round of the step's current pass, as
+  the step block names it; fuse-flow does not read the findings, since the maker classifies them.
+  A review the owner accepted needs none. When the owner waives a review that has not run,
+  `continue --waived <reason>` finishes the step and records the waiver, with the reason, in the
+  hand-over's `VERIFICATION` line; a send-back ends it. `max_rounds`, at least 1,
   caps review rounds that end with a required fix. The default is 2. `guide` may name a review
   guide relative to the workflow file or by absolute path. The guide that applies, after policy
   and the library have had their say, must be a file; one that a more specific guide replaces
@@ -304,7 +312,8 @@ steps:
 | Command | What it does |
 |---|---|
 | `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a resumed workstream, `--workflow` names the workflow it follows, or, when that file is gone, its new path. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
-| `continue <slug>` | Finish the current step after its artifacts are accounted for and its mechanical gates pass, then print the next step or hand-over block. A step that this command hands out first, such as one added to the workflow or reached because a condition now skips the step before it, is printed and not finished; an owner's decision is likewise not applied when the hand-out moved the current step. |
+| `continue <slug>` | Finish the current step after its artifacts are accounted for, each review it owes has a findings file in this pass, and its mechanical gates pass, then print the next step or hand-over block. A step that this command hands out first, such as one added to the workflow or reached because a condition now skips the step before it, is printed and not finished; an owner's decision is likewise not applied when the hand-out moved the current step. |
+| `continue <slug> --waived <reason> [<the flags above>]` | Finish the current step as `continue` does, without the reviews that have not run, which the owner waived. Records each waiver with the owner's reason; the hand-over names it. Refused when no review is left to waive. |
 | `continue <slug> [--updated [<artifact>=]<file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. A file inside the paths of two artifacts takes the identifier of the one it counts for. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
 | `continue <slug> [--not-produced <artifact> <reason>]...` | Report each required `produces` artifact deliberately not written. Repeat the flag as needed. |
@@ -314,13 +323,14 @@ steps:
 | `continue <slug> --more-rounds <n> [--note <text>]` | Add one or more review rounds to an agent gate on an `IN_PROGRESS` or `BLOCKED` step. |
 | `continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes; where it writes an artifact whole at a path an edit has moved, later steps and `--after` read the new file alone, also when an earlier fuse-flow recorded the earlier one, and the earlier one stays in the step's files as history. Its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
-| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
+| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`, or the owner's waiver in this pass, as `[waived by the owner: <reason>]`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
 | `list` | List the project's workstreams with their workflow and current step, and how many recorded steps the workflow no longer has, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
 | `help`, `--help`, `-h` | Print command usage, lookup paths and state location. |
 
 `--note` is valid only with `--owner-approved`, `--more-rounds`, `--back-to` or `--forward-to`.
 `--gate` is valid only with `--blocked` or `--owner-approved`.
+`--waived` is valid only when the step's work is reported done, with no decision or other report.
 The owner decision flags are mutually exclusive. `--blocked` and `--skip` are mutually exclusive
 reports, and artifact-reporting flags do not accompany either kind, except `--updated` with
 `--back-to` and `--blocked`. Exit codes are 0 for success,

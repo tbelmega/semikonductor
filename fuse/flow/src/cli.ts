@@ -25,10 +25,13 @@ const USAGE = `usage:
                                                 A relative path is read from the current directory, else
                                                 from the repository root
   fuse-flow continue <slug> [--updated [<artifact>=]<file>]... [--unchanged <artifact> <reason>]...
-                            [--not-produced <artifact> <reason>]...
+                            [--not-produced <artifact> <reason>]... [--waived <the owner's reason>]
                                                 the current step's work is done: refused until every artifact
                                                 it produces exists or is reported --not-produced, every
-                                                artifact it updates is accounted for, and its checks pass.
+                                                artifact it updates is accounted for, every review has a
+                                                findings file in this pass, and its checks pass.
+                                                --waived records that the owner waived the reviews that have
+                                                not run.
                                                 An <artifact> is its id or its path. --updated names a file
                                                 the step wrote; a file in the paths of two of its artifacts
                                                 takes the id of the one it counts for, <artifact>=<file>.
@@ -87,6 +90,7 @@ const OPTIONS = {
     blocked: { type: "string" },
     gate: { type: "string" },
     skip: { type: "string" },
+    waived: { type: "string" },
     "more-rounds": { type: "string" },
     "back-to": { type: "string" },
     "forward-to": { type: "string" },
@@ -234,6 +238,8 @@ function run(argv: string[]): string[] {
       ].filter(Boolean) as string[];
       const actions = [...decisions, ...reports];
       if (actions.length > 1) throw new UsageError(`${actions.join(" and ")} are different decisions; give one`);
+      // A waiver goes with the agent's report that the work is done.
+      if (values.waived !== undefined && actions.length) throw new UsageError(`--waived goes with the report that the work is done; it does not go with ${actions[0]}`);
       // A send-back, and a block, may record what the current step wrote so far.
       const recordsWork = (backTo !== undefined || values.blocked !== undefined) && work.every((w) => w === "--updated");
       if (actions.length && work.length && !recordsWork) {
@@ -257,6 +263,7 @@ function run(argv: string[]): string[] {
         blocked: values.blocked as string | undefined,
         gate: gate === undefined ? undefined : Number(gate),
         skip: values.skip as string | undefined,
+        waived: values.waived as string | undefined,
         moreRounds: moreRounds === undefined ? undefined : Number(moreRounds),
         backTo,
         forwardTo,

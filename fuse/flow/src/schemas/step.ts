@@ -67,7 +67,15 @@ export const StepSchema = z
         "block points the owner to that file.",
       examples: ["unattended"],
     }),
-    instruction: z.string().trim().min(1).meta({
+    // Kept as written, so a literal block keeps its line breaks and the
+    // indentation of its first line; only blank lines before the text and
+    // whitespace after it are dropped.
+    instruction: z
+      .string()
+      .min(1)
+      .overwrite((s) => (s.includes("\n") ? s.replace(/^\s*\n/, "").trimEnd() : s.trim()))
+      .refine((s) => s.trim().length > 0, { message: "Too small: expected string to have >=1 characters" })
+      .meta({
       description:
         "What this step must achieve, in this workflow. Engine effect: it opens the step block that fuse-flow " +
         "prints when the step is handed out.",

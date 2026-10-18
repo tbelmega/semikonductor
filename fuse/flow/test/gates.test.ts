@@ -387,6 +387,7 @@ steps:
 
     // A guide that ships with fuse: the instruction wins.
     r.write("essay.md", "# essay\n");
+    r.reviewed("feat", "write");
     r.ok("continue", "feat");
     const shipped = r.ok("start", "feat");
     expect(shipped).toContain("STEP notes");
@@ -401,6 +402,7 @@ steps:
 
     // A step whose artifacts have no guide gets neither line.
     r.write("notes.md", "# notes\n");
+    r.reviewed("feat", "notes");
     r.ok("continue", "feat");
     const unguided = r.ok("start", "feat");
     expect(unguided).toContain("STEP scribble");
@@ -578,6 +580,7 @@ test("the owner can grant more review rounds, on a blocked step or ahead of time
     const granted = other.ok("continue", "feat", "--more-rounds", "2");
     expect(granted).toContain("After 5 (2 plus 3 granted by the owner) such rounds");
     expect(other.status("feat", "implement")).toBe("IN_PROGRESS");
+    other.reviewed("feat", "implement");
     expect(other.ok("continue", "feat")).toContain("STEP release (3 of 3)");
   } finally {
     other.cleanup();
@@ -761,6 +764,7 @@ test("the owner accepts the review that blocked, and the step goes back to the a
     expect(accepted).toContain("  3. Have an independent agent review the design as a principal engineer.");
     expect(r.status("feat", "design")).toBe("IN_PROGRESS");
 
+    r.reviewed("feat", "design-gate3");
     const done = r.ok("continue", "feat");
     expect(done).toContain("STATUS: awaiting owner action.");
     expect(done).toContain("review (review the design): accepted by the owner as it was;");
@@ -847,6 +851,8 @@ test("a review the owner accepted no longer counts as accepted once the workflow
     const resumed = r.ok("start", "feat");
     expect(resumed).not.toContain("The owner accepted this review");
     expect(resumed).toContain("  2. Have an independent agent review all security properties.");
+    r.reviewed("feat", "design-gate2-redo");
+    r.reviewed("feat", "design-gate3");
     const done = r.ok("continue", "feat");
     expect(done).not.toContain("accepted by the owner as it was");
     expect(done).toContain("review (review all security properties): <rounds used> of 2 rounds");
@@ -1047,6 +1053,7 @@ test("an accepted review runs again, and the step block says why, once an edit g
     expect(resumed).not.toContain("The owner accepted this review");
     expect(resumed).toContain(TAKEN_BACK);
     expect(resumed).toContain("  1. Have an independent agent inspect the change. It reviews src/ against review-second.md.");
+    r.reviewed("feat", "review-redo");
     const handOver = r.ok("continue", "feat", "--updated", "src/change.ts");
     expect(handOver).not.toContain("accepted by the owner as it was");
     expect(handOver).toContain("review (inspect the change): <rounds used> of 2 rounds, ");
@@ -1399,6 +1406,7 @@ test("status shows each review gate's cap with the rounds granted, and the closi
     r.ok("continue", "feat", "--more-rounds", "1");
     expect(row()).toContain("gates agent(review the diff against the spec) [cap 3, 2 plus 1 granted]");
 
+    r.reviewed("feat", "implement");
     r.ok("continue", "feat");
     const closing = r.ok("continue", "feat");
     expect(closing).toContain(
@@ -1545,6 +1553,111 @@ test("a state file an earlier fuse-flow wrote with approved for a step without a
   }
 });
 
+test("continue refuses a step whose review has not run, until its reviewer writes a findings file of this pass", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    expect(r.ok("start", "feat")).toContain(
+      "fuse-flow refuses continue until the reviewer has written a findings file in this pass; if the owner waives the review, " +
+        'add `--waived "<the owner\'s reason>"` to the continue command below.',
+    );
+    // A findings file of the first review does not stand for the second.
+    r.reviewed("feat", "design-gate2");
+    const refused = r.refused("continue", "feat");
+    expect(refused).toStartWith(
+      "REFUSED: review 3 (review the design as a principal engineer) has not run: there is no findings file " +
+        ".konductor/reviews/feat/design-gate3-round-<n>.json. Run the review as the step block says. If the owner waived it, " +
+        'run continue again with `--waived "<the owner\'s reason>"` added; only the owner can waive a review.\n',
+    );
+    expect(refused).not.toContain("review 2 (review the design) has not run");
+    expect(r.status("feat", "design")).toBe("IN_PROGRESS");
+    expect(r.state("feat").steps.design.history.at(-1)).toContain("continue refused: review 3 (review the design as a principal engineer) has not run");
+    // A file that only resembles a round's does not count.
+    r.write(".konductor/reviews/feat/design-gate3-round-notes.json", "{}\n");
+    r.refused("continue", "feat");
+
+    r.reviewed("feat", "design-gate3", 2);
+    expect(r.ok("continue", "feat")).toContain("STATUS: awaiting owner action.");
+    expect(r.state("feat").steps.design.reviews_waived).toBeUndefined();
+
+    // A new pass needs reviews of its own.
+    r.ok("continue", "feat", "--back-to", "design", "--note", "again");
+    expect(r.refused("continue", "feat")).toContain(
+      "review 2 (review the design) has not run: there is no findings file .konductor/reviews/feat/design-gate2-pass-2-round-<n>.json; " +
+        "review 3 (review the design as a principal engineer) has not run",
+    );
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("the owner can waive the reviews that have not run, and the waiver is recorded with the reason until the work is sent back", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.reviewed("feat", "design-gate2");
+    const done = r.ok("continue", "feat", "--waived", "the principal engineer reviewed it in the meeting");
+    expect(done).toContain(
+      "VERIFICATION: script `test -f design.md`: passed; review (review the design): <rounds used> of 2 rounds, " +
+        "<any required fix still open, and any fix made after the last review, which no reviewer has seen>; " +
+        "review (review the design as a principal engineer): waived by the owner: the principal engineer reviewed it in the meeting\n",
+    );
+    const state = r.state("feat").steps.design;
+    expect(state.status).toBe("AWAITING_OWNER");
+    expect(state.reviews_waived).toEqual([
+      { review: "review 3 (review the design as a principal engineer)", reason: "the principal engineer reviewed it in the meeting" },
+    ]);
+    expect(state.history.at(-2)).toEndWith(
+      'owner waived review 3 "review the design as a principal engineer": the principal engineer reviewed it in the meeting',
+    );
+    expect(r.ok("status", "feat")).toContain(
+      "agent(review the design) [cap 2], agent(review the design as a principal engineer) " +
+        "[waived by the owner: the principal engineer reviewed it in the meeting]",
+    );
+
+    // Sending the work back ends the waiver: the next pass runs both reviews.
+    r.ok("continue", "feat", "--back-to", "design", "--note", "again");
+    expect(r.state("feat").steps.design.reviews_waived).toBeUndefined();
+    expect(r.ok("status", "feat")).not.toContain("waived by the owner");
+    expect(r.refused("continue", "feat")).toContain("review 3 (review the design as a principal engineer) has not run");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("--waived is refused where there is no review to waive, and goes only with the report that the work is done", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", TWO_REVIEWS);
+    r.write("design.md");
+    r.reviewed("feat", "design-gate2");
+    r.reviewed("feat", "design-gate3");
+    expect(r.refused("continue", "feat", "--waived", "no time")).toContain(
+      'REFUSED: --waived: every review of step "design" has run, so there is no review to waive; run continue without --waived',
+    );
+    expect(r.usage("continue", "feat", "--waived", "no time", "--skip", "not needed")).toContain(
+      "--waived goes with the report that the work is done; it does not go with --skip",
+    );
+    r.ok("continue", "feat");
+    r.ok("continue", "feat", "--owner-approved");
+    expect(r.status("feat", "design")).toBe("COMPLETED");
+
+    const plain = new Repo();
+    try {
+      plain.start("p", "version: 1\nname: p\nsteps:\n  - id: only\n    instruction: Do it.\n");
+      expect(plain.refused("continue", "p", "--waived", "no time")).toContain(
+        'REFUSED: --waived: step "only" has no review the agent runs, so there is nothing to waive; run continue without --waived',
+      );
+    } finally {
+      plain.cleanup();
+    }
+  } finally {
+    r.cleanup();
+  }
+});
+
 test("a step instruction is printed as written, so a literal block keeps its line breaks and indentation", () => {
   const r = new Repo();
   try {
@@ -1553,6 +1666,22 @@ test("a step instruction is printed as written, so a literal block keeps its lin
       "version: 1\nname: lit\nsteps:\n  - id: run\n    instruction: |\n      Run this:\n\n          bun test --bail\n          bun run check\n\n      Then report.\n",
     );
     expect(out).toContain("STEP run (1 of 1): Run this:\n\n    bun test --bail\n    bun run check\n\nThen report.\nMODE: attended.");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a literal instruction keeps its first line's indentation, and a folded one its paragraph breaks", () => {
+  const r = new Repo();
+  try {
+    const literal = r.start("lit", "version: 1\nname: lit\nsteps:\n  - id: code\n    instruction: |2\n          bun test\n          bun run check\n");
+    expect(literal).toContain("STEP code (1 of 1):     bun test\n    bun run check\nMODE: attended.");
+    // YAML folds the lines of a paragraph into one and keeps the break between paragraphs.
+    const folded = r.start(
+      "fold",
+      "version: 1\nname: fold\nsteps:\n  - id: fold\n    instruction: >\n      First line\n      continues here.\n\n      Second paragraph.\n",
+    );
+    expect(folded).toContain("STEP fold (1 of 1): First line continues here.\nSecond paragraph.\nMODE: attended.");
   } finally {
     r.cleanup();
   }

@@ -165,8 +165,9 @@ const KIND_DOCS: Record<GateKind, string> = {
     "What an independent agent reviews. The agent that did the work classifies each finding as a required fix " +
     "(P0 or P1, unless the review guide says otherwise), optional (P2 or P3, fixed when cheap or deferred) or a " +
     "false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the " +
-    "review guide says; fixing optional findings after that round starts no further round. Engine effect: none; the text, the review guide and the round cap are printed with the " +
-    "step, and the agent that did the work counts the rounds.",
+    "review guide says; fixing optional findings after that round starts no further round. Engine effect: the text, the review guide and the round cap are printed with the " +
+    "step, and the agent that did the work counts the rounds; `continue` is refused until the reviewer has written a findings file " +
+    "in the step's current pass, unless the review was accepted or `--waived` records that the owner waived it.",
   workflow:
     "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step " +
     "waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child " +
@@ -271,13 +272,31 @@ export const GateSchema = z
   .union(SHAPES)
   .meta({ id: "Gate", title: "fuse-flow gate", description: "What must hold before a step counts as done." });
 
+// What each kind means as a condition, which decides whether an optional
+// step runs; a gate's meaning (KIND_DOCS) does not apply.
+const CONDITION_DOCS: Record<"owner-action" | "check" | "script" | "agent", string> = {
+  "owner-action":
+    "What to ask the owner before the step starts, for example whether a prototype is wanted. Engine effect: the " +
+    "step block tells the agent to ask; when the owner says no, the agent skips the step with `--skip`.",
+  check:
+    "A kind of check that the project's policy binds to a command. Engine effect: the command runs when the engine " +
+    "reaches the step; exit 0 runs the step, and any other result skips it. A kind bound to `none` runs the step; " +
+    "an unbound kind holds the step until the kind is bound.",
+  script:
+    "A shell command. Engine effect: it runs from the repository root when the engine reaches the step; exit 0 " +
+    "runs the step, and any other result skips it.",
+  agent:
+    "When the step applies, as the agent judges it. Engine effect: the step block tells the agent to do the step " +
+    "only if this holds, and otherwise to skip it with `--skip`.",
+};
+
 // The shapes a condition may be written in, for editors: one gate kind, with
 // no gate-only fields. ConditionSchema below does the reading.
 export const ConditionShapeSchema = z
   .union([
     ...(["owner-action", "check", "script", "agent"] as const).map((kind) =>
       z
-        .object({ [kind]: z.string().meta({ description: KIND_DOCS[kind] }), description: DESCRIPTION })
+        .object({ [kind]: z.string().meta({ description: CONDITION_DOCS[kind] }), description: DESCRIPTION })
         .strict()
         .meta({ description: `The ${kind} condition as a mapping: \`${kind}: …\`.` }),
     ),

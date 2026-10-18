@@ -108,6 +108,7 @@ test("a plain continue on a step that waits for the owner names the owner's comm
 
 test("--more-rounds on a step that awaits the owner says why there are no rounds to grant", () => {
   repo.start("o", OWNED.replace("      - owner-action: approve the design\n", "      - agent: review the design\n      - owner-action: approve the design\n"));
+  repo.reviewed("o", "design");
   repo.ok("continue", "o");
   const out = repo.refused("continue", "o", "--more-rounds", "1");
   expect(out).toContain(

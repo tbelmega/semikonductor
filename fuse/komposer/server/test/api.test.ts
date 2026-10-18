@@ -1067,7 +1067,7 @@ steps:
     flow("start", "g", "--workflow", "gated", "--from", "review");
     flow("continue", "g", "--blocked", "round cap reached");
     flow("continue", "g", "--more-rounds", "1");
-    flow("continue", "g");
+    flow("continue", "g", "--waived", "the owner read the hello");
     flow("continue", "g", "--skip", "the owner wants no more");
     const run = (await json("/api/workstreams")).workstreams[0];
     const byStep = (step: string) =>
@@ -1077,6 +1077,7 @@ steps:
       ["handed-out", "IN_PROGRESS", "agent", ""],
       ["blocked", "BLOCKED", "agent", "round cap reached"],
       ["rounds-granted", "IN_PROGRESS", "owner", "granted 1 more review round"],
+      ["review-waived", "IN_PROGRESS", "owner", "the owner read the hello"],
       ["completed", "COMPLETED", "agent", ""],
     ]);
     expect(byStep("extra")).toEqual([

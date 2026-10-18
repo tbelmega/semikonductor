@@ -194,6 +194,7 @@ steps:
     repo.ok("start", leaf);
     repo.ok("continue", leaf);
     repo.ok("continue", middle);
+    repo.reviewed("top", "delegate");
   });
 
   test("the parent's line names every finished descendant's file with the step that delegated it", () => {
@@ -218,6 +219,7 @@ steps:
     repo.ok("start", freshLeaf);
     repo.ok("continue", freshLeaf);
     repo.ok("continue", fresh);
+    repo.reviewed("top", "delegate-pass-2");
     const [line] = decisionsLine(repo.ok("continue", "top"));
     expect(line).toContain(`${fresh}.md`);
     expect(line).toContain(`${freshLeaf}.md`);
@@ -237,6 +239,7 @@ steps:
     repo.ok("continue", low);
     repo.ok("continue", mid);
     repo.ok("continue", mid, "--owner-approved");
+    repo.reviewed(other, "delegate");
     const [line] = decisionsLine(repo.ok("continue", other));
     expect(line).toContain(`/${other}.md`);
     expect(line).not.toContain(`/${mid}.md`);

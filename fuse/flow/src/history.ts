@@ -28,6 +28,9 @@ export const EVENT = {
   // as a JSON string, so no text can end it early and the note is what
   // follows it.
   reviewAccepted: (n: number, text: string, note?: string) => `owner accepted review ${n} ${JSON.stringify(text)} as it is${withNote(note)}`,
+  // The owner waived a review the agent did not run, and the step finished
+  // without it. Quoted as reviewAccepted quotes the text.
+  reviewWaived: (n: number, text: string, reason: string) => `owner waived review ${n} ${JSON.stringify(text)}: ${reason}`,
   sentBack: (from: string, to: string, note?: string) => `owner sent the work back from ${from} to ${to}${withNote(note)}`,
   approved: (note?: string) => `owner approved${withNote(note)}`,
   childCreated: (slug: string) => `created child workstream ${slug}`,
@@ -53,6 +56,7 @@ export type EventKind =
   | "skipped"
   | "rounds-granted"
   | "review-accepted"
+  | "review-waived"
   | "sent-back"
   | "approved"
   | "child-created"
@@ -110,6 +114,10 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
   [
     /^owner accepted review \d+ \([\s\S]*?\) as it is(?:: ([\s\S]*))?$/,
     (m) => ({ kind: "review-accepted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
+  ],
+  [
+    /^owner waived review \d+ "(?:[^"\\]|\\.)*": ([\s\S]*)$/,
+    (m) => ({ kind: "review-waived", actor: "owner", detail: m[1] }),
   ],
   [
     /^owner sent the work back from (\S+) to (\S+?)(?:: ([\s\S]*))?$/,

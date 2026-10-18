@@ -711,10 +711,9 @@ function dropUntouchedChild(c: Ctx, step: Step): string[] {
 // What the agent does now. `above` is the refusal printed above the block,
 // whose reason the block does not repeat.
 function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above = ""): string[] {
-  // The instruction as written, so a literal block keeps its line breaks and
-  // indentation, such as a code block; only blank lines before it and
-  // whitespace after it are dropped.
-  const lines = [`STEP ${step.id} (${position(c, step)}): ${step.instruction.replace(/^\s*\n/, "").trimEnd()}`];
+  // The instruction as the schema keeps it, so a literal block keeps its line
+  // breaks and indentation, such as a code block.
+  const lines = [`STEP ${step.id} (${position(c, step)}): ${step.instruction}`];
   const owned = rulings(c.p);
   if (owned.length) {
     lines.push("RULINGS: where this workflow and the house rules overlap, the owner ruled:", ...owned.map((r) => `  - ${r}`));
@@ -979,7 +978,8 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
           ? `  ${n}. The owner accepted this review (${g.text}) as it was; do not run it again.`
           : passedEarlier.has(reviewId(c, step, n, g))
             ? `  ${n}. This review (${g.text}) passed earlier in this pass; do not run it again.`
-            : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)}`,
+            : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)} fuse-flow refuses continue until the ` +
+              `reviewer has written a findings file in this pass; if the owner waives the review, add \`--waived "<the owner's reason>"\` to the continue command below.`,
       );
     }
   }
@@ -1236,10 +1236,31 @@ function statusCap(c: Ctx, g: Gate, state: StepState): string {
 // A review whose acceptance an edit took back is another review now: its
 // rounds count afresh, in files of its own.
 function findingsFile(c: Ctx, g: Gate, step: Step, state: StepState): string {
+  return `${display(c.p, reviewsDir(c.root, c.slug))}/${findingsName(c, g, step, state)}`;
+}
+
+// The name of findingsFile in the reviews folder, with <n> for the round.
+function findingsName(c: Ctx, g: Gate, step: Step, state: StepState): string {
   const agentGates = step.gates.filter((x) => x.kind === "agent");
   const gateName = agentGates.length > 1 ? `-gate${gateNumber(step, g)}` : "";
   const redo = takenBack(c, step, state).some((r) => r.runsAgain && r.n === gateNumber(step, g)) ? "-redo" : "";
-  return `${display(c.p, reviewsDir(c.root, c.slug))}/${step.id}${gateName}${redo}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
+  return `${step.id}${gateName}${redo}${state.pass ? `-pass-${state.pass}` : ""}-round-<n>.json`;
+}
+
+// Whether the reviewer of `g` wrote a findings file for at least one round of
+// this pass. fuse-flow does not read the findings: the agent classifies them.
+function reviewRan(c: Ctx, g: Gate, step: Step, state: StepState): boolean {
+  const [head, tail] = findingsName(c, g, step, state).split("<n>");
+  const dir = reviewsDir(c.root, c.slug);
+  if (!isDirectory(dir)) return false;
+  return readdirSync(dir).some((f) => f.startsWith(head) && f.endsWith(tail) && /^[0-9]+$/.test(f.slice(head.length, f.length - tail.length)));
+}
+
+// The owner's waiver of review `g` in this pass, while the workflow still
+// names the review as the waiver recorded it.
+function waiverOf(c: Ctx, step: Step, state: StepState, g: Gate) {
+  const id = reviewId(c, step, gateNumber(step, g), g);
+  return state.reviews_waived?.find((w) => w.review === id);
 }
 
 // `n` is the gate's number in the step block's list; `notes` whether the
@@ -1418,6 +1439,8 @@ function verificationLine(c: Ctx, step: Step, state: StepState): string {
 function reviewResult(c: Ctx, g: Gate, step: Step, state: StepState, rest: string): string {
   const n = gateNumber(step, g);
   if (acceptedGates(c, step, state).includes(n)) return `review (${g.text}): accepted by the owner as it was`;
+  const waived = waiverOf(c, step, state, g);
+  if (waived) return `review (${g.text}): waived by the owner: ${waived.reason}`;
   const back = takenBack(c, step, state).some((r) => r.n === n) ? " (the owner's acceptance of this review was taken back, since an edit changed it)" : "";
   return `review (${g.text}): <rounds used> of ${capOf(c, g, state)} rounds, ${rest}${back}`;
 }
@@ -1790,6 +1813,7 @@ export interface Continue {
   blocked?: string;
   gate?: number; // with blocked: the review the step is blocked at; with ownerApproved: the review the owner accepts
   skip?: string;
+  waived?: string; // the owner waived the step's reviews that have not run, for this reason
   moreRounds?: number;
   backTo?: string;
   forwardTo?: string;
@@ -2066,6 +2090,35 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     );
   }
 
+  // Every review the agent owes has run: its reviewer wrote a findings file in
+  // this pass. Reviews the owner accepted, and those that passed before one
+  // the owner accepted, are not owed. The owner may waive one that has not
+  // run; the waiver is recorded with the owner's reason.
+  const accepted = acceptedGates(c, step, before);
+  const passedEarlier = passedBeforeAccepted(c, step, before);
+  const owed = gatesInOrder(step).flatMap((g, i) =>
+    g.kind === "agent" && !accepted.includes(i + 1) && !passedEarlier.has(reviewId(c, step, i + 1, g)) ? [{ g, n: i + 1 }] : [],
+  );
+  const notRun = owed.filter(({ g }) => !reviewRan(c, g, step, before));
+  if (input.waived !== undefined && !notRun.length) {
+    throw new FlowError(
+      owed.length
+        ? `--waived: every review of step "${step.id}" has run, so there is no review to waive; run continue without --waived`
+        : `--waived: step "${step.id}" has no review the agent runs, so there is nothing to waive; run continue without --waived`,
+    );
+  }
+  if (input.waived === undefined && notRun.length) {
+    throw refuse(
+      c,
+      step,
+      pass,
+      notRun.map(({ g, n }) => `review ${n} (${g.text}) has not run: there is no findings file ${findingsFile(c, g, step, before)}`).join("; ") +
+        `. Run the review as the step block says. If the owner waived it, run continue again with \`--waived "<the owner's reason>"\` ` +
+        "added; only the owner can waive a review.",
+    );
+  }
+  const waivers = input.waived === undefined ? [] : notRun.map(({ g, n }) => ({ g, n, review: reviewId(c, step, n, g), reason: input.waived! }));
+
   // The checks run without holding the state file's lock, so a long test run
   // does not stall fuse-flow commands for other workstreams. A refusal records
   // every result so far, and the gates not run, for the hand-over block.
@@ -2103,6 +2156,8 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
       "reviews_passed",
       awaitsOwner ? gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : [])) : undefined,
     );
+    setOrDelete(state, "reviews_waived", waivers.length ? waivers.map(({ review, reason }) => ({ review, reason })) : undefined);
+    for (const w of waivers) state.history.push(stamp(EVENT.reviewWaived(w.n, w.g.text, w.reason)));
     state.status = awaitsOwner ? "AWAITING_OWNER" : "COMPLETED";
     state.history.push(stamp(awaitsOwner ? EVENT.awaitingOwner() : EVENT.completed()));
   });
@@ -2403,6 +2458,7 @@ function reopen(state: StepState, line: string): void {
     "blocked_review",
     "accepted_gates",
     "accepted_reviews",
+    "reviews_waived",
     "reviews_passed",
     "unchanged",
     "not_produced",
@@ -2637,7 +2693,13 @@ export function status(root: string, slug: string): string[] {
     const marker = step === current ? "> " : "  ";
     // Each review shows its cap, so the rounds the agent counts can be read against it.
     const gates = step.gates.length
-      ? step.gates.map((g) => (g.kind === "agent" ? `${describeGate(g)} [cap ${statusCap(c, g, state)}]` : describeGate(g))).join(", ")
+      ? step.gates
+          .map((g) => {
+            if (g.kind !== "agent") return describeGate(g);
+            const waived = waiverOf(c, step, state, g);
+            return `${describeGate(g)} [${waived ? `waived by the owner: ${waived.reason}` : `cap ${statusCap(c, g, state)}`}]`;
+          })
+          .join(", ")
       : "none";
     const columns = [step.id.padEnd(width), state.status.padEnd(14), `gates ${gates.padEnd(6)}`];
     return `${marker}${[...columns, details.join("; ")].join("  ")}`.trimEnd();

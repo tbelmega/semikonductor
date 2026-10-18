@@ -475,5 +475,6 @@ test("an artifact reported updated earlier in the pass cannot be reported unchan
       "the step finishes with that update when you run continue without --unchanged code.",
   );
   expect(repo.status("feat", "build")).toBe("IN_PROGRESS");
+  repo.reviewed("feat", "build");
   expect(repo.ok("continue", "feat")).toContain("PRODUCED: src/a.ts (updated)\n");
 });

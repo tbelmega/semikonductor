@@ -125,6 +125,7 @@ test("a review whose acceptance was taken back counts its rounds afresh, in find
   expect(resumed).toContain("The reviewer writes its findings to .konductor/reviews/feat/s-redo-round-<n>.json");
   expect(resumed).not.toContain("s-round-<n>.json");
   // The hand-over asks for the rounds of the review that ran.
+  r.reviewed("feat", "s-redo");
   expect(r.ok("continue", "feat")).toContain("review (inspect the notes): <rounds used> of 2 rounds, ");
 });
 
@@ -187,6 +188,7 @@ function writeOld(edit: (s: any) => void): void {
 
 test("work handed to the owner by an earlier fuse-flow counts its reviews as they are when this one first reads it", () => {
   r.start("feat", OWNER_ONLY("      - agent: review the work\n"));
+  r.reviewed("feat", "work");
   r.ok("continue", "feat");
   writeOld((s) => delete s.work.reviews_passed);
   expect(r.ok("start", "feat")).not.toContain("have not run on it");

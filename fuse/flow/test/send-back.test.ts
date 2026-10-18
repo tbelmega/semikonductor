@@ -49,6 +49,7 @@ beforeEach(() => {
   r.start("ds", SYSTEM);
   r.write("requirements.md", "Status: draft\n");
   r.ok("continue", "ds"); // intake
+  r.reviewed("ds", "requirements");
   r.ok("continue", "ds", "--updated", "requirements.md"); // requirements, awaits the owner
   r.ok("continue", "ds", "--owner-approved");
   expect(r.status("ds", "prototype")).toBe("IN_PROGRESS");
@@ -76,6 +77,7 @@ test("work a step had written is kept through a send-back and offered to its nex
     { artifact: "notes", path: "research/chat.md", status: "draft" },
   ]);
 
+  r.reviewed("ds", "requirements-pass-2");
   r.ok("continue", "ds", "--updated", "requirements.md");
   const again = r.ok("continue", "ds", "--owner-approved");
   expect(again).toContain(
@@ -102,6 +104,7 @@ test("work a step had written is kept through a send-back and offered to its nex
 test("earlier-pass files count only while they exist, and never override --not-produced", () => {
   r.write("research/harness.md");
   r.ok("continue", "ds", "--back-to", "requirements", "--updated", "research/harness.md");
+  r.reviewed("ds", "requirements-pass-2");
   r.ok("continue", "ds", "--updated", "requirements.md");
   r.ok("continue", "ds", "--owner-approved");
 
@@ -203,10 +206,12 @@ test("a folder an earlier pass recorded whole stays whole when the next pass nam
   const o = new Repo();
   try {
     o.start("feat", NOTES);
+    o.reviewed("feat", "design");
     o.write("design.md");
     o.write("notes/a.md");
     o.ok("continue", "feat");
     o.ok("continue", "feat", "--back-to", "design");
+    o.reviewed("feat", "design-pass-2");
     o.write("notes/c.md");
     o.ok("continue", "feat", "--updated", "notes/c.md");
     expect(o.state("feat").steps.design.artifacts).toEqual([
@@ -266,6 +271,7 @@ test("a status message mentions an artifact's guide only when it has one", () =>
   expect(back).not.toContain("as its guide says");
 
   r.write(".konductor/library/artifacts/wishlist/guide.md", "# guide\n\nSet `status: approved` once the owner approves.\n");
+  r.reviewed("ds", "requirements-pass-2");
   r.ok("continue", "ds", "--updated", "requirements.md");
   const approved = r.ok("continue", "ds", "--owner-approved");
   expect(approved).toContain("If any of requirements.md keeps a status of its own, as its guide says, set it to approved.");
@@ -294,6 +300,7 @@ test("the owner's notes since the pass began reach the step block, its review an
   const granted = r.ok("continue", "ds", "--more-rounds", "1", "--note", "one more round for the API section");
   expect(granted).toContain(`\nOWNER SAID: "${note}"\nOWNER SAID: "one more round for the API section"\n`);
 
+  r.reviewed("ds", "requirements-pass-2");
   r.ok("continue", "ds", "--updated", "requirements.md");
   const prototype = r.ok("continue", "ds", "--owner-approved", "--note", "approved without offline mode");
   // The send-back reopened the prototype step too, so it carries the same note; the other notes are the requirements step's.

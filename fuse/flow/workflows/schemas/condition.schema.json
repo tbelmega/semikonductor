@@ -9,7 +9,7 @@
       "type": "object",
       "properties": {
         "owner-action": {
-          "description": "The owner does what this text says, for example approve the design. Engine effect: the step waits for the owner (AWAITING_OWNER) when it is continued, until `fuse-flow continue <slug> --owner-approved`.",
+          "description": "What to ask the owner before the step starts, for example whether a prototype is wanted. Engine effect: the step block tells the agent to ask; when the owner says no, the agent skips the step with `--skip`.",
           "type": "string"
         },
         "description": {
@@ -27,7 +27,7 @@
       "type": "object",
       "properties": {
         "check": {
-          "description": "A kind of check, a single lower-case word such as `default`, which the project's policy binds to a command (checks: { default: bun run check }). Engine effect: the bound command runs from the repository root when the step is continued, and `continue` is refused unless it exits 0. An unbound kind refuses the step and tells the agent to find the command and record it; a kind bound to `none` passes.",
+          "description": "A kind of check that the project's policy binds to a command. Engine effect: the command runs when the engine reaches the step; exit 0 runs the step, and any other result skips it. A kind bound to `none` runs the step; an unbound kind holds the step until the kind is bound.",
           "type": "string"
         },
         "description": {
@@ -45,7 +45,7 @@
       "type": "object",
       "properties": {
         "script": {
-          "description": "A shell command, run from the repository root when the step is continued. Engine effect: `continue` is refused unless the command exits 0.",
+          "description": "A shell command. Engine effect: it runs from the repository root when the engine reaches the step; exit 0 runs the step, and any other result skips it.",
           "type": "string"
         },
         "description": {
@@ -63,7 +63,7 @@
       "type": "object",
       "properties": {
         "agent": {
-          "description": "What an independent agent reviews. The agent that did the work classifies each finding as a required fix (P0 or P1, unless the review guide says otherwise), optional (P2 or P3, fixed when cheap or deferred) or a false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the review guide says; fixing optional findings after that round starts no further round. Engine effect: none; the text, the review guide and the round cap are printed with the step, and the agent that did the work counts the rounds.",
+          "description": "When the step applies, as the agent judges it. Engine effect: the step block tells the agent to do the step only if this holds, and otherwise to skip it with `--skip`.",
           "type": "string"
         },
         "description": {

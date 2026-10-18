@@ -96,6 +96,13 @@ export class Repo {
     return this.ok("start", slug, "--workflow", this.write("workflow-source.yml", yaml));
   }
 
+  // A reviewer's findings file for round `round`, as a review writes it; `name`
+  // is the file name before -round-<n>.json, as the step block prints it,
+  // such as "design", "design-gate2" or "design-pass-2".
+  reviewed(slug: string, name: string, round = 1): void {
+    this.write(`.konductor/reviews/${slug}/${name}-round-${round}.json`, '{"findings": []}\n');
+  }
+
   state(slug: string): any {
     return Bun.YAML.parse(this.read(`.konductor/workstreams/${slug}.yml`));
   }

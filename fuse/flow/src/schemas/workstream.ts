@@ -131,6 +131,14 @@ export const StepStateSchema = z
             "while the workflow still names those reviews so: the same text at the same number, following the same " +
             "guides with the same content, each for the same artifact.",
         }),
+        reviews_waived: z
+          .array(z.object({ review: z.string(), reason: z.string() }).strict())
+          .optional()
+          .meta({
+            description:
+              "The reviews the owner waived in this pass, with --waived, named as in accepted_reviews, each with the " +
+              "owner's reason. A waiver holds only while the workflow names the review so.",
+          }),
         reviews_passed: z.array(z.string()).optional().meta({
           description:
             "When the agent recorded the work for the owner: the step's reviews, named as in accepted_reviews. A " +

@@ -285,6 +285,7 @@ steps:
     repo.write("guides/team.md", "# review\n");
     repo.start("m1", TWO);
     repo.write("docs/note.md");
+    repo.reviewed("m1", "write");
     repo.ok("continue", "m1");
     rmSync(join(repo.root, "guides/team.md"));
     expect(repo.ok("status", "m1")).toContain("> ship");
