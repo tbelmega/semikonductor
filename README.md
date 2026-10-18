@@ -9,7 +9,7 @@
 - Fuse-Konductor replaces Konductor's suite of specialist agent personas and orchestration rules with a workflow engine operated by your harness's default agent.
 
 Fuse-Konductor is a set of [agent skills](https://agentskills.io/home), plus a block of "always-on" instructions installed in your [AGENTS.md](https://agents.md/) (global or project-specific).
-The workflow engine, fuse-flow, ships as TypeScript code that runs on `bun` and keeps its state in local Markdown files on your machine.
+The workflow engine, fuse-flow, ships as TypeScript code that runs on `bun` and keeps each workstream's state in a local YAML file on your machine.
 Your agent runs fuse-flow for you: it tells the agent which step comes next and which guide to follow.
 
 ---

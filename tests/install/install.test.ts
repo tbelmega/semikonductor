@@ -423,6 +423,20 @@ describe("--project", () => {
     expect(snapshot(sb.project)).toEqual({});
   });
 
+  test("skill copies with Windows line endings, as a converting checkout leaves them, are updated and uninstalled", () => {
+    sb.ok("--project", sb.project);
+    const skill = join(sb.project, ".agents", "skills", "alpha", "SKILL.md");
+    sb.write(skill, sb.read(skill).replaceAll("\n", "\r\n"));
+    sb.addSkill("alpha", "new in the clone\n");
+    const output = sb.ok("--project", sb.project);
+    expect(output).not.toContain("edited in the project");
+    expect(sb.read(skill)).toBe("new in the clone\n");
+    const beta = join(sb.project, ".agents", "skills", "beta", "SKILL.md");
+    sb.write(beta, sb.read(beta).replaceAll("\n", "\r\n"));
+    expect(sb.ok("--project", sb.project, "--uninstall")).not.toContain("edited in the project");
+    expect(snapshot(sb.project)).toEqual({});
+  });
+
   test("a project path with a newline is a usage error", () => {
     const result = sb.run("--project", `${sb.project}\nchild`);
     expect(result.status).toBe(64);

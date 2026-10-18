@@ -207,19 +207,21 @@ script installs plain skills and an always-on instruction block that every suppo
   their own; the test coverage guide keeps the coverage procedure and report and drops the
   release-readiness mode, which no workflow used.
 - The `architecture-advisor` skill, now the quick-opinion mode of `trade-off-evaluator`.
-- The `adr-generator`, `program-decision-docs` and `decision-research` skills. `decision-writing`
-  now covers them as modes: research before deciding, ADRs, and program decision documents. It
-  also follows a project's existing decision-record convention when there is one. Checking the
-  factual claims of research and decision evidence moved to `doc-accuracy-analyzer`.
+- The `adr-generator`, `program-decision-docs` and `decision-research` skills. The
+  `decision-record` guide in the artifact library now covers them as sections: research before
+  deciding, ADRs, and program decision documents. It also follows a project's existing
+  decision-record convention when there is one. Checking the factual claims of research and
+  decision evidence moved to `doc-accuracy-analyzer`.
 - The `adversarial-code-review-pass-security`, `-integrity` and `-schema` skills, now the three
-  lenses of `adversarial-code-review`, which runs them in one pass or as separate single-lens
-  passes.
-- The `argumentation-reference`, `dom-inspection` and `smithy-validation` skills, now reference
-  files of the skills that used them: `adversarial-design-review/argumentation-reference.md`,
-  `app-discovery/dom-inspection.md`, and `smithy-modeling/review.md`, the review mode of
-  `smithy-modeling`.
-- The `backend-development` and `frontend-development` skills, now the implement mode of
-  `backend-review` and `frontend-review`, which share one set of standards per side.
+  lenses of `fuse/flow/workflows/konductor/k-adversarial-code-review.md`, which runs them in one
+  pass or as separate single-lens passes.
+- The `argumentation-reference`, `dom-inspection` and `smithy-validation` skills, now files next to
+  the guides in the artifact library that use them: `design/argumentation-reference.md`,
+  `discovery-report/dom-inspection.md`, and `api-model/review.md`, the review guide of the
+  `api-model` guide.
+- The `backend-development` and `frontend-development` skills. Their standards are now in
+  `k-backend-review.md` and `k-frontend-review.md` in `fuse/flow/workflows/konductor/`, one set of
+  standards per side for writing and for reviewing code.
 - The `sop-state-management`, `progress-tracking` and `requirements-extraction` skills.
   fuse-flow keeps each workstream's state, which the first served for the SOPs; nothing used the
   second; and the requirements guide in the artifact library replaces the third's design handoff

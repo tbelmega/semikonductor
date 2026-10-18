@@ -34,9 +34,34 @@ the result. Your teammates get the skills and rules with `git pull`, and you can
 rest of the project. This works for every supported harness, including Cursor.
 
 The script also writes the path of your clone to `~/.konductor/fuse-konductor-clone`, one line
-`clone=<path>` in your home directory, so the agent can find `fuse-flow` from any project. Each teammate runs
-`install.sh --project` once from their own clone to write theirs; `--uninstall` leaves the file,
-because other projects use it.
+`clone=<path>` in your home directory, so the agent can find `fuse-flow` from any project.
+`--uninstall` leaves the file, because other projects use it.
+
+Each teammate needs that file too, pointing at their own clone. The simplest way to write it, without
+touching the project, is from their clone:
+
+```bash
+mkdir -p ~/.konductor && printf 'clone=%s\n' "$PWD" > ~/.konductor/fuse-konductor-clone
+```
+
+A teammate can also run `install.sh --project` from their clone, which writes the file as well. That
+run also updates the project's skills and always-on block to the version in the teammate's clone, so
+if their clone is older or newer than the one the project was installed from, it changes committed
+files. Start it from a clean working tree: commit or stash your own changes first, so that
+`git status --short` prints nothing. After the run, `git status` and `git diff` show only the
+installer's changes. Besides `.agents` and `AGENTS.md`, these can include new skill links in
+`.claude/skills` and `.kiro/skills` when those are real folders. To discard all of them, run
+`git restore -- .` and `git clean -fd -- .agents .claude .kiro`. Both commands also discard any
+uncommitted change of yours in the project, and the second deletes any untracked file of yours
+under those three folders, which is why the tree must be clean before the run. Files that Git
+ignores are kept. So when Git ignores `.claude` or `.kiro`, the skill links the run added there are
+kept too, and `git status` does not show them. After the two commands they point at skills that no
+longer exist; remove them with
+`find .claude/skills .kiro/skills -maxdepth 1 -type l -lname '../../.agents/skills/*' ! -exec test -e {} \; -delete`,
+which deletes only such broken installer links and keeps your own skills. If the tree was not
+clean, restore one by one, with `git restore -- <file>`, only
+the files whose changes in `git diff` are not yours, and delete only the new entries in
+`git status` that are not yours.
 
 ### For yourself, in every project
 
@@ -60,8 +85,10 @@ Cursor has no user-level instruction file, so install it into a project instead.
 
 ## Custom Kiro agents
 
-A custom Kiro agent loads steering files and skills only when its `resources` field lists them.
-Add both:
+A custom Kiro agent inherits the default steering files, skills and `AGENTS.md` alongside its own
+`resources`, so it needs nothing extra. If you have turned that off by setting
+`chat.disableInheritingDefaultResources` to `true`, the agent loads steering files and skills only
+when its `resources` field lists them. Then add both:
 
 ```json
 {
@@ -76,7 +103,9 @@ For a project install, use `file://AGENTS.md` and `skill://.kiro/skills/*/SKILL.
 
 ## Other harnesses
 
-`install.sh` has presets for the five harnesses above. For another one, find out from its
+`install.sh` has no per-harness settings. A project install writes `AGENTS.md` and
+`.agents/skills/` and links the Claude Code and Kiro CLI skill folders to them; a global install
+accepts any instruction file, as in the commands above. For another harness, find out from its
 documentation which instruction files and skills folders it reads, then pick what fits:
 
 - **It reads a project's `AGENTS.md`,** as many do: a project install gives it the always-on block.
@@ -109,7 +138,7 @@ with the same name that the script did not install is reported and skipped.
 
 ## Uninstall
 
-Run the same command with `--uninstall`:
+Run the same command with `--uninstall`, and without `--link` if you installed with it:
 
 ```bash
 ./install.sh --project /path/to/your/project --uninstall

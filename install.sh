@@ -20,7 +20,7 @@
 #   someone develops the skills. Running with or without --link converts the
 #   skills this script installed earlier to the requested form.
 #
-# --uninstall reverses an install for the same arguments.
+# --uninstall reverses an install for the same arguments, without --link.
 #
 # The always-on block is AGENTS.fuse.md from this clone, with every {{CLONE}}
 # replaced: by the clone's path in a global instruction file, and by a pointer
@@ -770,14 +770,16 @@ project_paths() {
 # A checksum of every file, directory and symlink under <dir>: its path, its
 # type, whether the owner may execute it, and its content or link target. Only
 # the owner's execute bit counts, because a copy made under a umask differs
-# from its source in the group and other bits.
+# from its source in the group and other bits. Carriage returns do not count,
+# because a checkout that converts line endings rewrites every committed copy
+# with CRLF, and that is not an edit.
 skill_hash() {
   (
     cd -- "$1" && find . -print | LC_ALL=C sort |
       while IFS= read -r _f; do
         printf '%s %s\n' "$_f" "$(ls -ld -- "$_f" | cut -c 1,4)"
         if [ -d "$_f" ] && [ ! -L "$_f" ]; then continue; fi
-        if [ -L "$_f" ]; then readlink -- "$_f"; else cksum < "$_f"; fi
+        if [ -L "$_f" ]; then readlink -- "$_f"; else tr -d '\r' < "$_f" | cksum; fi
       done
   ) | cksum | cut -d ' ' -f 1
 }
@@ -1077,6 +1079,6 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 if [ "$uninstall" -eq 0 ]; then
-  say "Custom Kiro agents load skills and steering only when their resources field lists them."
+  say "Custom Kiro agents inherit skills and steering by default; with chat.disableInheritingDefaultResources set, list them in the agent's resources field (see INSTALL.md)."
 fi
 exit 0
