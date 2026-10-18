@@ -32,12 +32,12 @@
       "type": "object",
       "properties": {
         "max_rounds": {
-          "description": "The round cap of every agent gate. Engine effect: printed as the cap.",
+          "description": "The round cap of every agent gate. In the team's or the local policy it replaces the gate's max_rounds; in the user's policy it applies only to gates that set none. Engine effect: printed as the cap.",
           "type": "integer",
           "minimum": 1
         },
         "guide": {
-          "description": "A review guide for every agent gate, relative to this file or absolute. It replaces the guides of the workflow's gates and the artifacts' review guides. Engine effect: printed with the gate.",
+          "description": "A review guide for every agent gate, relative to this file or absolute. In the team's or the local policy it replaces the gates' guides and every artifact review guide; in the user's policy it applies only where neither the project's library nor the gate gives one. Engine effect: printed with the gate.",
           "type": "string",
           "minLength": 1
         },
@@ -113,7 +113,7 @@
           }
         },
         "launch": {
-          "description": "How the agent starts a reviewer: `subagent`, a fresh subagent in the agent's own harness (the default), or a command such as another harness on the terminal. A reviewer row's own launch wins. Engine effect: printed with the gate.",
+          "description": "How the agent starts a reviewer: `subagent`, a fresh subagent in the agent's own harness, or a command such as another harness on the terminal. A reviewer row's own launch wins. When no policy file sets it, the agent starts the reviewer the way the house rules ask, else as a subagent. Engine effect: printed with the gate.",
           "examples": [
             "subagent",
             {

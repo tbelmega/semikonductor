@@ -6,8 +6,9 @@
 // policy, the workflow, the team's policy, the user's local policy for the
 // project.
 
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
 import { own } from "./own.ts";
@@ -43,6 +44,31 @@ function readLayer(file: string): Layer | undefined {
     throw new FlowError(`${file} is not a valid policy file:\n${issues.join("\n")}`);
   }
   return { file, policy: parsed.data };
+}
+
+// The local policy file is the user's own for this checkout, so the fuse-flow
+// command line keeps it out of git, as it does the workstream state and the
+// reviews: with a line in .konductor/.gitignore, unless git already ignores
+// it. Nothing to do while the file does not exist.
+export function ignoreLocalPolicy(root: string): void {
+  const file = policyFiles(root).local;
+  if (!existsSync(file)) return;
+  const name = basename(file);
+  // Git's own answer is the authority where there is one: when it says the
+  // file is not ignored, a line of ours goes last, and git then says it is.
+  // --no-index, so the answer is the rules' also for a file git tracks.
+  const ignored = spawnSync("git", ["-C", root, "check-ignore", "-q", "--no-index", "--", relative(root, file)]);
+  if (ignored.status === 0) return;
+  const gitignore = join(dirname(file), ".gitignore");
+  const text = existsSync(gitignore) ? readFileSync(gitignore, "utf8") : "";
+  // Without an answer from git, as outside a repository, our own line is
+  // taken as enough, so it is not added twice.
+  if (ignored.status !== 1 && text.split(/\r?\n/).includes(`/${name}`)) return;
+  try {
+    writeFileSync(gitignore, `${text}${text && !text.endsWith("\n") ? "\n" : ""}/${name}\n`);
+  } catch (e) {
+    process.stderr.write(`fuse-flow: could not add ${name} to ${gitignore}: ${(e as Error).message}\n`);
+  }
 }
 
 export function loadProject(root: string): Project {

@@ -50,12 +50,15 @@ export const PolicySchema = z
     review: z
       .object({
         max_rounds: z.number().int().min(1).optional().meta({
-          description: "The round cap of every agent gate. Engine effect: printed as the cap.",
+          description:
+            "The round cap of every agent gate. In the team's or the local policy it replaces the gate's " +
+            "max_rounds; in the user's policy it applies only to gates that set none. Engine effect: printed as the cap.",
         }),
         guide: z.string().min(1).optional().meta({
           description:
-            "A review guide for every agent gate, relative to this file or absolute. It replaces the guides of " +
-            "the workflow's gates and the artifacts' review guides. Engine effect: printed with the gate.",
+            "A review guide for every agent gate, relative to this file or absolute. In the team's or the local " +
+            "policy it replaces the gates' guides and every artifact review guide; in the user's policy it applies " +
+            "only where neither the project's library nor the gate gives one. Engine effect: printed with the gate.",
         }),
         reviewer: z.string().min(1).optional().meta({
           description: "Who reviews, in words, such as a model or a harness. Engine effect: printed with the gate.",
@@ -77,9 +80,10 @@ export const PolicySchema = z
           }),
         launch: LaunchSchema.optional().meta({
           description:
-            "How the agent starts a reviewer: `subagent`, a fresh subagent in the agent's own harness (the " +
-            "default), or a command such as another harness on the terminal. A reviewer row's own launch wins. " +
-            "Engine effect: printed with the gate.",
+            "How the agent starts a reviewer: `subagent`, a fresh subagent in the agent's own harness, or a " +
+            "command such as another harness on the terminal. A reviewer row's own launch wins. When no policy " +
+            "file sets it, the agent starts the reviewer the way the house rules ask, else as a subagent. Engine " +
+            "effect: printed with the gate.",
           examples: [
             "subagent",
             { command: "opencode run -m amazon-bedrock/us.openai.{model} --agent review-readonly \"$(cat {prompt_file})\"" },

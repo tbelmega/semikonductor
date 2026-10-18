@@ -3,6 +3,8 @@
 // do the owner's rulings where fuse-flow and the house rules overlap.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { Repo } from "./helpers";
 
 const FLOW = `version: 1
@@ -111,4 +113,55 @@ test("on a step with a review, the lines for stopping early ask for the rounds u
   expect(repo.start("feat", FLOW)).toContain(
     "  VERIFICATION: <the check results so far, the review rounds used of the cap, and any required fix still open; or none>\n",
   );
+});
+
+test("the local policy file is kept out of git, as the workstreams and reviews are", () => {
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  expect(repo.read(".konductor/.gitignore")).toBe("/policy-overrides.local.yml\n");
+  // A .gitignore the project keeps there gains the line once, and keeps its own lines.
+  repo.write(".konductor/.gitignore", "/scratch/\n");
+  repo.ok("status", "feat");
+  repo.ok("status", "feat");
+  expect(repo.read(".konductor/.gitignore")).toBe("/scratch/\n/policy-overrides.local.yml\n");
+});
+
+test("the local policy file is kept out of git when a later line of .konductor/.gitignore negates the rule", () => {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, ...args], { env: repo.env });
+  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
+  expect(git("init", "-q").exitCode).toBe(0);
+  repo.write(".konductor/.gitignore", "/policy-overrides.local.yml\n!*.yml\n");
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
+  const once = repo.read(".konductor/.gitignore");
+  repo.ok("status", "feat");
+  expect(repo.read(".konductor/.gitignore")).toBe(once);
+});
+
+test("the local policy file is kept out of git when the last rule of .konductor/.gitignore only looks like ours", () => {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, ...args], { env: repo.env });
+  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
+  expect(git("init", "-q").exitCode).toBe(0);
+  // Git keeps leading spaces as part of the pattern, so this rule matches nothing.
+  repo.write(".konductor/.gitignore", "  /policy-overrides.local.yml\n");
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
+  const once = repo.read(".konductor/.gitignore");
+  repo.ok("status", "feat");
+  expect(repo.read(".konductor/.gitignore")).toBe(once);
+});
+
+test("the local policy file is kept out of git when the last rule of .konductor/.gitignore ends in a tab, which git keeps", () => {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, ...args], { env: repo.env });
+  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
+  expect(git("init", "-q").exitCode).toBe(0);
+  repo.write(".konductor/.gitignore", "/policy-overrides.local.yml\t\n");
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
+  const once = repo.read(".konductor/.gitignore");
+  repo.ok("status", "feat");
+  expect(repo.read(".konductor/.gitignore")).toBe(once);
 });

@@ -7,6 +7,7 @@ import { isAbsolute, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import * as commands from "./commands.ts";
 import { FlowError, UsageError } from "./errors.ts";
+import { ignoreLocalPolicy } from "./policy.ts";
 import { checkSlug, findRepoRoot, isDirectory, isWorkflowPath } from "./project.ts";
 
 // The most review rounds one --more-rounds grants, so that the rounds a step
@@ -166,12 +167,15 @@ function run(argv: string[]): string[] {
   if (command === "validate") return validate(args);
   if (command === "list") {
     if (args.length) throw new UsageError("list takes no arguments");
-    return commands.list(findRepoRoot(process.cwd()));
+    const root = findRepoRoot(process.cwd());
+    ignoreLocalPolicy(root);
+    return commands.list(root);
   }
   if (!command || !Object.hasOwn(OPTIONS, command)) throw new UsageError(command ? `unknown command "${command}"` : "no command");
 
   const { slug, values } = parse(command as Command, args);
   const root = findRepoRoot(process.cwd());
+  ignoreLocalPolicy(root);
   switch (command as Command) {
     case "start": {
       // A path is made absolute here, so the workstream still finds it when
@@ -262,6 +266,7 @@ function validate(args: string[]): string[] {
   }
   if (refs.length === 0) throw new UsageError("validate takes workflow names, files or directories, for example: validate .konductor/workflows");
   const root = findRepoRoot(process.cwd());
+  ignoreLocalPolicy(root);
   return commands.validate(root, refs.map((ref) => (isWorkflowPath(ref) || isDirectory(ref) ? resolve(ref) : ref)));
 }
 
