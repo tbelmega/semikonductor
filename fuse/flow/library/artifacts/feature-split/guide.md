@@ -26,7 +26,7 @@ Each feature should:
 
 - **Slug**: [unique kebab-case slug]
 - **Scope**: [What this feature covers]
-- **User Stories**: [US-1, US-3, US-7]
+- **User Stories**: [US-1.1, US-1.3, US-2.1]
 - **Key Components**: [API endpoints, data models, services involved]
 - **Dependencies**: [External dependencies or shared interfaces]
 - **Engineer**: [Assigned or TBD]

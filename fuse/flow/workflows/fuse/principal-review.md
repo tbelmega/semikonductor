@@ -34,3 +34,8 @@ loop did not settle: the findings rejected as false positives and why, the defer
 findings, and any decision the reviewer questioned that only the owner can make, such as a
 trade-off between cost and resilience. Put these first in the hand-over, most important first,
 so the owner can see in a minute what a principal engineer is likely to ask.
+
+When the step that runs this review has no owner gate of its own, as the system design step does,
+its hand-over is the one at the next owner gate, where the owner approves the design. Record each
+of these items in the workstream's decisions file when its round settles it, so none is lost
+before that gate, and put them first in that hand-over.

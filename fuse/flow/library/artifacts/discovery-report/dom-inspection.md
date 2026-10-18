@@ -27,29 +27,37 @@ For each form on the page, extract HTML5 validation attributes without triggerin
 
 ```javascript
 // Run in browser context via Playwright evaluate()
+// Each selector is a full CSS selector that matches the element, not a bare attribute value.
+const attributeSelector = (el, names) => {
+  for (const name of names) {
+    const value = el.getAttribute(name);
+    if (!value) continue;
+    if (name === 'id') return `#${CSS.escape(value)}`;
+    return `${el.tagName.toLowerCase()}[${name}="${CSS.escape(value)}"]`;
+  }
+  return null;
+};
+const pathSelector = (start) => {
+  const parts = [];
+  let el = start;
+  while (el && el !== document.body) {
+    const parent = el.parentElement;
+    if (!parent) break;
+    const siblings = Array.from(parent.children).filter((c) => c.tagName === el.tagName);
+    const idx = siblings.indexOf(el) + 1;
+    parts.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${idx})`);
+    if (el.id) {
+      parts[0] = `#${CSS.escape(el.id)}`;
+      break;
+    }
+    el = parent;
+  }
+  return parts.join(' > ');
+};
 return Array.from(document.querySelectorAll('form')).map((form, index) => ({
-  form_selector:
-    form.getAttribute('data-testid') ||
-    form.id ||
-    (() => {
-      const parts = [];
-      let el = form;
-      while (el && el !== document.body) {
-        const parent = el.parentElement;
-        if (!parent) break;
-        const siblings = Array.from(parent.children).filter((c) => c.tagName === el.tagName);
-        const idx = siblings.indexOf(el) + 1;
-        parts.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${idx})`);
-        if (el.id) {
-          parts[0] = `#${CSS.escape(el.id)}`;
-          break;
-        }
-        el = parent;
-      }
-      return parts.join(' > ');
-    })(),
+  form_selector: attributeSelector(form, ['data-testid', 'id']) || pathSelector(form),
   fields: Array.from(form.querySelectorAll('input:not([type="hidden"]), select, textarea')).map((el) => ({
-    selector: el.getAttribute('data-testid') || el.name || el.id,
+    selector: attributeSelector(el, ['data-testid', 'name', 'id']) || pathSelector(el),
     // Normalize type: el.type returns 'select-one'/'select-multiple' for <select>, use tagName instead
     type: el.tagName === 'SELECT' ? 'select' : el.tagName === 'TEXTAREA' ? 'textarea' : el.type,
     label: (() => {

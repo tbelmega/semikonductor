@@ -4,15 +4,16 @@
 # A change through the project's pull request or code review process, the way the project runs it:
 # open the request, answer the reviewers' feedback with fixes that an independent agent review
 # checks first, and finish once the change is merged. It is its own workstream, so a project with
-# no such process never runs it: fuse-feature-development offers a pull request at its last gate
-# only where it finds evidence of one, and hands off here only when the owner approves the work
-# for it. It can also be started on its own, for a change or pull request that already exists.
+# no such process never runs it: fuse-feature-development and fuse-dependency-migration offer a
+# pull request at their last gate only where they find evidence of one, and hand off here only
+# when the owner approves the work for it. It can also be started on its own, for a change or pull request that already exists.
 # The change may be on a feature branch, on a fixed branch per worktree, or committed directly on
 # the integration branch; the house rules decide how it reaches review.
 # review.md next to this file is the review guide for its agent gate.
 #
 # Start a workstream with:  fuse-flow start <slug> --workflow fuse-pull-request
-# or after a feature:       fuse-flow start <slug> --workflow fuse-pull-request --after <feature slug>
+# or after a feature or a migration:
+#   fuse-flow start <slug> --workflow fuse-pull-request --after <feature or migration slug>
 version: 1
 name: fuse-pull-request
 description: >
@@ -22,6 +23,12 @@ description: >
 inputs:
   - artifact: feature-spec
     description: The approved spec of the feature, when the change comes from fuse-feature-development.
+  - artifact: migration-spec
+    description: The approved migration spec, when the change comes from fuse-dependency-migration.
+  - artifact: check-catalogue
+    description: The migration's check catalogue, with the baseline and the final results, when the change comes from fuse-dependency-migration.
+  - artifact: migration-report
+    description: The migration report the owner approved, when the change comes from fuse-dependency-migration.
 steps:
   - id: open
     title: Open the pull request
@@ -39,9 +46,10 @@ steps:
       for this change already exists, use it; otherwise open one that way. Write a
       description that a reviewer without this session's context can follow: what the change
       does and why, how it was verified, and which agent reviews it passed, with the reviewers'
-      models where you know them. Do not merge it yourself unless the house rules say the author
+      models where you know them. For a migration, take what changed, the checks before and
+      after, and the behavior changes accepted on purpose from its report and catalogue. Do not merge it yourself unless the house rules say the author
       merges.
-    consumes: [feature-spec]
+    consumes: [feature-spec, migration-spec, check-catalogue, migration-report]
     gates:
       - check: default
 
@@ -57,17 +65,20 @@ steps:
       out of scope. Find the root cause of each confirmed finding and look for other instances of
       it in the change. Start the fix of each confirmed defect with a test that reproduces it and
       fails; how you show that other fixes hold, such as naming or style, is your call. Commit
-      the fixes the way the house rules ask, and publish them to the request the way the process
-      found in the first step does, such as a new revision of a code review or a push to the
-      request's branch; push only when that process needs it. Reply to each comment with what you
-      did. Do not resolve a reviewer's thread unless the house rules say the author does.
-    consumes: [feature-spec]
+      the fixes the way the house rules ask, but keep them local until this step's check and its
+      agent review have passed. Then publish them to the request the way the process found in the
+      first step does, such as a new revision of a code review or a push to the request's branch;
+      push only when that process needs it. Reply to each comment with what you did. Do not
+      resolve a reviewer's thread unless the house rules say the author does. For a migration, a
+      fix keeps every must-pass check of the catalogue passing unchanged, and a fix that changes
+      behavior the spec does not accept goes to the owner first.
+    consumes: [feature-spec, migration-spec, check-catalogue, migration-report]
     updates:
       - artifact: code
         path: .
     gates:
       - check: default
-      - agent: review the changes made for the feedback, against the feedback and the approved spec when there is one
+      - agent: review the changes made for the feedback, against the feedback and the approved spec when there is one, and for a migration against its catalogue's must-pass checks
         guide: review.md
         max_rounds: 2
 
@@ -82,5 +93,5 @@ steps:
       end your turn. If the house rules say the author merges, merge it once the reviewers
       approve it and the owner agrees.
     gates:
-      - owner-action: confirm the pull request is merged, or send it back to answer new feedback
+      - owner-action: confirm the pull request is merged
         route_back_to: feedback

@@ -23,7 +23,7 @@ The index is a short Markdown file with one row per feature:
 
 | Feature | Spec directory | Stories covered | Status |
 |---|---|---|---|
-| `checkout-form` | `.kiro/specs/checkout-form/` | S1, S2 | complete |
+| `checkout-form` | `.kiro/specs/checkout-form/` | US-1.1, US-1.2 | complete |
 
 Before you report the step done, check each row:
 

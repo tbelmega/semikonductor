@@ -15,12 +15,16 @@
 # for the one agent gate.
 #
 # Start a workstream with:  fuse-flow start <slug> --workflow fuse-rapid-prototyping
+# and, when the owner has written the idea down:  --input idea=<path>
 version: 1
 name: fuse-rapid-prototyping
 description: >
   A new product idea explored as a runnable prototype: a short interview on the owner's intent,
   then many small build-and-feedback iterations with no code review loop, ending in a product
   brief of what to build, ranked by the feedback, that fuse-system-development can take up.
+inputs:
+  - artifact: idea
+    description: A description of the idea the owner hands over, such as a pitch, a note or a ticket.
 hands_off_to:
   - workflow: fuse-system-development
     when: for most products, as the product brief recommends
@@ -33,7 +37,8 @@ steps:
     instruction: >
       Find out what the owner wants to explore, in three short phases. Understand: who it is for,
       what problem it solves, and what would make the owner say the idea is worth building. Read
-      what already exists before you ask anything, and ask one or a few questions at a time.
+      what already exists before you ask anything, starting with the owner's description of the
+      idea when they handed one over, and ask one or a few questions at a time.
       Diverge: propose two to four distinctly different directions the product could take, with
       the one you would try first. Converge: agree with the owner on the first slice, the
       smallest runnable thing that lets them try the idea's core and react to it. Keep the whole
@@ -50,6 +55,7 @@ steps:
       documents stay private there or go to a place that is committed.
       Agree with the owner where the prototype will run, locally by default. Do not write
       prototype code yet.
+    consumes: [idea]
     produces:
       - artifact: product-brief
         path: docs/specs/{date}-{slug}/product-brief.md
@@ -75,7 +81,8 @@ steps:
       security, scalability, observability, data retention or accessibility, in the brief rather
       than solving them. Three rules hold even here: use no real customer or personal data, keep
       secrets out of the code, and do not make the prototype reachable outside the owner's
-      machine until the owner has decided who may reach it and how access is restricted. Suggest
+      machine until the owner has decided who may reach it and how access is restricted. A tunnel
+      that only the owner uses, such as SSH to a development host, counts as the owner's machine. Suggest
       ending the exploration when the feedback has stopped changing what to build, when the next
       idea needs real users, real data or real scale, or when the prototype has become hard to
       change; the owner decides when it ends. The step's check gate runs the project's default
@@ -94,7 +101,7 @@ steps:
     gates:
       - check: default
         description: the prototype still builds and starts
-      - owner-action: end the exploration, or keep iterating
+      - owner-action: end the exploration
         route_back_to: [iterate, intake]
 
   - id: brief
@@ -111,7 +118,8 @@ steps:
       small enough to harden in place, or stopping. Say whether the prototype code should be kept
       as a reference only, which is the default, or become the base of the system, and why. When
       nothing material is open, order the brief for review: the decisions the owner must make or
-      check come first.
+      check come first. Commit the brief and the iteration log the way the house rules ask,
+      unless this workstream's documents are kept private.
     consumes: [prototype, iteration-log]
     updates:
       - artifact: product-brief

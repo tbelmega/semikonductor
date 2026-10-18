@@ -110,7 +110,7 @@ Then the system saves the configuration and returns a confirmation
 **EARS:**
 
 ```
-WHILE the user is authenticated, WHEN a monitoring configuration is submitted, THE system SHALL save the configuration and return a confirmation with the configuration ID
+WHILE the user is authenticated, WHEN a monitoring configuration is submitted, THE system SHALL save the configuration and return a confirmation
 ```
 
 **Input:**
@@ -123,7 +123,7 @@ Then the system returns a 429 status with a Retry-After header
 **EARS:**
 
 ```
-IF the API rate limit is exceeded, THEN THE system SHALL return a 429 status code with a Retry-After header indicating the reset time in seconds
+IF the API rate limit is exceeded, THEN THE system SHALL return a 429 status code with a Retry-After header
 ```
 
 Choose the pattern from the clauses present:
@@ -135,8 +135,10 @@ Choose the pattern from the clauses present:
   (`WHILE ..., THE system SHALL ...`).
 - **Given**, **When** and **Then**: Complex (`WHILE ..., WHEN ..., THE system SHALL ...`).
 
-Always make the response more specific than the original Then: add concrete values, status codes,
-timeouts and identifiers.
+Keep the response as specific as the source criterion and the other inputs make it: carry over
+the concrete values, status codes, timeouts and identifiers they state, and add none they do not.
+Where a criterion is too vague to test, such as a missing timeout, ask the owner or record the
+missing value as an open question; do not invent one during the conversion.
 
 ## Document structure
 

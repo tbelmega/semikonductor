@@ -355,6 +355,19 @@ operation GetForecast {
 }
 ```
 
+**Security**: User.email field
+Issue: Email field not marked as sensitive
+Impact: Personal data can appear in logs and traces of generated code
+Fix: Mark personal data with the @sensitive trait
+Example:
+
+```smithy
+structure User {
+    @sensitive
+    email: String
+}
+```
+
 ### Warnings
 
 **Documentation**: ListLocations operation
@@ -369,18 +382,6 @@ Returns up to 100 locations per request. Use nextToken for additional pages.
 """)
 @paginated(inputToken: "nextToken", outputToken: "nextToken", pageSize: "maxResults")
 operation ListLocations { ... }
-```
-
-**Security**: User.email field
-Issue: Email field not marked as sensitive
-Recommendation: Mark PII with @sensitive trait
-Example:
-
-```smithy
-structure User {
-    @sensitive
-    email: String
-}
 ```
 
 ### Suggestions

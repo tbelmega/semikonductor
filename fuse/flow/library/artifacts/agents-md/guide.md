@@ -14,7 +14,7 @@ Loading differs by runtime:
 
 |             | Kiro CLI custom agents                                                                   | Claude Code custom agents                            |
 | ----------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `AGENTS.md` | Not read automatically. It must be in the agent's `clientConfig.kiroCli.resources` as `file://AGENTS.md`. | Not read automatically. Claude Code reads only `CLAUDE.md`. |
+| `AGENTS.md` | Inherited by default, with the steering files and skills, alongside the agent's own `resources`. When the `chat.disableInheritingDefaultResources` setting is true, it must be in `resources` as `file://AGENTS.md`. | Not read automatically. Claude Code reads only `CLAUDE.md`. |
 | `CLAUDE.md` | Not read automatically.                                                                  | Read at session start, at every hierarchy level.     |
 
 So when Kiro loads `AGENTS.md`, import directives (`@path` or `#[[file:]]`) in it are not
@@ -23,7 +23,12 @@ as the context-loading block below does, not imports.
 
 Two things bootstrap the loading:
 
-1. **Kiro:** the agent spec lists `"file://AGENTS.md"` in `clientConfig.kiroCli.resources`.
+1. **Kiro:** custom agents inherit `AGENTS.md` by default, as Kiro's
+   [agent configuration reference](https://kiro.dev/docs/custom-agents/configuration-reference/#disabling-default-resource-inheritance)
+   says. A custom agent's configuration needs `"file://AGENTS.md"` in its `resources` only where
+   that inheritance is turned off with the `chat.disableInheritingDefaultResources` setting,
+   globally or for the workspace, or where the project supports an older Kiro runtime that does
+   not inherit it.
 2. **Claude Code:** the repository has a `CLAUDE.md` containing the import `@AGENTS.md`, so Claude
    Code loads the content of `AGENTS.md`. Further imports can be chained there if needed, such as
    `@.konductor/memory/MEMORY.md`.
@@ -59,7 +64,6 @@ Before starting work, load available project context:
 
 - You MUST read `.kiro/steering/**/*.md` if present — workspace steering rules.
 - You MUST read `<workspace>/memory/*.md` if present — persistent facts and preferences.
-- Workspace-specific skills may exist at `.kiro/skills/**/ws-*.md` — be aware and load when relevant.
 
 If a path does not exist, skip it silently and continue.
 ```
@@ -86,6 +90,9 @@ Replace `<workspace>` with the project's workspace directory, such as `.konducto
    and the `CLAUDE.md` you would create, and write nothing until they confirm.
 4. Write `AGENTS.md`. Make sure a `CLAUDE.md` with `@AGENTS.md` exists, and create it if it is
    missing.
-5. Check that the relevant agent specs list `file://AGENTS.md` in
-   `clientConfig.kiroCli.resources`.
+5. If the project has Kiro custom agents, check whether default resource inheritance is turned
+   off for it (the `chat.disableInheritingDefaultResources` setting, global or for the workspace)
+   or whether it supports an older Kiro runtime that does not inherit `AGENTS.md`. Only then check
+   that each custom agent lists `file://AGENTS.md` in its `resources`; otherwise leave the agent
+   configurations as they are.
 6. In the hand-over, list what you inferred and what you changed, so the owner can review it.

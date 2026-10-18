@@ -17,10 +17,17 @@ Every user story is:
 
 ## Structure
 
-- **Epic:** a title of five to ten words; a description of two to four sentences stating the
-  business objective; three to five key objectives; the list of its stories.
-- **User story:** a title of three to eight words; the description "As a [persona], I want [goal]
-  so that [benefit]"; three to eight testable acceptance criteria as a bulleted list.
+- **Epic:** an identifier `E-<n>`, numbered from 1; a title of five to ten words; a description
+  of two to four sentences stating the business objective; three to five key objectives; the list
+  of its stories.
+- **User story:** an identifier `US-<epic>.<n>`, such as `US-1.2` for the second story of epic 1;
+  a title of three to eight words; the description "As a [persona], I want [goal] so that
+  [benefit]"; three to eight testable acceptance criteria as a bulleted list, each with an
+  identifier `AC-<epic>.<story>.<n>`, such as `AC-1.2.3`.
+
+Later artifacts, such as the feature split, the spec index and the test coverage report, trace
+stories and criteria by these identifiers. Keep an identifier once it is given: when a story is
+dropped, leave its number unused instead of renumbering the others.
 
 ## Scope
 
@@ -62,7 +69,7 @@ should be handled. Never hand over stories as if they covered input you did not 
 
 ## Examples
 
-**Epic: Media Asset Filtering System**
+**Epic E-1: Media Asset Filtering System**
 
 Implement a filtering system for the ContentHub Media Assets tab, so users can search and organize
 assets by several criteria and keep their preferred filter settings.
@@ -70,23 +77,23 @@ assets by several criteria and keep their preferred filter settings.
 Key objectives: streamline asset discovery; target assets precisely through filter combinations;
 support collaborative workflows through shared filters; keep user preferences across sessions.
 
-- **Locale-based Asset Filtering.** As a content manager, I want to filter assets by locale so that
-  I can focus on specific language versions of content.
-  - A locale filter dropdown is available in the ContentHub Media Assets tab.
-  - All available locales are listed in the dropdown.
-  - The selected locale shows only matching assets.
-  - Several locales can be selected at once.
-  - The filter state is kept when navigating away and back.
-  - A clear-filter option is available.
-- **QA Status Filtering.** As a quality assurance specialist, I want to filter assets by QA status
-  so that I can manage my review workflow efficiently.
-  - The QA status filter offers Not Reviewed, QA Approved and QA Rejected.
-  - The selected status shows only matching assets.
-  - Several statuses can be selected at once; assets with any matching status are shown.
-  - The filter state is kept when navigating away and back.
-  - A clear-filter option is available.
+- **US-1.1 Locale-based Asset Filtering.** As a content manager, I want to filter assets by locale
+  so that I can focus on specific language versions of content.
+  - AC-1.1.1: A locale filter dropdown is available in the ContentHub Media Assets tab.
+  - AC-1.1.2: All available locales are listed in the dropdown.
+  - AC-1.1.3: The selected locale shows only matching assets.
+  - AC-1.1.4: Several locales can be selected at once.
+  - AC-1.1.5: The filter state is kept when navigating away and back.
+  - AC-1.1.6: A clear-filter option is available.
+- **US-1.2 QA Status Filtering.** As a quality assurance specialist, I want to filter assets by QA
+  status so that I can manage my review workflow efficiently.
+  - AC-1.2.1: The QA status filter offers Not Reviewed, QA Approved and QA Rejected.
+  - AC-1.2.2: The selected status shows only matching assets.
+  - AC-1.2.3: Several statuses can be selected at once; assets with any matching status are shown.
+  - AC-1.2.4: The filter state is kept when navigating away and back.
+  - AC-1.2.5: A clear-filter option is available.
 
-**Epic: Media Asset Review Workflow**
+**Epic E-2: Media Asset Review Workflow**
 
 A review system for QA of one or many media assets in ContentHub: an interface for reviewing assets,
 managing QA status and keeping notes.
@@ -94,18 +101,18 @@ managing QA status and keeping notes.
 Key objectives: streamline QA review; keep status management consistent; capture detailed
 feedback; handle special asset types; enable efficient bulk reviews.
 
-- **Asset Slideshow Review Interface.** As a content reviewer, I want a slideshow-style interface to
-  review several assets in sequence so that I can complete reviews faster.
-  - A modal displays one asset at a time, centered and properly scaled, with its metadata.
-  - The current position in the queue is shown, for example "3 of 10".
-  - Navigation controls move forward and backward in the queue.
-  - Loading states are handled gracefully.
-- **QA Status Management.** As a quality analyst, I want to set and update the QA status of assets
-  during review so that I can track progress and communicate approval decisions.
-  - The status options Not Reviewed, QA Approved and QA Rejected are available.
-  - The current status is clearly shown.
-  - A status change is saved immediately and shown in the main asset list.
-  - A status change is confirmed.
+- **US-2.1 Asset Slideshow Review Interface.** As a content reviewer, I want a slideshow-style
+  interface to review several assets in sequence so that I can complete reviews faster.
+  - AC-2.1.1: A modal displays one asset at a time, centered and properly scaled, with its metadata.
+  - AC-2.1.2: The current position in the queue is shown, for example "3 of 10".
+  - AC-2.1.3: Navigation controls move forward and backward in the queue.
+  - AC-2.1.4: Loading states are handled gracefully.
+- **US-2.2 QA Status Management.** As a quality analyst, I want to set and update the QA status of
+  assets during review so that I can track progress and communicate approval decisions.
+  - AC-2.2.1: The status options Not Reviewed, QA Approved and QA Rejected are available.
+  - AC-2.2.2: The current status is clearly shown.
+  - AC-2.2.3: A status change is saved immediately and shown in the main asset list.
+  - AC-2.2.4: A status change is confirmed.
 
 ## Self-check
 

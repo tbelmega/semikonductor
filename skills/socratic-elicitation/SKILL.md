@@ -24,8 +24,6 @@ Both modes draw on the same underlying discipline: [Socratic questioning](https:
 **Triggers:**
 
 - User says "ask me questions first", "what am I missing?", "help me think this through before we start"
-- Pre-planning analysis detects Collaborative intent at Medium or Low confidence
-- Pre-planning analysis detects Architecture intent at Low confidence
 - Anti-pattern detected: Assumption Cascade or Scope Creep
 - The elicitation step of the `k-design-doc-creation-sop` workflow
 
@@ -154,21 +152,29 @@ When Mode A concludes (max questions reached, early exit, or user satisfied), pr
 ```markdown
 ## Requirements Confirmed
 
-### Functional Requirements
+### Goals
 
-- [Extracted from answers]
+- [What the work must achieve, functional and non-functional, extracted from answers]
+
+### Prohibited Behavior
+
+- [What it must never do]
+
+### Deferred Behavior
+
+- [What is planned for later and must stay possible, but is not built now]
+
+### Out of Scope
+
+- [What this work does not decide at all]
 
 ### Constraints
 
-- [Extracted from answers]
+- [Choices fixed before the work starts, each with where it comes from]
 
-### Non-Functional Requirements
+### Open Decisions
 
-- [Extracted from answers]
-
-### Open Items (unresolved)
-
-- [Anything not answered: flag for user attention]
+- [Anything not answered, each with your recommendation: flag for user attention]
 ```
 
 ### Mode B Output: Challenge Summary

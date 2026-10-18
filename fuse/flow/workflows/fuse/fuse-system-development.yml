@@ -9,7 +9,9 @@
 # with the approved requirements, design and build order on the integration branch, unless the
 # house rules keep such documents private. Each entry of the build order, or a few of them
 # combined, is then built as its own fuse-feature-development workstream, by the owner or by
-# teammates in parallel where the order allows. Each feature is
+# teammates in parallel where the order allows. A teammate in another checkout starts from the
+# landed or handed-over documents, bound as the feature workstream's inputs by path, because this
+# workstream's record stays in the checkout that ran it. Each feature is
 # tested and reviewed as it is integrated with what has landed so far, so there is no separate
 # build or final test phase here. The steps say what to achieve and leave the how to the agent and
 # its harness. Step and artifact names follow _k-phase-chain and _k-full-sdlc where they fit;
@@ -96,7 +98,7 @@ steps:
       - artifact: research-note
         path: docs/research/
     gates:
-      - owner-action: approve the prototype findings, or send the work back to the requirements
+      - owner-action: approve the prototype findings
         route_back_to: requirements
 
   - id: system-design
@@ -104,8 +106,10 @@ steps:
     phase: Design
     mode: unattended
     instruction: >
-      Design how the system meets the approved requirements: its parts and the interfaces
-      between them, the data it keeps, how it fails, and the acceptance tests that will show it
+      If the approved requirements are still in their working-draft form, first make them durable,
+      as the requirements guide (library/artifacts/requirements/guide.md in fuse-flow) says. Then
+      design how the system meets the approved requirements: its parts and the interfaces between
+      them, the data it keeps, how it fails, and the acceptance tests that will show it
       meets each requirement. Choose the simplest design that meets them. For each significant
       decision, show that you looked beyond your first idea: name the plausible alternatives,
       including ones found by researching how others solve the problem, weigh them against the
@@ -113,12 +117,14 @@ steps:
       on and how each was checked, citing the research notes from the prototypes where there are
       any; when an assumption needs an experiment nobody has run, propose it to the owner rather
       than guess. Check every claim about existing code or services against the source. Leave
-      the build order to the feature split: the design has no implementation plan or task list,
-      even though the design guide asks for one.
+      the build order to the feature split: the design has no implementation plan or task list.
     consumes: [requirements, research-note]
     produces:
       - artifact: design
         path: docs/specs/{date}-{slug}/design.md
+    updates:
+      - artifact: requirements
+        path: docs/specs/{date}-{slug}/requirements.md
     gates:
       - agent: review the design against the approved requirements
         guide: review.md
@@ -142,9 +148,13 @@ steps:
       own fuse-feature-development workstream, with its own spec, review and landing, so the split
       is a proposal, not a rule: tell the owner that features too small to be worth that
       ceremony can be combined, now in the build order or later when a feature workstream starts,
-      and point out the ones you would combine. Unless this workstream's documents are kept
-      private, commit the requirements, the design and the build order, and do not merge them into
-      the integration branch or push them to a shared branch; the owner lands them.
+      and point out the ones you would combine. Tell the owner as well that a teammate who builds a
+      feature in another checkout starts it there once these documents have landed, or have been
+      handed over where they are kept private, with the build order, the requirements and the design
+      given as the feature workstream's inputs, because this workstream's record stays in this
+      checkout. Unless this workstream's documents are kept private, commit the requirements, the
+      design and the build order, and do not merge them into the integration branch or push them to
+      a shared branch; the owner lands them.
     consumes: [requirements, design]
     produces:
       - artifact: build-order

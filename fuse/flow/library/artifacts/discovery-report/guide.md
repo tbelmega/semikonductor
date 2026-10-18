@@ -41,8 +41,12 @@ every file you write, as the file's contents do. Choose the flow that matches th
 sign-in behavior.
 
 **Flow A: redirect-based sign-in** (for example Cognito Hosted UI, OAuth or single sign-on, a SAML
-identity provider). After signing in, call `waitForURL('**', { waitUntil: 'networkidle' })` so the
-redirect completes.
+identity provider). After signing in, wait for a signal that only the authenticated application
+shows, so the redirect has settled before you inspect anything: a URL pattern that matches only the
+post-login destination (`page.waitForURL(/\/dashboard/)`), or a selector of an authenticated page
+becoming visible. Do not wait on `waitForURL('**')` or `waitUntil: 'networkidle'`: the wildcard
+matches the page before the redirect, and network idle is unreliable. Note in the report which
+signal you used, so test generation can use the same one.
 
 **Flow B: in-page sign-in** (a single-page application that authenticates without navigating). Do
 NOT use `waitForURL`: it hangs waiting for a redirect that never happens. Wait for a positive
@@ -61,7 +65,8 @@ In both flows, reuse the session for every later page; do NOT sign in again on e
 
 On the first page past any login or single sign-on page, inspect the DOM:
 
-- `awsui-` prefixed elements: `ui_framework=cloudscape`.
+- Elements whose class contains `awsui` (`[class*="awsui"]`), which is how Cloudscape renders its
+  components on native elements, or `awsui-` prefixed elements: `ui_framework=cloudscape`.
 - `MuiButton`, `MuiTextField`: `ui_framework=material-ui`.
 - Otherwise: `ui_framework=plain-html`.
 

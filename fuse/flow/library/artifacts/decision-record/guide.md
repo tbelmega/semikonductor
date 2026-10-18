@@ -360,9 +360,9 @@ other systems, and consider the operational impact: monitoring, on-call and depl
   from the design document where the decision first comes up.
 - **Without one (the default):** number ADRs sequentially within the design document. Find the
   highest ADR number in its `## Architecture Decision Records` section and add one, or start at
-  ADR-1. Insert the ADR in that section; if it does not exist, create it after the Implementation
-  Plan section. Cross-reference it where the decision is first mentioned, for example in the
-  Solution Overview: `_(See ADR-N)_`.
+  ADR-1. Insert the ADR in that section; if it does not exist, create it after the How It Works
+  section, where the design guide places it. Cross-reference it where the decision is first
+  mentioned, for example in the Solution Overview: `_(See ADR-N)_`.
 
 Inline numbers are scoped to one document; ADR-3 in two design documents are unrelated decisions.
 When you refer to an inline ADR from another document, name its document: "see ADR-3 in

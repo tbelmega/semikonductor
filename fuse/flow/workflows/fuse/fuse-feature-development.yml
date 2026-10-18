@@ -72,8 +72,11 @@ steps:
       check at their gates without the owner, so if the project's policy binds no command to it
       yet, find the command, put it to the owner with the spec, and record it in
       .konductor/policy-overrides.yml as `checks: { default: <command> }`; the owner's approval of
-      the spec confirms it. Do not change code until the owner approves the spec. Commit the spec,
-      unless this workstream's documents are kept private.
+      the spec confirms it. The command must run the spec's acceptance tests once they exist, such
+      as the project's test runner over the files that will hold them; a command that only starts
+      the program passes whatever it prints. Do not change code until the owner approves the
+      spec. Commit the spec, unless this workstream's documents are kept private.
+    consumes: [requirements, design]
     updates:
       - artifact: feature-spec
         path: docs/specs/{date}-{slug}.md
@@ -93,11 +96,14 @@ steps:
       and see it go red. Start every bug fix with a test that reproduces the bug and fails. How
       you test the rest is your call. Never weaken a test to get to green. If the feature is part
       of a system, also use the system end to end, with the features landed so far, for the
-      requirements this feature covers. Commit as you go. When something fails unexpectedly, find
-      the root cause before you change code. Decide ambiguities yourself, with the spec as the
-      authority, and record each decision in the decisions file. Stop and ask only before an
-      irreversible action or one that reaches outside this checkout.
-    consumes: [feature-spec]
+      requirements this feature covers. If the default check does not run the acceptance tests
+      you wrote, change its binding where it is set, so that it does, without dropping what it
+      already ran: in .konductor/policy-overrides.local.yml when that file binds it, otherwise in
+      .konductor/policy-overrides.yml. Say so in the hand-over. Commit as you go. When something
+      fails unexpectedly, find the root cause before you change code. Decide ambiguities
+      yourself, with the spec as the authority, and record each decision in the decisions file.
+      Stop and ask only before an irreversible action or one that reaches outside this checkout.
+    consumes: [feature-spec, requirements, design]
     updates:
       - artifact: code
         path: .
@@ -133,5 +139,5 @@ steps:
         guide: review.md
         max_rounds: 3
         route_back_to: implementation
-      - owner-action: land the work, or send it back
+      - owner-action: land the work
         route_back_to: [design, implementation]

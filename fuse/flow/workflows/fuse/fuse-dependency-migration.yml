@@ -20,6 +20,11 @@ description: >
   checks that prove it, add the ones missing, record a baseline, migrate in committed increments
   that each reach their checkpoint, and compare the result against the baseline in a report the
   owner reviews before landing.
+hands_off_to:
+  - workflow: fuse-pull-request
+    when: >-
+      only when the owner approved the work for a pull request or similar code review process at
+      the last gate; take that approval as their agreement, and say which mechanism you will use
 steps:
   - id: intake
     title: Intake
@@ -223,7 +228,14 @@ steps:
       documents are kept private, and do not run the full check yourself just before finishing, even
       where the finishing instructions list it. Do not merge into the integration branch or push to
       a shared branch;
-      the owner lands it.
+      the owner lands it. Then find out whether this project uses pull requests or a similar code
+      review process: look in the project's and the user's house rules, the history of the
+      integration branch, such as merge commits of pull requests or review links in commit
+      messages, and what you remember of this project. Only if you find such evidence, tell the
+      owner at the last gate that instead of landing the work they can approve it for that
+      process, name the mechanism you found and where, and record which the owner chose in the
+      gate's note; that approval passes the gate. Without evidence, do not mention pull requests
+      at all.
     consumes: [migration-spec, check-catalogue]
     produces:
       - artifact: migration-report
@@ -231,11 +243,13 @@ steps:
     updates:
       - artifact: code
         path: .
+      - artifact: check-catalogue
+        path: docs/specs/{date}-{slug}/checks.md
     gates:
       - check: default
       - agent: review the workstream's changes since its base commit, and the report, against the spec and the catalogue; verify that no must-pass check was weakened, that every adapted check still protects the behavior it did, and that the report's claims match the check results
         guide: review.md
         max_rounds: 3
         route_back_to: migration
-      - owner-action: review the report, run the checks only you can run, then land the work or send it back
+      - owner-action: review the report, run the checks only you can run, then land the work
         route_back_to: [check-catalogue, migration]

@@ -16,20 +16,22 @@ inputs instead.
 Every design doc follows this flow:
 
 1. **Problem**: concrete pain examples, not abstract statements
-2. **Solution Overview**: one full-system diagram, one paragraph per feature, decisions framed as outcomes
-3. **Decision Requested**: what you are asking approvers to approve, framed as user outcomes not feature names
-4. **How It Works**: design-level explanation with diagrams BEFORE prose. No scripts, schemas, or regex.
-5. **Implementation Details**: confined section. Clearly labeled so readers can skip.
-6. **Implementation Plan**: phased task tables
+2. **Requirements**: the approved requirements the design must meet, or a reference to them
+3. **Solution Overview**: one full-system diagram, one paragraph per feature, decisions framed as outcomes
+4. **Decision Requested**: what you are asking approvers to approve, framed as user outcomes not feature names
+5. **How It Works**: design-level explanation with diagrams BEFORE prose. No scripts, schemas, or regex.
+6. **Architecture Decision Records**: each significant decision, with the alternatives and the reason for the choice, inline or linked; the `decision-record` guide in the fuse library says how
+7. **Implementation Details**: confined section. Clearly labeled so readers can skip.
+8. **Implementation Plan**: phased task tables, unless the step leaves the plan to a later artifact
 
-Each layer is self-contained. A reviewer reads 1-4. A developer reads 1-6. Never mix layers.
+Each layer is self-contained. A reviewer reads 1-6. A developer reads 1-8. Never mix layers.
 
 ## Checklist
 
 Check the draft against this list before handing it over:
 
 - [ ] Problem stated in first 10 lines with concrete examples?
-- [ ] Can a reviewer understand the full approach in 10 minutes (reading §1-3 only)?
+- [ ] Can a reviewer understand the full approach in 10 minutes (reading §1-4 only)?
 - [ ] Every "How It Works" subsection opens with a diagram?
 - [ ] Diagrams tell the story without needing to read prose?
 - [ ] Implementation detail confined to its own section (not mixed into design sections)?

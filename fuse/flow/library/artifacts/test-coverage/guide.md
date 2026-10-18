@@ -60,7 +60,7 @@ critical journeys only.
 ## 3. Map tests to acceptance criteria and test plans
 
 For each acceptance criterion, find the tests that cover it: an explicit reference in the test
-(`// Tests: AC-1.1`), a test name that matches the criterion, a test file that matches the feature,
+(`// Tests: AC-1.1.1`), a test name that matches the criterion, a test file that matches the feature,
 or assertions that check the expected behavior. When there is a test plan or strategy, map each
 planned test to the test that implements it in the same way; a planned scenario counts on its own,
 even when a simpler test already covers its criterion. Mark each criterion and planned test:
@@ -161,9 +161,9 @@ Keep the Contract row for the microservices model only. Tests run: <N> passed, <
 
 ### <Feature>
 
-- ✅ AC-1.1: <criterion>. Tests: `test/unit/auth.test.ts::should authenticate user`
-- ❌ AC-1.2: <criterion>. Impact: <who is hurt>. Recommended: <test type and what it asserts>
-- 🔍 AC-1.3: <criterion>. Reason: <why manual>. Procedure: <numbered steps and expected outcomes>
+- ✅ AC-1.1.1: <criterion>. Tests: `test/unit/auth.test.ts::should authenticate user`
+- ❌ AC-1.1.2: <criterion>. Impact: <who is hurt>. Recommended: <test type and what it asserts>
+- 🔍 AC-1.1.3: <criterion>. Reason: <why manual>. Procedure: <numbered steps and expected outcomes>
 - ⚠️ TP-2: <planned test>. Implemented by: <test>, missing: <scenario>
 
 ## Non-functional requirements and integration points
