@@ -57,8 +57,8 @@ const USAGE = `usage:
                                                 the owner jumps forward; the steps passed over are skipped
   fuse-flow status <slug>                       show every step's state. A file shows once, under the latest
                                                 step that records it.
-                                                approved means the step's gates passed, whoever ran them;
-                                                it is the owner's approval only where the step has an owner gate
+                                                done means the step's gates passed and it has no owner gate;
+                                                approved means an owner gate approved it
   fuse-flow list                                list this project's workstreams with their current step, and
                                                 every workflow a workstream can follow, with its description
   fuse-flow validate <name, file or directory>...

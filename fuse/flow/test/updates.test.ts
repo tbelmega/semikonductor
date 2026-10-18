@@ -61,7 +61,7 @@ test("a declared path with parent segments stands for the path it leads to", () 
   const W = "version: 1\nname: w\nsteps:\n  - id: build\n    instruction: x\n    updates:\n      - artifact: code\n        path: docs/../src/\n";
   expect(repo.start("feat", W)).toContain("UPDATE src/ (code).");
   repo.ok("continue", "feat", "--updated", "src/a.ts");
-  expect(repo.state("feat").steps.build.files).toContainEqual({ artifact: "code", path: "src/a.ts", kind: "file", pass: "this", status: "approved" });
+  expect(repo.state("feat").steps.build.files).toContainEqual({ artifact: "code", path: "src/a.ts", kind: "file", pass: "this", status: "done" });
   repo.start("other", W);
   repo.ok("continue", "other", "--updated", "code=docs/../src/a.ts");
   expect(repo.state("other").steps.build.files[0].path).toBe("src/a.ts");

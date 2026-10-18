@@ -68,14 +68,14 @@ test("work, continue, repeated until the workflow is complete, which prints the 
   repo.write("docs/design.md");
   const first = repo.ok("continue", "feat");
   expect(first).toStartWith(`design: COMPLETED\n\nSTEP build (2 of 3): Build it.\n${modeLine("feat")}\nPRODUCE src/app.ts (app).\n`);
-  // A step without an owner gate approves its artifacts when it completes.
-  expect(repo.state("feat").steps.design.artifacts).toEqual([{ artifact: "sketch", path: "docs/design.md", status: "approved" }]);
+  // A step without an owner gate records its artifacts as done, not approved, when it completes.
+  expect(repo.state("feat").steps.design.artifacts).toEqual([{ artifact: "sketch", path: "docs/design.md", status: "done" }]);
 
   repo.write("src/app.ts");
   repo.write("src/app.test.ts");
   const second = repo.ok("continue", "feat", "--updated", "src/app.test.ts");
   expect(repo.state("feat").steps.build.files.filter((f: { kind: string }) => f.kind === "file")).toEqual([
-    { path: "src/app.test.ts", kind: "file", pass: "this", status: "approved" },
+    { path: "src/app.test.ts", kind: "file", pass: "this", status: "done" },
   ]);
   expect(second).toContain(`STEP summary (3 of 3): Summarize what shipped.\n${modeLine("feat")}\nWHEN THE WORK IS DONE:\n  1. Run \`fuse-flow continue feat\`.\n`);
 
@@ -142,7 +142,7 @@ test("status lists every step and marks the current one", () => {
   expect(repo.ok("status", "feat")).toBe(
     [
       "workstream feat (linear)",
-      "  design   COMPLETED       gates none    docs/design.md (approved)",
+      "  design   COMPLETED       gates none    docs/design.md (done)",
       "> build    IN_PROGRESS     gates none",
       "  summary  PENDING         gates none",
       "current step: build; fuse-flow start feat prints what to do",

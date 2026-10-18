@@ -15,11 +15,12 @@ export const EVENT = {
   awaitingOwner: () => "work recorded; awaiting the owner's action",
   completed: () => "completed",
   blocked: (reason: string) => `blocked by the agent: ${reason}`,
-  // A skip the agent or the engine decided: a script, check or agent
-  // condition that said no.
+  // A skip the agent or the engine decided: a script or check condition that
+  // said no, or the agent's judgement of an agent condition.
   skipped: (reason: string) => `skipped: ${reason}`,
-  // A skip the owner decided: --skip on a step without a condition, or on
-  // one whose owner-action condition the owner answered no.
+  // A skip the owner decided: every other --skip, such as on a step without a
+  // condition, one whose owner-action condition the owner answered no, or one
+  // an unbound check condition holds back.
   skippedOnRequest: (reason: string) => `skipped on the owner's request: ${reason}`,
   roundsGranted: (n: number, note?: string) => `owner granted ${n} more review round${n === 1 ? "" : "s"}${withNote(note)}`,
   // The owner accepted the review the step was blocked at, and the step went

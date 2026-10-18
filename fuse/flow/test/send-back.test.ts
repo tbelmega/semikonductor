@@ -265,7 +265,7 @@ test("a status message mentions an artifact's guide only when it has one", () =>
   );
   expect(back).not.toContain("as its guide says");
 
-  r.write(".konductor/library/artifacts/wishlist/guide.md", "# guide\n");
+  r.write(".konductor/library/artifacts/wishlist/guide.md", "# guide\n\nSet `status: approved` once the owner approves.\n");
   r.ok("continue", "ds", "--updated", "requirements.md");
   const approved = r.ok("continue", "ds", "--owner-approved");
   expect(approved).toContain("If any of requirements.md keeps a status of its own, as its guide says, set it to approved.");
@@ -303,8 +303,9 @@ test("the owner's notes since the pass began reach the step block, its review an
   expect(prototype).not.toContain("approved without offline mode");
 });
 
-test("the help says what approved means", () => {
-  expect(r.ok("help")).toContain("approved means the step's gates passed, whoever ran them");
+test("the help says what done and approved mean", () => {
+  expect(r.ok("help")).toContain("done means the step's gates passed and it has no owner gate;");
+  expect(r.ok("help")).toContain("approved means an owner gate approved it");
 });
 
 // A step that revises code a later step reads.

@@ -469,7 +469,9 @@ steps:
         "workstream pr-adv: child requires given-diff, and this workstream has no document to give it.",
     );
     expect(existsSync(join(repo.root, ".konductor/workstreams/pr-adv.yml"))).toBe(false);
-    expect(repo.refused("continue", "pr")).toContain("workstream pr-adv, which this step waits for, does not exist.");
+    expect(repo.refused("continue", "pr")).toContain(
+      "workstream pr-adv, which this step waits for, cannot be created: step adversarial cannot create its child workstream pr-adv: child requires given-diff",
+    );
     repo.ok("continue", "pr", "--blocked", "no diff to review");
   });
 

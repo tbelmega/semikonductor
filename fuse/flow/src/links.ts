@@ -58,7 +58,7 @@ export function whereIs(root: string, slug: string): string {
   const at = `step ${step.id} (${wf.steps.indexOf(step) + 1} of ${wf.steps.length})`;
   switch (state.status) {
     case "AWAITING_OWNER":
-      return `is at ${at}, which awaits the owner: ${step.gates.filter((g) => g.kind === "owner-action").map((g) => g.text).join(", and ")}`;
+      return `is at ${at}, which awaits the owner: ${step.gates.filter((g) => g.kind === "owner-action").map((g) => g.text).join(", and ") || "approve the step's work"}`;
     case "BLOCKED": {
       const why = state.history.findLast((h) => h.includes("blocked"))?.replace(/^\S+ blocked by the agent: /, "") ?? "no reason recorded";
       return `is at ${at}, which is blocked: ${why}`;
@@ -72,6 +72,31 @@ export function whereIs(root: string, slug: string): string {
 
 // Whether nothing has happened in the workstream since it was created.
 export const untouched = (ws: Workstream) => Object.values(ws.steps).every((s) => s.history.length === 0);
+
+// Why the parent step that delegated to workstream `slug` no longer waits for
+// it, or undefined while it does: the owner skipped or completed the step, or
+// sent the work back, so that the step's new pass waits for another child.
+export function parentGone(root: string, slug: string, parent: { slug: string; step: string }): string | undefined {
+  if (!workstreamExists(root, parent.slug)) return `workstream ${parent.slug} does not exist`;
+  let ws: Workstream;
+  let wf: Workflow;
+  try {
+    ws = readWorkstream(root, parent.slug);
+    wf = workflowOf(root, ws);
+  } catch (e) {
+    if (!(e instanceof FlowError)) throw e;
+    return `workstream ${parent.slug} cannot be read: ${e.message.split("\n")[0]}`;
+  }
+  const step = wf.steps.find((s) => s.id === parent.step);
+  const gate = step && childGate(step);
+  if (!step || !gate) return `workflow ${wf.name} no longer has a step ${parent.step} that delegates to a workstream`;
+  const state = stateOf(ws, step.id);
+  if (state.status === "SKIPPED") return `step ${step.id} was skipped (${state.skip_reason ?? "no reason recorded"})`;
+  if (state.status === "COMPLETED") return `step ${step.id} is complete`;
+  const pass = state.pass ?? 1;
+  const current = state.children?.find((ch) => ch.pass === pass)?.slug ?? childSlug(gate, parent.slug, step.id, pass);
+  return current === slug ? undefined : `the owner sent the work back, and the step's new pass waits for workstream ${current}`;
+}
 
 // The folder that holds the files a step recorded for one artifact: the
 // declared path while every record lies at or below it, else the folder

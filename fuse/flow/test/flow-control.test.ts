@@ -43,6 +43,12 @@ test("a check condition runs the command the policy binds; an unbound kind holds
   expect(out).toContain("IF YOU STOP BEFORE THE STEP IS DONE:");
   expect(out).toContain("  SUMMARY: <the task, in a sentence>. Workstream feat, step research, 1 of 3.\n");
   expect(repo.refused("continue", "feat")).toContain("cannot be handed out yet");
+  // A step not handed out cannot be reported blocked, so the block does not offer it.
+  expect(out).not.toContain("report it blocked");
+  expect(out).toContain(
+    "If the owner decides the step should not run, run `fuse-flow continue feat --skip \"<the owner's reason>\"`.",
+  );
+  expect(repo.refused("continue", "feat", "--blocked", "waiting for the binding")).toContain("cannot be handed out yet");
 
   repo.write(".konductor/policy-overrides.yml", "checks:\n  unfamiliar: \"false\"\n");
   expect(repo.ok("start", "feat")).toContain("STEP build (2 of 3)");
@@ -108,4 +114,10 @@ test("a step after skipped steps names them, with their reasons, in the lines fo
   expect(out).toContain(
     "  SUMMARY: <the task, in a sentence>. Workstream feat, step build, 2 of 3. Skipped steps: research (condition `test -f nothing-here` exited 1).\n",
   );
+});
+
+test("the owner's skip of a step held back by an unbound check condition is recorded as the owner's", () => {
+  expect(repo.start("feat", flow('    condition: "check: unfamiliar"'))).toContain('--skip "<the owner\'s reason>"');
+  repo.ok("continue", "feat", "--skip", "owner says no");
+  expect(repo.state("feat").steps.research.history.at(-1)).toEndWith(" skipped on the owner's request: owner says no");
 });

@@ -4,7 +4,7 @@
 // blocked, and the owner's decisions on them.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { readFileSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { FLOW_DIR, Repo } from "./helpers";
 
@@ -55,7 +55,7 @@ test("an owner gate holds the step and prints the pre-filled hand-over block unt
   expect(recorded).toContain("PRODUCED: design.md (new)\n");
   expect(recorded).toContain("VERIFICATION: none\n");
   // The owner sees the options in plain words; the commands come after the block, for the agent only.
-  expect(recorded).toContain("NEXT STEP:\n  - Approve the design.\n  - Send the work back to an earlier step, with what to change.\nDECISIONS: ");
+  expect(recorded).toContain("NEXT STEP:\n  - Approve the design.\n  - Send the work back to redo this step, with what to change.\nDECISIONS: ");
   expect(recorded).toContain("so its checks and reviews run again.\n\nFOR YOU, NOT FOR THE OWNER:");
   const block = recorded.slice(0, recorded.indexOf("FOR YOU, NOT FOR THE OWNER:"));
   expect(block.split("\n").filter((l) => /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|  - )/.test(l)).join("\n")).not.toContain("fuse-flow");
@@ -70,6 +70,8 @@ test("an owner gate holds the step and prints the pre-filled hand-over block unt
   expect(repo.refused("continue", "feat")).toContain('step "design" is AWAITING_OWNER; only the owner can move it on');
   expect(repo.ok("start", "feat")).toContain("STATUS: awaiting owner action.");
 
+  // A status line in the file, which the reminder below names.
+  repo.write("design.md", "Status: draft\n");
   const approved = repo.ok("continue", "feat", "--owner-approved", "--note", "looks good");
   // The sketch artifact has no guide, so the reminder names the file's own status line instead.
   expect(approved).toStartWith(
@@ -578,7 +580,7 @@ test("the owner can send the work back from a blocked step to it or an earlier s
   const other = new Repo();
   try {
     other.start("feat", REVIEWED);
-    other.write("spec.md");
+    other.write("spec.md", "Status: approved\n");
     other.ok("continue", "feat");
     other.ok("continue", "feat", "--blocked", "the spec itself is wrong about the API");
 
@@ -922,9 +924,10 @@ steps:
     r.ok("continue", "feat", "--owner-approved", "--gate", "1");
     r.write("notes/b.md");
     const done = r.ok("continue", "feat", "--updated", "notes/b.md");
+    // The owner accepted a review, not the work, and the step has no owner gate.
     expect(r.state("feat").steps.design.artifacts).toEqual([
-      { artifact: "sketch", path: "design.md", status: "approved" },
-      { artifact: "notes", path: "notes/", status: "approved" },
+      { artifact: "sketch", path: "design.md", status: "done" },
+      { artifact: "notes", path: "notes/", status: "done" },
     ]);
     // The next step reads the whole folder, the file from before the block and the new one.
     expect(done).toContain("READ notes/ (from step design).");
@@ -1085,9 +1088,109 @@ test("two continue commands at once record the step once", async () => {
     same.start("feat", "version: 1\nname: same\nsteps:\n  - id: build\n    instruction: x\n    gates:\n      - script: sleep 1\n");
     const results = await Promise.all([same.runInBackground(["continue", "feat"]), same.runInBackground(["continue", "feat"])]);
     expect(results.map((r) => r.code).sort()).toEqual([0, 1]);
-    expect(results.find((r) => r.code === 1)?.out).toContain('step "build" is COMPLETED now; run the command again');
+    expect(results.find((r) => r.code === 1)?.out).toContain('step "build" is COMPLETED now: another fuse-flow command moved it while this one ran. Run `fuse-flow start feat` to see where');
     expect(same.state("feat").steps.build).toMatchObject({ status: "COMPLETED" });
   } finally {
     same.cleanup();
+  }
+});
+
+test("a continue that was running while the owner sent the work back to its step does not finish the new pass", async () => {
+  const same = new Repo();
+  try {
+    same.start("feat", "version: 1\nname: same\nsteps:\n  - id: build\n    instruction: x\n    gates:\n      - script: touch started && sleep 2\n  - id: ship\n    instruction: y\n");
+    const running = same.runInBackground(["continue", "feat"]);
+    for (let i = 0; i < 100 && !existsSync(join(same.root, "started")); i++) await Bun.sleep(50);
+    same.ok("continue", "feat", "--back-to", "build", "--note", "redo the build");
+    const late = await running;
+    expect(late.code).toBe(1);
+    expect(late.out).toContain('step "build" was sent back to while this command ran and is in pass 2 now, so the checks this command ran on pass 1 are not recorded for it.');
+    expect(same.state("feat").steps.build).toMatchObject({ status: "IN_PROGRESS", pass: 2 });
+  } finally {
+    same.cleanup();
+  }
+});
+
+test("a failing continue that was running while the owner sent the work back records nothing in the new pass", async () => {
+  const same = new Repo();
+  try {
+    same.write(".konductor/workflows/child.yml", "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Work.\n");
+    same.start(
+      "feat",
+      "version: 1\nname: same\nsteps:\n  - id: build\n    instruction: x\n    gates:\n      - workflow: child\n" +
+        '      - script: "touch started; while [ ! -f release ]; do sleep 0.02; done; false"\n  - id: ship\n    instruction: y\n',
+    );
+    same.ok("start", "feat-build");
+    same.ok("continue", "feat-build");
+    const running = same.runInBackground(["continue", "feat"]);
+    for (let i = 0; i < 200 && !existsSync(join(same.root, "started")); i++) await Bun.sleep(25);
+    same.ok("continue", "feat", "--back-to", "build", "--note", "redo the build");
+    same.write("release");
+    const late = await running;
+    expect(late.code).toBe(1);
+    expect(late.out).toContain('step "build" was sent back to while this command ran and is in pass 2 now, so the checks this command ran on pass 1 are not recorded for it.');
+    const build = same.state("feat").steps.build;
+    expect(build).toMatchObject({ status: "IN_PROGRESS", pass: 2 });
+    expect(build.verification).toBeUndefined();
+    const pass2 = build.history.slice(build.history.findLastIndex((h: string) => h.includes("owner sent the work back")));
+    expect(pass2.filter((h: string) => h.includes("refused"))).toEqual([]);
+    // The new pass's hand-over does not report the old pass's checks.
+    const handover = same.ok("continue", "feat", "--blocked", "the new child has not run");
+    expect(handover).toContain("VERIFICATION: workstream feat-build-2: not checked; script");
+    expect(handover).not.toContain("workstream feat-build (child): complete");
+  } finally {
+    same.cleanup();
+  }
+});
+
+test("a step without an owner gate records its work as done, and a later owner gate approves it", () => {
+  const r = new Repo();
+  try {
+    r.start(
+      "feat",
+      `version: 1
+name: spec-then-design
+steps:
+  - id: intake
+    instruction: Write the spec as a draft.
+    produces: { artifact: spec, path: spec.md }
+  - id: design
+    instruction: Write the design.
+    produces: { artifact: sketch, path: design.md }
+    gates:
+      - owner-action: approve the spec and the design
+`,
+    );
+    r.write("spec.md");
+    r.ok("continue", "feat");
+    // No owner has seen the spec yet, so neither the state file nor status calls it approved.
+    expect(r.state("feat").steps.intake.artifacts).toEqual([{ artifact: "spec", path: "spec.md", status: "done" }]);
+    expect(r.state("feat").steps.intake.files).toEqual([{ artifact: "spec", path: "spec.md", kind: "whole", pass: "this", status: "done" }]);
+    expect(r.ok("status", "feat")).toContain("spec.md (done)");
+    r.write("design.md");
+    r.ok("continue", "feat");
+    expect(r.state("feat").steps.intake.artifacts[0].status).toBe("done");
+    // The owner's gate approves the work of the steps before it that have no owner gate of their own.
+    r.ok("continue", "feat", "--owner-approved");
+    expect(r.state("feat").steps.intake.artifacts[0].status).toBe("approved");
+    expect(r.state("feat").steps.intake.files[0].status).toBe("approved");
+    expect(r.state("feat").steps.design.artifacts[0].status).toBe("approved");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a state file an earlier fuse-flow wrote with approved for a step without an owner gate is still read", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", "version: 1\nname: one\nsteps:\n  - id: intake\n    instruction: Write.\n    produces: { artifact: spec, path: spec.md }\n  - id: next\n    instruction: Go on.\n");
+    r.write("spec.md");
+    r.ok("continue", "feat");
+    const file = ".konductor/workstreams/feat.yml";
+    r.write(file, r.read(file).replaceAll("status: done", "status: approved"));
+    expect(r.ok("status", "feat")).toContain("spec.md (approved)");
+    expect(r.ok("start", "feat")).toContain("STEP next (2 of 2)");
+  } finally {
+    r.cleanup();
   }
 });

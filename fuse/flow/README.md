@@ -244,8 +244,15 @@ steps:
   there. The gate runs before every other gate: `continue` is refused until the child is
   complete, and the refusal says which step the child is at and in which state. A workstream
   under the child's slug that follows another workflow, or belongs to another step, never
-  satisfies the gate. The owner cannot accept a blocked delegating step while its child is
-  unfinished; to go on without the child, the owner skips the step.
+  satisfies the gate. A child recorded for the step's current pass keeps its slug after an edit of
+  the gate, so when the gate now names another workflow, the owner sends the work back to the step,
+  whose next pass creates a new child. When the child cannot be created or used, the `DELEGATE`
+  line says why, or points to the refusal above it that does, and `WHEN THE WORK IS DONE` says
+  the step cannot complete until that is resolved. The owner cannot accept a blocked delegating
+  step, or approve one awaiting the owner, while its child is unfinished, such as after its
+  workflow gained a step; the hand-over block then offers finishing the child first or skipping
+  the step instead of the approval, and `VERIFICATION` says the child recorded complete is
+  unfinished now.
 - `returns` lists the child's documents that later steps may consume, as a list of ids or a
   mapping from the id in this workflow to the id in the child, to rename one that would clash,
   as in `returns: { system-design: design }`. A returned id resolves to the newest child's
@@ -275,13 +282,13 @@ steps:
 | Command | What it does |
 |---|---|
 | `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
-| `continue <slug>` | Finish the current step after its artifacts are accounted for and its mechanical gates pass, then print the next step or hand-over block. |
+| `continue <slug>` | Finish the current step after its artifacts are accounted for and its mechanical gates pass, then print the next step or hand-over block. A step that this command hands out first, such as one added to the workflow or reached because a condition now skips the step before it, is printed and not finished; an owner's decision is likewise not applied when the hand-out moved the current step. |
 | `continue <slug> [--updated [<artifact>=]<file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. A file inside the paths of two artifacts takes the identifier of the one it counts for. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
 | `continue <slug> [--not-produced <artifact> <reason>]...` | Report each required `produces` artifact deliberately not written. Repeat the flag as needed. |
 | `continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...` | Record that the agent cannot finish the current step, such as at the review round cap. `--gate` names the review it is blocked at, by its number in the step block. The files of the step's `produces` paths on disk, and the files named with `--updated`, are recorded as draft, so the hand-over lists them and acceptance keeps them. The owner decides what happens next. |
 | `continue <slug> --skip <why>` | Skip a conditional step, or skip any step after the owner explicitly asks. Records the reason. |
-| `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. |
+| `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. A step that delegates to a child workstream is approved only while the child is complete; otherwise the owner skips it. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. |
 | `continue <slug> --more-rounds <n> [--note <text>]` | Add one or more review rounds to an agent gate on an `IN_PROGRESS` or `BLOCKED` step. |
 | `continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes, and its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
@@ -356,7 +363,8 @@ output ends with `FOR YOU, NOT FOR THE OWNER:`, which the agent keeps out of its
 step that waits for the owner, it gives the command for each of the owner's options. On
 `workflow complete`, present when there is something to say, it names the workflows this one
 hands off to, with their start commands, and for a child workstream the parent step that waits
-for it. For
+for it, or why that step no longer waits for it: the owner skipped or completed it, or sent the
+work back so that its new pass waits for another child. For
 `needs input` or `paused`, the agent fills in the lines the step block printed under
 `IF YOU STOP BEFORE THE STEP IS DONE`.
 
@@ -494,7 +502,8 @@ Only fuse-flow writes it. The directory is gitignored.
   artifacts draft again. `superseded` is available for a later artifact replacement process.
 - **Refusals.** A missing unreported `produces` artifact, an unaccounted `updates` artifact, an
   unbound check, or a failed mechanical gate refuses `continue` and repeats the step block. The
-  refusal is recorded but does not block the step or consume a review round.
+  refusal is recorded but does not block the step or consume a review round. A `continue` whose
+  step was sent back while its checks ran records nothing, refusal or results, in the new pass.
 - **Review cap.** The maker classifies findings, fixes required ones and repeats until a round is
   clean. A round ending with a required fix counts. At the printed cap, the maker reports the step
   blocked rather than starting another round. The owner can approve as is, grant rounds or send

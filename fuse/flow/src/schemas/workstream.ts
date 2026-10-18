@@ -17,12 +17,23 @@ const LEGACY_STATES: Record<string, StepStatus> = {
   done: "COMPLETED",
 };
 
+// What a recorded artifact's status says about it. State files written before
+// "done" record "approved" for steps without an owner gate too, and are read
+// as they are.
+const ArtifactStatusSchema = z.enum(["draft", "done", "approved", "superseded"]).meta({
+  description:
+    "draft: written, while the step waits for the owner, is blocked or was sent back. done: the step completed " +
+    "and its gates passed, but it has no owner gate, so no owner approved it yet. approved: the owner approved it, " +
+    "at the step's owner gate or at the next owner gate of a later step. superseded: reserved for a later " +
+    "artifact replacement process.",
+});
+
 // An artifact the workstream recorded, with its status.
 export const RecordedArtifactSchema = z
   .object({
     artifact: z.string().optional().meta({ description: "The artifact's id; absent in migrated state files." }),
     path: z.string(),
-    status: z.enum(["draft", "approved", "superseded"]),
+    status: ArtifactStatusSchema,
   })
   .strict();
 
@@ -37,7 +48,7 @@ export const WrittenSchema = z
       description: "whole: the artifact's declared path, found on disk by fuse-flow. file: a file the agent named with --updated.",
     }),
     pass: z.enum(["this", "earlier"]).meta({ description: "Whether the step wrote it in this pass or in an earlier one." }),
-    status: z.enum(["draft", "approved", "superseded"]),
+    status: ArtifactStatusSchema,
   })
   .strict();
 
