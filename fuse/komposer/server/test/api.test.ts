@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -248,6 +248,21 @@ describe("workflows", () => {
     expect((await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x" }) })).status).toBe(403);
     expect(readFileSync(secret, "utf8")).toBe("SECRET\n");
     expect((await json("/api/workflows")).workflows.find((w: any) => w.path === path).workingCopy).toBeUndefined();
+  });
+
+  test("refuses a working copy whose base record a symlink leads outside the working-copy folder, and does not read it", async () => {
+    const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
+    const editor = join(root, ".konductor", "editor", "project");
+    const secret = write(join(root, "outside", "secret.md"), "SECRET\n");
+    mkdirSync(editor, { recursive: true });
+    symlinkSync(secret, join(editor, "two-steps.yml.base"));
+    const put = await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x", base: hash(TWO_STEPS) }) });
+    expect(put.status).toBe(403);
+    expect((await api("/api/working-copies", { method: "DELETE", body: JSON.stringify({ path }) })).status).toBe(403);
+    expect(readFileSync(secret, "utf8")).toBe("SECRET\n");
+    writeFileSync(join(editor, "two-steps.yml"), "copy\n");
+    const listed = (await json("/api/workflows")).workflows.find((w: any) => w.path === path);
+    expect(listed.workingCopyBase).toBeUndefined();
   });
 
   test("saves a new file, and refuses an existing name or one that breaks the naming rule", async () => {
@@ -622,6 +637,106 @@ steps:
     const folder = join(root, ".konductor", "workflows");
     expect(resolveWorkflowRef("../../custom/child.yml", parent, workflows, folder, unavailable)).toMatchObject({ ok: true, target: { path: child } });
     expect(resolveWorkflowRef(other, mine, workflows, folder, unavailable)).toMatchObject({ ok: true, target: { path: other } });
+  });
+
+  test("a .yaml working copy whose original is gone is still listed for recovery", async () => {
+    for (const file of ["kept.yml", "kept.yaml"]) {
+      const path = write(join(root, ".konductor", "workflows", file), ONE_STEP);
+      await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "draft", base: hash(ONE_STEP), expected: null }) });
+      rmSync(path);
+      const listed = (await json("/api/workflows")).workflows.find((w: any) => w.path === path);
+      expect([file, listed]).toMatchObject([file, { onDisk: false, workingCopy: "draft" }]);
+    }
+  });
+
+  test("a working copy or working-copy folder that cannot be read leaves the listing intact and is reported", async () => {
+    if (process.getuid?.() === 0) return; // root reads every file
+    const one = write(join(root, ".konductor", "workflows", "one.yml"), ONE_STEP);
+    const two = write(join(root, ".konductor", "workflows", "two.yml"), ONE_STEP);
+    await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path: one, text: "draft", base: hash(ONE_STEP), expected: null }) });
+    await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path: two, text: "draft", base: hash(ONE_STEP), expected: null }) });
+    const editor = join(root, ".konductor", "editor", "project");
+    const copy = join(editor, "one.yml");
+    const base = join(editor, "two.yml.base");
+    const locked = join(editor, "locked");
+    write(join(locked, "new.yml"), "draft");
+    chmodSync(copy, 0o000);
+    chmodSync(base, 0o000);
+    chmodSync(locked, 0o000);
+    try {
+      const { workflows, unavailable } = await json("/api/workflows");
+      expect(workflows.find((w: any) => w.path === one)).toMatchObject({ onDisk: true, text: ONE_STEP });
+      expect(workflows.find((w: any) => w.path === one).workingCopy).toBeUndefined();
+      expect(workflows.find((w: any) => w.path === two)).toMatchObject({ workingCopy: "draft" });
+      expect(workflows.find((w: any) => w.path === two).workingCopyBase).toBeUndefined();
+      expect(unavailable.filter((u: any) => u.kind === "working-copy")).toEqual([
+        { location: "project", kind: "working-copy", path: copy, reason: expect.stringContaining("EACCES") },
+        { location: "project", kind: "working-copy", path: base, reason: expect.stringContaining("EACCES") },
+        { location: "project", kind: "working-copy", path: locked, reason: expect.stringContaining("EACCES") },
+      ]);
+    } finally {
+      chmodSync(copy, 0o644);
+      chmodSync(base, 0o644);
+      chmodSync(locked, 0o755);
+    }
+    expect(readFileSync(copy, "utf8")).toBe("draft");
+  });
+
+  test("a working-copy folder that cannot be searched is reported once, and its copies are kept", async () => {
+    if (process.getuid?.() === 0) return; // root reads every file
+    const one = write(join(root, ".konductor", "workflows", "one.yml"), ONE_STEP);
+    await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path: one, text: "draft", base: hash(ONE_STEP), expected: null }) });
+    const editor = join(root, ".konductor", "editor");
+    chmodSync(editor, 0o000);
+    try {
+      const { workflows, unavailable } = await json("/api/workflows");
+      expect(workflows.find((w: any) => w.path === one)).toMatchObject({ onDisk: true, text: ONE_STEP });
+      expect(unavailable.filter((u: any) => u.kind === "working-copy")).toEqual([
+        { location: "project", kind: "working-copy", path: editor, reason: expect.stringContaining("EACCES") },
+      ]);
+    } finally {
+      chmodSync(editor, 0o755);
+    }
+    expect(readFileSync(join(editor, "project", "one.yml"), "utf8")).toBe("draft");
+  });
+
+  // A working copy keeps the hash of the original it was made from, so a
+  // copy restored after the file changed on disk can be told apart from one
+  // made from the file as it is.
+  test("lists a working copy with its own hash and the hash of the original it was made from", async () => {
+    const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
+    const text = `${TWO_STEPS}# unsaved\n`;
+    const put = await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text, base: hash(TWO_STEPS), expected: null }) });
+    expect(put.hash).toBe(hash(text));
+    writeFileSync(path, `${TWO_STEPS}# changed on disk\n`);
+    const listed = (await json("/api/workflows")).workflows.find((w: any) => w.path === path);
+    expect(listed).toMatchObject({
+      hash: hash(`${TWO_STEPS}# changed on disk\n`),
+      workingCopy: text,
+      workingCopyHash: hash(text),
+      workingCopyBase: hash(TWO_STEPS),
+    });
+    await json("/api/working-copies", { method: "DELETE", body: JSON.stringify({ path, expected: hash(text) }) });
+    expect(readdirSync(join(root, ".konductor", "editor", "project"))).toEqual([]);
+  });
+
+  // Two tabs on one workflow share its working copy: a tab writes or removes
+  // it only when it still holds what that tab last saw.
+  test("refuses to write or remove a working copy that changed since the tab last saw it", async () => {
+    const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
+    const copy = join(root, ".konductor", "editor", "project", "two-steps.yml");
+    const mine = `${TWO_STEPS}# tab A\n`;
+    await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: mine, base: hash(TWO_STEPS), expected: null }) });
+    // Tab B loaded before tab A's edit, so it saw no working copy.
+    const stalePut = await api("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: "x", base: hash(TWO_STEPS), expected: null }) });
+    expect(stalePut.status).toBe(409);
+    const staleDelete = await api("/api/working-copies", { method: "DELETE", body: JSON.stringify({ path, expected: null }) });
+    expect(staleDelete.status).toBe(409);
+    expect(readFileSync(copy, "utf8")).toBe(mine);
+    // Tab A, which saw its own copy, may replace it.
+    const next = `${mine}# again\n`;
+    await json("/api/working-copies", { method: "PUT", body: JSON.stringify({ path, text: next, base: hash(TWO_STEPS), expected: hash(mine) }) });
+    expect(readFileSync(copy, "utf8")).toBe(next);
   });
 
   test("tells a watcher when the open file changes on disk", async () => {

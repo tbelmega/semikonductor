@@ -39,6 +39,13 @@ export interface WorkflowFile {
   text: string;
   hash: string;
   workingCopy?: string;
+  // From the listing, for a working copy on disk: the hash of its text, and
+  // the hash of the original it was made from when that is recorded.
+  workingCopyHash?: string;
+  workingCopyBase?: string;
+  // For a file of the three locations that is a link leading outside them:
+  // where it leads. It is shown read-only, since a save is refused.
+  leadsTo?: string;
   // The file's real path when it differs from path (a link on the way), so
   // a reference that names the real path leads to it (workflowLinks).
   realPath?: string;
@@ -202,9 +209,47 @@ export function openWorkflow(file: WorkflowFile | OpenWorkflow, resetIdentity = 
 }
 
 // The workflow as saved on disk, without its unsaved edits: what fuse-flow
-// reads for the workstreams that follow it.
-export function savedVersion(workflow: OpenWorkflow): OpenWorkflow {
+// reads for the workstreams that follow it. `disk` is the file on disk when
+// it changed under the edits; the edits' own base, `text`, is then older.
+export function savedVersion(workflow: OpenWorkflow, disk?: { text: string; hash: string }): OpenWorkflow {
+  if (disk) return openWorkflow({ ...workflow, text: disk.text, hash: disk.hash, workingCopy: undefined }, true);
   return workflow.openText === workflow.text ? workflow : openWorkflow({ ...workflow, workingCopy: undefined }, true);
+}
+
+// What saving the open text changes that a workstream in progress depends
+// on: steps added, deleted, renamed or moved (fuse-flow stores progress by
+// step id), and steps whose gates changed (fuse-flow takes back an owner's
+// accepted review whose text or guides changed, and runs an added or
+// changed gate on work already recorded before it approves it).
+export function structureChanges(workflow: OpenWorkflow): string[] {
+  const savedRaw = guessRawWorkflow(workflow.text).steps;
+  const currentRaw = guessRawWorkflow(workflow.openText).steps;
+  const current = workflow.stepKeys.map((key, index) => ({ key, id: currentRaw[index]?.id ?? "", index }));
+  const out: string[] = [];
+  workflow.savedSteps.forEach((saved, savedIndex) => {
+    const now = current.find((step) => step.key === saved.key);
+    if (!now) {
+      out.push(`deleted ${saved.id}`);
+      return;
+    }
+    if (now.id !== saved.id) out.push(`renamed ${saved.id} → ${now.id}`);
+    if (JSON.stringify(savedRaw[savedIndex]?.gates ?? []) !== JSON.stringify(currentRaw[now.index]?.gates ?? []))
+      out.push(`changed gates of ${now.id}`);
+  });
+  current
+    .filter((step) => !workflow.savedSteps.some((saved) => saved.key === step.key))
+    .forEach((step) => out.push(`added ${step.id}`));
+
+  const savedCommon = workflow.savedSteps.filter((saved) => current.some((step) => step.key === saved.key));
+  const currentCommon = current.filter((step) => workflow.savedSteps.some((saved) => saved.key === step.key));
+  savedCommon.forEach((saved, savedRank) => {
+    const currentRank = currentCommon.findIndex((step) => step.key === saved.key);
+    if (currentRank === savedRank) return;
+    const now = currentCommon[currentRank];
+    const savedIndex = workflow.savedSteps.findIndex((step) => step.key === saved.key);
+    out.push(`moved ${now.id} ${savedIndex + 1} → ${now.index + 1}`);
+  });
+  return out;
 }
 
 // --------------------------------------------------------------- step view

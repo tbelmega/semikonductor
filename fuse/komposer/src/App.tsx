@@ -18,13 +18,13 @@ import {
   type WorkstreamSummary,
 } from "./api.ts";
 import { type Edit, type OutputMode } from "./model/yamlEdit.ts";
-import { diskChangeWatcher } from "./model/diskChange.ts";
-import { mergeListed } from "./model/listedWorkflows.ts";
+import { diskChangeWatcher, editorTakesEdits, restoredWorkingCopy, workingCopySaver } from "./model/diskChange.ts";
+import { diskRecords, mergeListed, requestSequencer } from "./model/listedWorkflows.ts";
 import { givesWay } from "./model/readOnlyView.ts";
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { editedWorkflow, movedRefEdits } from "./model/editWorkflow.ts";
 import { selectionAfterMove } from "./model/stepSelection.ts";
-import { followsWorkflow, plural, workstreamLinkDir } from "./model/workstreams.ts";
+import { followsWorkflow, plural, stateOf, workstreamLinkDir } from "./model/workstreams.ts";
 import { addArtifactEdits, describeFrom, insertArtifactStepEdits } from "./model/artifactInstruction.ts";
 import {
   artifactCount,
@@ -33,12 +33,14 @@ import {
   routeBackCount,
   savedVersion,
   stepViews,
+  structureChanges,
   workflowHandOffs,
   workflowInputs,
   workflowKey,
   type LocationId,
   type OpenWorkflow,
   type Session,
+  type WorkflowFile,
 } from "./workflowView.ts";
 import { problemsByStep, problemsForText, type EngineValidation } from "./validate.ts";
 import { LOCATION_ROOT, WorkflowList } from "./WorkflowList.tsx";
@@ -52,12 +54,18 @@ import { Present } from "./Present.tsx";
 import { ALL_SHOWN, escapeAction, secondOptions, shownSecond, type FlowShow } from "./model/present.ts";
 import { projectName } from "./runView.ts";
 
-// checking: the workstreams in progress are being read, for the warning;
-// checkError: why they could not be. warnings: the engine's warnings for the
-// file Save as new would write, and checked: the destination and text they
-// were given for, so a second Save writes it anyway.
+// id: this dialog, so an answer to a request it made is not taken up by
+// another. checking: the workstreams in progress are being read, for the
+// warning, and workstreams: what this dialog read; checkError: why they could
+// not be. warnings: the engine's warnings for the file Save as new would
+// write, and checked: the destination and text they were given for, so a
+// second Save writes it anyway. confirmed: the Save the user pressed, while
+// its checks run; any change in the dialog drops it, and so does Cancel, so
+// a check that answers later writes nothing. saving: the file is being
+// written; the dialog stays open until that is done.
 type SaveModal = {
   type: "save";
+  id: number;
   asNew: boolean;
   location: LocationId;
   folder: string;
@@ -65,12 +73,21 @@ type SaveModal = {
   error?: string;
   checking?: boolean;
   checkError?: string;
+  workstreams?: WorkstreamSummary[];
   warnings?: string[];
   checked?: string;
+  confirmed?: number;
+  saving?: boolean;
 };
 type NewModal = { type: "new"; location: LocationId; folder: string; name: string; error?: string };
 type Modal = SaveModal | NewModal;
-type DiskVersion = { text: string; hash: string; at: string };
+// The file on disk when it differs from the version the edits were made
+// from; at is when that was seen, absent for a working copy restored after
+// the file changed. unknownBase: the working copy records no version it was
+// made from, as one written by an older Komposer.
+type DiskVersion = { text: string; hash: string; at?: string; unknownBase?: true };
+
+const timeNow = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 // Whether a key press goes to a text field rather than to the page.
 const typingIn = (target: EventTarget | null) =>
@@ -132,53 +149,159 @@ export function App() {
   };
   const replaceWorkflow = (key: string, next: OpenWorkflow) =>
     setWorkflows((all) => all.map((w) => (workflowKey(w) === key ? next : w)));
-  const reloadData = async () => {
-    const [s, w, l, ws, p] = await Promise.all([
-      api.session(),
-      api.workflows(),
-      api.library(),
-      api.workstreams(),
-      api.projects(),
-    ]);
-    const opened = w.workflows.map((file) => openWorkflow(file));
-    const first = opened.find((x) => x.location !== "run");
-    setSession(s);
-    setWorkflows(opened);
+
+  // Working copies are the crash-safe form of every edit (workingCopySaver).
+  // A workflow whose copy another tab changed is marked until the user picks
+  // which edits to keep.
+  const [copyConflicts, setCopyConflicts] = useState<Record<string, true>>({});
+  // Why a workflow's edits could not be written to its working copy; they
+  // stay pending and are tried again (workingCopySaver).
+  const [copyFailures, setCopyFailures] = useState<Record<string, string>>({});
+  const saverRef = useRef<ReturnType<typeof workingCopySaver> | null>(null);
+  saverRef.current ??= workingCopySaver({
+    put: (path, write, expected, urgent) => api.putWorkingCopy(path, write.text, write.base, expected, urgent),
+    remove: (path, expected, urgent) => api.deleteWorkingCopy(path, expected, urgent),
+    isConflict: (e) => e instanceof ApiError && e.status === 409,
+    conflict: (path) => setCopyConflicts((all) => ({ ...all, [path]: true })),
+    error: (e) => showToast(e instanceof Error ? e.message : String(e)),
+    failed: (path, reason) =>
+      setCopyFailures((all) => {
+        const next = { ...all };
+        if (reason === null) delete next[path];
+        else next[path] = reason;
+        return next;
+      }),
+    delay: 350,
+  });
+  const saver = saverRef.current;
+  const clearCopyConflict = (path: string) =>
+    setCopyConflicts((all) => {
+      if (!(path in all)) return all;
+      const next = { ...all };
+      delete next[path];
+      return next;
+    });
+  // A listed file, opened: the tab now knows its working copy, and one made
+  // from another version of the file than the one on disk is a conflict,
+  // recorded in found for the disk-change banner.
+  const openListed = (file: WorkflowFile, found: Record<string, DiskVersion>) => {
+    saver.known(file.path, file.workingCopyHash ?? null);
+    const restored = restoredWorkingCopy(file);
+    if (restored.disk) found[workflowKey(file)] = restored.disk;
+    return openWorkflow(restored.file);
+  };
+  // Counts saves, discards and loads, so a listing read while one happened
+  // is known to be stale.
+  const localChanges = useRef(0);
+  // Saves confirmed and not yet done. A listing read meanwhile is not taken
+  // up: it may hold another tab's working copy, which the editor would show
+  // and the save's completion would replace.
+  const savesInFlight = useRef(0);
+  // Counts refreshes, so the review guides are asked again after each.
+  const [refreshes, setRefreshes] = useState(0);
+  // Every read of the server's data goes through one sequencer: an answer is
+  // taken up only while it answers the newest request of its kind, and a
+  // workflows listing only while no newer version of a file was installed
+  // since it was asked for (the watcher, a save, a discard or a load).
+  const requests = useRef(requestSequencer<"workflows" | "workstreams" | "projects" | "library">());
+  // Everything read from disk, read again: on load, when the window regains
+  // focus, after a save, on the Workstreams page, and after a project is
+  // added or removed, so workstreams, the library, policies and files changed
+  // outside this tab show as they are now. Open workflows with unsaved edits
+  // stay as they are (mergeListed). A listing read while this tab wrote a
+  // working copy or saved can predate that write, so its workflows are left
+  // as they are. A file that changed on disk under unsaved edits gets the
+  // disk-change banner, also when it is not the selected one (diskRecords).
+  const refresh = async () => {
+    const before = saver.writes() + localChanges.current;
+    const asked = {
+      workflows: requests.current.begin("workflows"),
+      workstreams: requests.current.begin("workstreams"),
+      projects: requests.current.begin("projects"),
+      library: requests.current.begin("library"),
+    };
+    const [w, ws, p, l] = await Promise.all([api.workflows(), api.workstreams(), api.projects(), api.library()]);
+    if (requests.current.current("workstreams", asked.workstreams)) setWorkstreams(ws.workstreams);
+    if (requests.current.current("projects", asked.projects)) setProjects(p);
+    if (requests.current.current("library", asked.library)) setLibrary(l.entries);
+    setRefreshes((n) => n + 1);
+    if (
+      saver.writes() + localChanges.current !== before ||
+      savesInFlight.current > 0 ||
+      !requests.current.current("workflows", asked.workflows)
+    )
+      return;
     setUnavailable(w.unavailable);
-    setLibrary(l.entries);
-    setWorkstreams(ws.workstreams);
-    setProjects(p);
-    setCurrentKey((key) =>
-      key && opened.some((x) => workflowKey(x) === key) ? key : first ? workflowKey(first) : null,
-    );
+    // React runs these updaters in the order the states were declared, so
+    // merged and found are complete when the selection and the disk versions
+    // are updated.
+    const found: Record<string, DiskVersion> = {};
+    let merged: OpenWorkflow[] = [];
+    setWorkflows((all) => (merged = mergeListed(all, w.workflows, (file) => openListed(file, found))));
+    setCurrentKey((key) => {
+      const first = merged.find((x) => x.location !== "run");
+      return key ?? (first ? workflowKey(first) : null);
+    });
+    const at = timeNow();
+    setDiskVersions((all) => diskRecords(all, merged, w.workflows, workflowKey, found, at));
   };
   useEffect(() => {
-    reloadData().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    api
+      .session()
+      .then((s) => {
+        setSession(s);
+        return refresh();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
-  // After a project is added or removed: its workstreams, the projects and
-  // the other projects' workflow files. The open workflows of the three
-  // locations stay as they are, since the listing can lack edits whose
-  // working copy is still to be written.
-  const refreshProjects = async () => {
-    const [w, ws, p] = await Promise.all([api.workflows(), api.workstreams(), api.projects()]);
-    setWorkflows((all) => mergeListed(all, w.workflows, (file) => openWorkflow(file)));
-    setUnavailable(w.unavailable);
-    setWorkstreams(ws.workstreams);
-    setProjects(p);
-  };
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const refreshNow = () => refreshRef.current().catch((e) => showToast(e instanceof Error ? e.message : String(e)));
+  // Pending working copies are written when the page is hidden, closed or
+  // reloaded; the data is read again when the page is shown.
+  useEffect(() => {
+    const onFocus = () => void refreshNow();
+    const onVisibility = () => (document.visibilityState === "hidden" ? void saver.flush(true) : onFocus());
+    const onHide = () => void saver.flush(true);
+    // An edit that cannot be written before the page unloads: the browser asks.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      void saver.flush(true);
+      if (!saver.busy()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, []);
 
   const workflow = useMemo(() => workflows.find((w) => workflowKey(w) === currentKey) ?? null, [workflows, currentKey]);
   const steps = useMemo(() => (workflow ? stepViews(workflow) : []), [workflow]);
   const dirty = !!workflow && workflow.openText !== workflow.text;
   const disk = currentKey ? diskVersions[currentKey] : undefined;
-  // The workflow file a workstream of another project follows: shown, never
-  // edited or saved.
-  const readOnly = workflow?.location === "run";
+  // Another project's workflow file, which a workstream follows or a link
+  // leads to.
+  const isRun = workflow?.location === "run";
+  // Shown, never edited or saved: another project's file, and a file of the
+  // three locations that is a link leading outside them, whose save the
+  // server refuses.
+  const readOnly = isRun || !!workflow?.leadsTo;
   const localWorkflows = useMemo(() => workflows.filter((w) => w.location !== "run"), [workflows]);
   // The Workstreams page shows each workflow as saved, since that is what
-  // fuse-flow reads for its workstreams; unsaved edits are not part of them.
-  const savedWorkflows = useMemo(() => workflows.map(savedVersion), [workflows]);
-  const savedWorkflow = useMemo(() => (workflow ? savedVersion(workflow) : null), [workflow]);
+  // fuse-flow reads for its workstreams; unsaved edits are not part of them,
+  // and a file that changed on disk under them is shown as it is on disk.
+  const savedWorkflows = useMemo(
+    () => workflows.map((w) => savedVersion(w, diskVersions[workflowKey(w)])),
+    [workflows, diskVersions],
+  );
+  const savedWorkflow = useMemo(() => (workflow ? savedVersion(workflow, disk) : null), [workflow, disk]);
   const selected = selectedIndex !== null && selectedIndex < steps.length ? selectedIndex : null;
 
   // Keys 1 to 4 switch pages, when focus is not in a field. Escape does what
@@ -210,21 +333,17 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Working copies are the crash-safe form of every edit; equal text removes it.
+  // Every edit is written to the workflow's working copy shortly after;
+  // equal text removes it. Selecting another workflow meanwhile does not
+  // cancel the write (workingCopySaver).
   useEffect(() => {
     if (!workflow || readOnly) return;
-    const timer = window.setTimeout(() => {
-      const op =
-        workflow.openText === workflow.text
-          ? api.deleteWorkingCopy(workflow.path)
-          : api.putWorkingCopy(workflow.path, workflow.openText);
-      op.catch((e) => showToast(e instanceof Error ? e.message : String(e)));
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [workflow?.path, workflow?.openText, workflow?.text, readOnly]);
+    saver.want(workflow.path, workflow.openText === workflow.text ? null : { text: workflow.openText, base: workflow.hash });
+  }, [workflow?.path, workflow?.openText, workflow?.text, workflow?.hash, readOnly]);
 
   // The review guides the engine gives the open text's agent gates. Asked
-  // again shortly after each edit; a failed request leaves the last answer.
+  // again shortly after each edit and after each refresh, since a policy or
+  // a guide can change on disk; a failed request leaves the last answer.
   const [guides, setGuides] = useState<{ path: string; result: ReviewGuides } | null>(null);
   const reviewGuides = guides && guides.path === workflow?.path ? guides.result : null;
   useEffect(() => {
@@ -240,7 +359,7 @@ export function App() {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [workflow?.path, workflow?.openText, readOnly]);
+  }, [workflow?.path, workflow?.openText, readOnly, refreshes]);
 
   // The engine's checks that need other files (POST /api/validate), asked
   // like the review guides. Each answer is kept with the path and text it
@@ -263,7 +382,7 @@ export function App() {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [workflow?.path, workflow?.openText, readOnly]);
+  }, [workflow?.path, workflow?.openText, readOnly, refreshes]);
   const engineAnswer =
     workflow && engineCheck && engineCheck.path === workflow.path && engineCheck.text === workflow.openText ? engineCheck : null;
   const problems = useMemo(
@@ -297,13 +416,14 @@ export function App() {
       open: () => workflowsRef.current.find((w) => workflowKey(w) === key),
       fetch: async () => (await api.workflows()).workflows.find((w) => w.path === path),
       apply: (action, open, listed) => {
+        requests.current.invalidate("workflows");
         if (action === "conflict") {
           setDiskVersions((all) => ({
             ...all,
             [key]: {
               text: listed.text,
               hash: listed.hash,
-              at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              at: timeNow(),
             },
           }));
           return;
@@ -325,6 +445,8 @@ export function App() {
     const source = new EventSource(api.watchUrl(path));
     source.addEventListener("change", (event) => {
       const change = JSON.parse((event as MessageEvent).data) as { hash: string | null };
+      // A deleted file: the refresh drops it unless it has unsaved edits.
+      if (change.hash === null) void refreshNow();
       void watcher.change(change.hash);
     });
     return () => {
@@ -333,9 +455,12 @@ export function App() {
     };
   }, [workflow?.path, workflow?.onDisk, readOnly]);
 
+  // Whether an edit is taken now: not while a save writes the file
+  // (editorTakesEdits), read from the dialog as it is, not as last rendered.
+  const takesEdits = () => editorTakesEdits({ readOnly, dialog: modalRef.current });
   // Applies one edit, or several in order as one change: either all apply or none.
   const apply = (edits: Edit | Edit[]) => {
-    if (!workflow || !currentKey || readOnly) return;
+    if (!workflow || !currentKey || !takesEdits()) return;
     const list = Array.isArray(edits) ? edits : [edits];
     try {
       replaceWorkflow(currentKey, editedWorkflow(workflow, list));
@@ -357,7 +482,7 @@ export function App() {
   // No edits shows only the message, the reason it was refused. After a step
   // was added, removed or moved, the step selection is cleared.
   const applyCompare = (list: Edit[], message: string, clearSelection: boolean) => {
-    if (!list.length || !workflow || !currentKey || readOnly) return showToast(message);
+    if (!list.length || !workflow || !currentKey || !takesEdits()) return showToast(message);
     try {
       replaceWorkflow(currentKey, editedWorkflow(workflow, list));
       if (clearSelection) {
@@ -409,8 +534,8 @@ export function App() {
   // is selected.
   useEffect(() => {
     if (!currentKey || !localWorkflows[0]) return;
-    if (givesWay({ listed: !!workflow, readOnly, hasRun: false, openedByLink: true })) selectWorkflow(workflowKey(localWorkflows[0]));
-  }, [currentKey, !!workflow, readOnly, localWorkflows]);
+    if (givesWay({ listed: !!workflow, readOnly: isRun, hasRun: false, openedByLink: true })) selectWorkflow(workflowKey(localWorkflows[0]));
+  }, [currentKey, !!workflow, isRun, localWorkflows]);
   // The Compare page's two workflows: the selected workflow on the left, and
   // its own right side, kept while it is listed.
   const compareList = useMemo(() => compareOrder(workflows), [workflows]);
@@ -428,7 +553,11 @@ export function App() {
     setCompareRight(next.right);
     if (next.select !== null) selectWorkflow(next.select);
   };
-  const goPage = (next: Page) => (next === "compare" ? openCompare() : setPage(next));
+  const goPage = (next: Page) => {
+    if (next === "compare") return openCompare();
+    if (next === "workstreams") void refreshNow();
+    setPage(next);
+  };
   // The project a followed link was read for, with the file it led to:
   // another project's file can be followed by workstreams of several
   // projects, and names in it resolve in the project of the one it was
@@ -463,7 +592,7 @@ export function App() {
   // project the open file belongs to when it is another project's file, else
   // of this project.
   const linkProject =
-    (readOnly ? (linkContext && linkContext.key === currentKey ? linkContext.project : workflow?.project) : undefined) ?? session?.root;
+    (isRun ? (linkContext && linkContext.key === currentKey ? linkContext.project : workflow?.project) : undefined) ?? session?.root;
   const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
   const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
   // A link of the open workflow, followed: its target is read for the same project.
@@ -498,7 +627,11 @@ export function App() {
 
   const discard = async () => {
     if (!workflow || !currentKey) return;
-    await api.deleteWorkingCopy(workflow.path);
+    if (!window.confirm(`Discard your unsaved changes to ${workflow.file}? They cannot be restored.`)) return;
+    localChanges.current++;
+    requests.current.invalidate("workflows");
+    await saver.drop(workflow.path);
+    clearCopyConflict(workflow.path);
     const base = disk ? { text: disk.text, hash: disk.hash } : { text: workflow.text, hash: workflow.hash };
     replaceWorkflow(currentKey, openWorkflow({ ...workflow, ...base, workingCopy: undefined }, true));
     setDiskVersions((all) => {
@@ -539,44 +672,86 @@ export function App() {
     setModal(null);
   };
 
-  const openSave = () =>
-    workflow &&
+  // The save dialog as last rendered, for a save that finishes after an await.
+  const modalRef = useRef(modal);
+  modalRef.current = modal;
+  const dialogs = useRef(0);
+  const openSave = () => {
+    if (!workflow) return;
+    // The warning names the workstreams in progress now, not at page load,
+    // so Update original waits for them (ModalView). The answer belongs to
+    // this dialog only.
+    const id = ++dialogs.current;
+    const answered = (fields: Partial<SaveModal>) =>
+      setModal((m) => (m?.type === "save" && m.id === id ? { ...m, checking: false, ...fields } : m));
+    const asked = requests.current.begin("workstreams");
+    api
+      .workstreams()
+      .then((ws) => {
+        if (requests.current.current("workstreams", asked)) setWorkstreams(ws.workstreams);
+        answered({ workstreams: ws.workstreams });
+      })
+      .catch((e) => answered({ checkError: e instanceof Error ? e.message : String(e) }));
     setModal({
       type: "save",
+      id,
       asNew: !workflow.onDisk,
       location: workflow.location === "run" ? "project" : workflow.location,
       folder: workflow.dir,
       name: workflow.file.replace(/\.ya?ml$/, ""),
+      checking: true,
     });
+  };
+  // One save: the text and the dialog's choice as they are when the user
+  // presses Save. Its checks may answer after the user cancelled or changed
+  // the dialog or the text; then it writes nothing. While it writes, the
+  // dialog cannot be closed, so nothing can be edited until it is done.
   const save = async () => {
-    if (!workflow || !currentKey || modal?.type !== "save") return;
+    if (!workflow || !currentKey || modal?.type !== "save" || modal.confirmed || modal.saving) return;
+    // Update original writes the open text where the engine last checked it.
+    if (!modal.asNew && saveBlocked) return;
+    const confirmed = ++dialogs.current;
+    const dialog: SaveModal = { ...modal, confirmed, error: undefined };
+    setModal(dialog);
+    const stillConfirmed = () => {
+      const now = modalRef.current;
+      const open = workflowsRef.current.find((w) => workflowKey(w) === currentKey);
+      return now?.type === "save" && now.confirmed === confirmed && open?.openText === workflow.openText;
+    };
+    const update = (fields: Partial<SaveModal>) => setModal({ ...dialog, confirmed: undefined, saving: false, ...fields });
+    // The text changed under a dialog still open: the dialog is offered again.
+    const abandon = () =>
+      setModal((m) => (m?.type === "save" && m.confirmed === confirmed ? { ...m, confirmed: undefined } : m));
+    localChanges.current++;
+    // The working copy this tab knows now is the one the save's cleanup may
+    // remove; a listing read meanwhile does not change it (workingCopySaver).
+    const path = workflow.path;
+    saver.hold(path);
+    savesInFlight.current++;
     try {
-      if (modal.asNew) {
+      if (dialog.asNew) {
         // The file as it will be at the new place: relative guides, workflow
         // gates and hand-offs written again so they name the same files,
         // checked there by the engine. Errors refuse; warnings are shown
         // once, then Save writes it.
-        const location = session!.locations.find((x) => x.id === modal.location)!;
-        const folder = modal.folder.replace(/^\/+|\/+$/g, "");
-        const destination = `${location.path}/${folder ? `${folder}/` : ""}${modal.name}.yml`;
+        const location = session!.locations.find((x) => x.id === dialog.location)!;
+        const folder = dialog.folder.replace(/^\/+|\/+$/g, "");
+        const destination = `${location.path}/${folder ? `${folder}/` : ""}${dialog.name}.yml`;
         const text = editedWorkflow(workflow, movedRefEdits(workflow.openText, workflow.path, destination)).openText;
         const check = await api.validate(destination, text);
-        if (check.errors.length) {
-          setModal({ ...modal, error: `fuse-flow would refuse the file there: ${check.errors.join(" · ")}` });
-          return;
-        }
+        if (!stillConfirmed()) return abandon();
+        if (check.errors.length) return update({ error: `fuse-flow would refuse the file there: ${check.errors.join(" · ")}` });
         const checked = `${destination}\n${text}`;
-        if (check.warnings.length && modal.checked !== checked) {
-          setModal({ ...modal, warnings: check.warnings, checked, error: undefined });
-          return;
-        }
-        const result = await api.saveNewWorkflow(modal.location, modal.folder, modal.name, text);
-        await api.deleteWorkingCopy(workflow.path);
-        const dir = modal.folder.replace(/^\/+|\/+$/g, "");
-        const file = `${modal.name}.yml`;
+        if (check.warnings.length && dialog.checked !== checked) return update({ warnings: check.warnings, checked });
+        setModal({ ...dialog, saving: true });
+        const result = await api.saveNewWorkflow(dialog.location, dialog.folder, dialog.name, text);
+        requests.current.invalidate("workflows");
+        await saver.drop(workflow.path);
+        clearCopyConflict(workflow.path);
+        const file = `${dialog.name}.yml`;
         const saved = openWorkflow({
-          location: modal.location,
-          dir,
+          location: dialog.location,
+          dir: folder,
           file,
           path: result.path,
           onDisk: true,
@@ -602,8 +777,11 @@ export function App() {
         setCurrentKey(workflowKey(saved));
         showToast(`Saved ${result.path}`);
       } else {
+        setModal({ ...dialog, saving: true });
         const result = await api.updateWorkflow(workflow.path, workflow.hash, workflow.openText);
-        await api.deleteWorkingCopy(workflow.path);
+        requests.current.invalidate("workflows");
+        await saver.drop(workflow.path);
+        clearCopyConflict(workflow.path);
         replaceWorkflow(
           currentKey,
           openWorkflow({ ...workflow, text: workflow.openText, hash: result.hash, workingCopy: undefined }, true),
@@ -616,8 +794,10 @@ export function App() {
         showToast(`Updated ${workflow.path}`);
       }
       setModal(null);
+      void refreshNow();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && !modal.asNew) {
+      if (!stillConfirmed()) return abandon();
+      if (e instanceof ApiError && e.status === 409 && !dialog.asNew) {
         const listed = (await api.workflows()).workflows.find((w) => w.path === workflow.path);
         if (listed)
           setDiskVersions((all) => ({
@@ -625,17 +805,24 @@ export function App() {
             [currentKey]: {
               text: listed.text,
               hash: listed.hash,
-              at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              at: timeNow(),
             },
           }));
         setModal(null);
-      } else setModal({ ...modal, error: e instanceof Error ? e.message : String(e) });
+      } else update({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      // A save that removed the copy ended the hold already (drop).
+      saver.release(path);
+      savesInFlight.current--;
     }
   };
 
   const loadDisk = async () => {
     if (!workflow || !currentKey || !disk) return;
-    await api.deleteWorkingCopy(workflow.path);
+    localChanges.current++;
+    requests.current.invalidate("workflows");
+    await saver.drop(workflow.path);
+    clearCopyConflict(workflow.path);
     replaceWorkflow(
       currentKey,
       openWorkflow({ ...workflow, text: disk.text, hash: disk.hash, workingCopy: undefined }, true),
@@ -660,11 +847,34 @@ export function App() {
     });
     showToast("Kept my edits");
   };
+  // Another tab changed this workflow's working copy: load that copy, or
+  // write this tab's edits over it.
+  const resolveCopy = async (keepMine: boolean) => {
+    if (!workflow || !currentKey) return;
+    const path = workflow.path;
+    try {
+      const listed = (await api.workflows()).workflows.find((w) => w.path === path);
+      if (!keepMine && listed) {
+        const found: Record<string, DiskVersion> = {};
+        replaceWorkflow(currentKey, openListed(listed, found));
+        setDiskVersions((all) => {
+          const next = { ...all };
+          delete next[currentKey];
+          return { ...next, ...found };
+        });
+      }
+      clearCopyConflict(path);
+      await saver.resolve(path, listed?.workingCopyHash ?? null, keepMine);
+      showToast(keepMine ? "Kept my edits" : "Loaded the other tab's edits");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   if (error) return <div className="app-error">Failed to load Komposer: {error}</div>;
   if (!session) return <div className="app-loading">Loading…</div>;
   // After projects were added or removed; open workflows and their edits stay.
-  const projectsChanged = () => refreshProjects().catch((e) => showToast(e instanceof Error ? e.message : String(e)));
+  const projectsChanged = () => void refreshNow();
   const lane = (
     <WorkflowList
       mode={page === "workstreams" ? "workstreams" : "edit"}
@@ -718,17 +928,24 @@ export function App() {
     ) : null;
   // The disk-change banner of the Edit and Compare pages, for the selected workflow.
   const diskBanner =
-    workflow && disk && !readOnly ? (
-      <DiskBanner
-        file={workflow.file}
-        disk={disk}
-        onCompare={() => {
-          setWorkflowView("changes");
-          showTab("workflow");
-        }}
-        onLoadDisk={loadDisk}
-        onKeepEdits={keepEdits}
-      />
+    workflow && !readOnly && (disk || copyConflicts[workflow.path]) ? (
+      <>
+        {copyConflicts[workflow.path] && (
+          <CopyBanner file={workflow.file} onLoadOther={() => resolveCopy(false)} onKeepMine={() => resolveCopy(true)} />
+        )}
+        {disk && (
+          <DiskBanner
+            file={workflow.file}
+            disk={disk}
+            onCompare={() => {
+              setWorkflowView("changes");
+              showTab("workflow");
+            }}
+            onLoadDisk={loadDisk}
+            onKeepEdits={keepEdits}
+          />
+        )}
+      </>
     ) : null;
   // The right rail of the Edit and Compare pages, for the selected workflow.
   const rail = (
@@ -783,6 +1000,9 @@ export function App() {
 
   return (
     <div className="app">
+      {/* While a save writes the file, the page behind its dialog takes no
+          focus and no input (editorTakesEdits). */}
+      <div style={{ display: "contents" }} inert={!editorTakesEdits({ readOnly: false, dialog: modal })}>
       <TopBar project={projectName(session.root)} page={page} onPage={goPage} />
       {page === "present" ? (
         <Present
@@ -841,7 +1061,7 @@ export function App() {
               onOnlyDifferences={setOnlyDifferences}
               allInstructions={allInstructions}
               onAllInstructions={setAllInstructions}
-              status={workflowStatus(workflow, readOnly, dirty)}
+              status={workflowStatus(workflow, readOnly, dirty, copyFailures[workflow.path])}
               dirty={dirty && !readOnly}
               saveBlocked={saveBlocked}
               onSave={openSave}
@@ -862,6 +1082,7 @@ export function App() {
           {workflow ? (
             <EditCenter
               workflow={workflow}
+              notWritten={copyFailures[workflow.path]}
               steps={steps}
               readOnly={readOnly}
               dirty={dirty}
@@ -904,19 +1125,21 @@ export function App() {
           {rail}
         </div>
       )}
+      </div>
       {modal && workflow && (
         <ModalView
           modal={modal}
           setModal={setModal}
           session={session}
           workflow={workflow}
-          structural={structureChanges(workflow, steps)}
-          activeWorkstreams={workstreams.filter(
-            (w) => followsWorkflow(w, workflow) && w.summary?.status !== "COMPLETED",
+          structural={structureChanges(workflow)}
+          activeWorkstreams={(modal.type === "save" ? (modal.workstreams ?? []) : []).filter(
+            (w) => followsWorkflow(w, workflow) && stateOf(w) !== "COMPLETED",
           )}
+          saveBlocked={saveBlocked}
           onSetName={(name) => {
             apply({ op: "setWorkflowField", key: "name", value: name });
-            setModal((m) => (m?.type === "save" ? { ...m, warnings: undefined, checked: undefined } : m));
+            setModal((m) => (m?.type === "save" ? { ...m, warnings: undefined, checked: undefined, confirmed: undefined } : m));
           }}
           onConfirm={modal.type === "new" ? confirmNew : save}
         />
@@ -945,11 +1168,31 @@ function DiskBanner({
   return (
     <div className="disk-banner">
       <span>
-        {file} changed on disk at {disk.at}. Your working copy has unsaved edits.
+        {disk.unknownBase
+          ? `${file} may have changed on disk since this working copy was made: an older Komposer wrote it without the version it was made from.`
+          : `${file} changed on disk ${disk.at ? `at ${disk.at}` : "after this working copy was made"}.`}{" "}
+        Your working copy has unsaved edits.
       </span>
       <button onClick={onCompare}>Compare</button>
       <button onClick={onLoadDisk}>Load disk version</button>
       <button className="keep" onClick={onKeepEdits}>
+        Keep my edits
+      </button>
+    </div>
+  );
+}
+
+// The banner of the Edit and Compare pages when another tab changed the
+// selected workflow's working copy, so this tab's edits are not written
+// until the user picks which ones to keep.
+function CopyBanner({ file, onLoadOther, onKeepMine }: { file: string; onLoadOther: () => void; onKeepMine: () => void }) {
+  return (
+    <div className="disk-banner">
+      <span>
+        Another tab changed the working copy of {file}. Your edits in this tab are not kept until you choose.
+      </span>
+      <button onClick={onLoadOther}>Load the other tab's edits</button>
+      <button className="keep" onClick={onKeepMine}>
         Keep my edits
       </button>
     </div>
@@ -993,9 +1236,12 @@ function ProblemsChip({
   );
 }
 
-// A workflow's status line in the Edit and Compare headers.
-function workflowStatus(workflow: OpenWorkflow, readOnly: boolean, dirty: boolean): string {
+// A workflow's status line in the Edit and Compare headers. notWritten: why
+// its edits could not be written to its working copy.
+function workflowStatus(workflow: OpenWorkflow, readOnly: boolean, dirty: boolean, notWritten?: string): string {
+  if (readOnly && workflow.leadsTo) return `read-only · a link to ${workflow.leadsTo}, outside the workflow locations`;
   if (readOnly) return `read-only · ${projectName(workflow.project ?? "")}'s own workflow`;
+  if (notWritten) return `${workflow.onDisk ? "modified" : "new"} · not written: ${notWritten}`;
   if (!workflow.onDisk) return "new · working copy";
   return dirty ? "modified · working copy" : "saved";
 }
@@ -1004,6 +1250,7 @@ function workflowStatus(workflow: OpenWorkflow, readOnly: boolean, dirty: boolea
 // Save, the disk-change banner, the toolbar, and the diagram.
 function EditCenter({
   workflow,
+  notWritten,
   steps,
   readOnly,
   dirty,
@@ -1019,6 +1266,8 @@ function EditCenter({
   children,
 }: {
   workflow: OpenWorkflow;
+  // Why the edits could not be written to the working copy.
+  notWritten?: string;
   steps: ReturnType<typeof stepViews>;
   readOnly: boolean;
   dirty: boolean;
@@ -1034,7 +1283,7 @@ function EditCenter({
   setShowDescriptions: (update: (on: boolean) => boolean) => void;
   children: React.ReactNode;
 }) {
-  const status = workflowStatus(workflow, readOnly, dirty);
+  const status = workflowStatus(workflow, readOnly, dirty, notWritten);
   return (
     <div className="center">
       <div className="center-header">
@@ -1093,6 +1342,7 @@ function ModalView({
   workflow,
   structural,
   activeWorkstreams,
+  saveBlocked,
   onSetName,
   onConfirm,
 }: {
@@ -1101,7 +1351,10 @@ function ModalView({
   session: Session;
   workflow: OpenWorkflow;
   structural: string[];
+  // The workstreams in progress on the workflow, as this dialog read them.
   activeWorkstreams: WorkstreamSummary[];
+  // Why the open text cannot be saved where it is, or null (the editor's Save).
+  saveBlocked: string | null;
   // Sets the open workflow's name, as a warning about the file name offers.
   onSetName: (name: string) => void;
   onConfirm: () => void;
@@ -1110,17 +1363,28 @@ function ModalView({
   const valid = /^[a-z0-9][a-z0-9-]*$/.test(modal.name);
   const location = session.locations.find((x) => x.id === modal.location)!;
   const preview = `${location.path}/${modal.folder ? `${modal.folder.replace(/^\/+|\/+$/g, "")}/` : ""}${modal.name || "…"}.yml`;
+  // Update original with changes a workstream depends on waits until the
+  // workstreams in progress are known, so the warning is not missed.
+  const waiting = modal.type === "save" && !modal.asNew && structural.length > 0 && (modal.checking || !!modal.checkError);
   const warning = modal.type === "save" && !modal.asNew && structural.length > 0 && activeWorkstreams.length > 0;
   const engineWarnings = modal.type === "save" && modal.asNew ? (modal.warnings ?? []) : [];
-  // A change of destination drops the warnings given for the old one.
+  // Update original writes the open text where it is, so the editor's checks apply.
+  const blocked = modal.type === "save" && !modal.asNew ? saveBlocked : null;
+  // A pressed Save: its checks run (a change drops it), then the file is written.
+  const confirmed = modal.type === "save" && !!modal.confirmed;
+  const saving = modal.type === "save" && !!modal.saving;
+  const close = () => !saving && setModal(null);
+  // A change of destination drops the warnings given for the old one; any
+  // change drops a Save whose checks are still running.
   const patch = (fields: Partial<SaveModal>) =>
-    setModal({ ...modal, ...("asNew" in fields || "location" in fields || "folder" in fields || "name" in fields ? { warnings: undefined, checked: undefined } : {}), ...fields } as Modal);
+    !saving &&
+    setModal({ ...modal, confirmed: undefined, ...("asNew" in fields || "location" in fields || "folder" in fields || "name" in fields ? { warnings: undefined, checked: undefined } : {}), ...fields } as Modal);
   return (
-    <div className="modal-backdrop" onClick={() => setModal(null)}>
+    <div className="modal-backdrop" onClick={close}>
       <div className="save-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <h2>{modal.type === "new" ? "New workflow" : `Save ${workflow.file}`}</h2>
-          <button className="icon-mini" title="Close" aria-label="Close" onClick={() => setModal(null)}>
+          <button className="icon-mini" title="Close" aria-label="Close" disabled={saving} onClick={close}>
             <X />
           </button>
         </div>
@@ -1160,6 +1424,7 @@ function ModalView({
               <input
                 className="field-input"
                 value={modal.folder}
+                disabled={saving}
                 onChange={(e) => patch({ folder: e.target.value, error: undefined })}
               />
             </label>
@@ -1168,6 +1433,7 @@ function ModalView({
               <input
                 className="field-input mono-input"
                 value={modal.name}
+                disabled={saving}
                 onChange={(e) => patch({ name: e.target.value, error: undefined })}
                 data-error={!!modal.name && !valid}
               />
@@ -1175,6 +1441,13 @@ function ModalView({
             <div className="target-preview">{preview}</div>
             {modal.name && !valid && <div className="field-error">Lower-case letters, digits and hyphens.</div>}
           </>
+        )}
+        {modal.type === "save" && waiting && (
+          <div className="workstream-warning">
+            {modal.checkError
+              ? `Cannot read the workstreams in progress, so this save cannot warn about them: ${modal.checkError}. Close and try again, or save as a new file.`
+              : "Reading the workstreams in progress on this workflow…"}
+          </div>
         )}
         {warning && (
           <div className="workstream-warning">
@@ -1184,11 +1457,17 @@ function ModalView({
             </strong>
             {activeWorkstreams.map((run) => (
               <div key={run.slug}>
-                {run.slug} · {run.summary?.status.toLowerCase().replaceAll("_", " ")}
+                {run.slug} · {stateOf(run).toLowerCase().replaceAll("_", " ")}
                 {run.summary?.currentStep ? ` at ${run.summary.currentStep}` : ""}
               </div>
             ))}
             <div>{structural.join(" · ")}</div>
+            {structural.some((change) => change.startsWith("changed gates of ")) && (
+              <div>
+                fuse-flow takes back an owner's accepted review whose gate changed, and runs a changed or added gate on
+                work already recorded before approving it.
+              </div>
+            )}
           </div>
         )}
         {engineWarnings.length > 0 && (
@@ -1198,49 +1477,35 @@ function ModalView({
               <div key={line}>{line}</div>
             ))}
             {engineWarnings.some((line) => line.includes("differs from the file name")) && (
-              <button className="secondary-button" onClick={() => onSetName(modal.name)}>
+              <button className="secondary-button" disabled={saving} onClick={() => onSetName(modal.name)}>
                 Name the workflow {modal.name}
               </button>
             )}
           </div>
         )}
+        {blocked && <div className="field-error">{blocked}</div>}
         {modal.error && <div className="field-error">{modal.error}</div>}
         <div className="modal-actions">
-          <button className="secondary-button" onClick={() => setModal(null)}>
+          <button className="secondary-button" disabled={saving} onClick={close}>
             Cancel
           </button>
-          <button className="primary-button" disabled={asNew && !valid} onClick={onConfirm}>
-            {modal.type === "new" ? "Create" : warning ? "Save anyway" : "Save"}
+          <button
+            className="primary-button"
+            disabled={(asNew && !valid) || waiting || !!blocked || confirmed || saving}
+            onClick={onConfirm}
+          >
+            {modal.type === "new"
+              ? "Create"
+              : saving
+                ? "Saving…"
+                : confirmed
+                  ? "Checking…"
+                  : warning || engineWarnings.length
+                    ? "Save anyway"
+                    : "Save"}
           </button>
         </div>
       </div>
     </div>
   );
-}
-
-function structureChanges(workflow: OpenWorkflow, currentSteps: ReturnType<typeof stepViews>): string[] {
-  const current = workflow.stepKeys.map((key, index) => ({ key, id: currentSteps[index]?.id ?? "", index }));
-  const out: string[] = [];
-  workflow.savedSteps.forEach((saved) => {
-    const now = current.find((step) => step.key === saved.key);
-    if (!now) {
-      out.push(`deleted ${saved.id}`);
-      return;
-    }
-    if (now.id !== saved.id) out.push(`renamed ${saved.id} → ${now.id}`);
-  });
-  current
-    .filter((step) => !workflow.savedSteps.some((saved) => saved.key === step.key))
-    .forEach((step) => out.push(`added ${step.id}`));
-
-  const savedCommon = workflow.savedSteps.filter((saved) => current.some((step) => step.key === saved.key));
-  const currentCommon = current.filter((step) => workflow.savedSteps.some((saved) => saved.key === step.key));
-  savedCommon.forEach((saved, savedRank) => {
-    const currentRank = currentCommon.findIndex((step) => step.key === saved.key);
-    if (currentRank === savedRank) return;
-    const now = currentCommon[currentRank];
-    const savedIndex = workflow.savedSteps.findIndex((step) => step.key === saved.key);
-    out.push(`moved ${now.id} ${savedIndex + 1} → ${now.index + 1}`);
-  });
-  return out;
 }

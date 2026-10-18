@@ -60,10 +60,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ location, folder, file, text }),
     }),
-  putWorkingCopy: (path: string, text: string) =>
-    request<{ path: string }>("working-copies", { method: "PUT", body: JSON.stringify({ path, text }) }),
-  deleteWorkingCopy: (path: string) =>
-    request<Record<string, never>>("working-copies", { method: "DELETE", body: JSON.stringify({ path }) }),
+  // A working copy is written or removed only while the server holds the copy
+  // the tab last saw (`expected`: its hash, or null for none). An urgent
+  // request outlives the page, as when the tab is closed or reloaded.
+  putWorkingCopy: (path: string, text: string, base: string, expected: string | null, urgent = false) =>
+    request<{ path: string; hash: string }>("working-copies", {
+      method: "PUT",
+      body: JSON.stringify({ path, text, base, expected }),
+      keepalive: urgent,
+    }),
+  deleteWorkingCopy: (path: string, expected: string | null, urgent = false) =>
+    request<Record<string, never>>("working-copies", {
+      method: "DELETE",
+      body: JSON.stringify({ path, expected }),
+      keepalive: urgent,
+    }),
   library: () => request<{ entries: LibraryEntry[] }>("library"),
   reviewGuides: (path: string, text: string) =>
     request<ReviewGuides>("review-guides", { method: "POST", body: JSON.stringify({ path, text }) }),

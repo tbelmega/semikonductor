@@ -18,7 +18,7 @@
 // reported as outside those locations, without its content.
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { FlowError } from "../../flow/src/errors.ts";
@@ -297,11 +297,13 @@ export function startServer(options: ServerOptions): KomposerServer {
     const konductor = realForm(join(root, ".konductor"));
     return konductor ? join(konductor, "editor") : undefined;
   };
-  // A working copy's path, once it and the folder's .gitignore are known to
-  // lead into the working-copy folder.
+  // Next to each working copy, the hash of the original it was made from.
+  const basePath = (copy: string) => `${copy}.base`;
+  // A working copy's path, once it, its base record and the folder's
+  // .gitignore are known to lead into the working-copy folder.
   const writableCopy = (location: Location, rel: string) => {
     const copy = workingCopyPath(location, rel);
-    for (const file of [copy, join(editorDir, ".gitignore")]) writable(file, [editorRoot()], /./, "inside Komposer's working-copy folder");
+    for (const file of [copy, basePath(copy), join(editorDir, ".gitignore")]) writable(file, [editorRoot()], /./, "inside Komposer's working-copy folder");
     return copy;
   };
   // Whether a working copy exists and its real path lies in the working-copy
@@ -310,6 +312,59 @@ export function startServer(options: ServerOptions): KomposerServer {
     const real = existsSync(copy) ? realForm(copy) : undefined;
     const editor = editorRoot();
     return !!real && !!editor && within(real, [editor]);
+  };
+  // Every file below a working-copy folder. A folder that cannot be read is
+  // reported in `problems` and skipped, so the rest are still listed.
+  const workingCopiesBelow = (dir: string, problems: string[][]): string[] => {
+    const files: string[] = [];
+    const seen = new Set<string>();
+    const walk = (folder: string) => {
+      let names: string[];
+      try {
+        const real = realpathSync(folder);
+        if (seen.has(real)) return;
+        seen.add(real); // a symlink loop is walked once
+        names = readdirSync(folder).sort();
+      } catch (e) {
+        problems.push([folder, (e as Error).message]);
+        return;
+      }
+      for (const name of names) {
+        const path = join(folder, name);
+        if (isDirectory(path)) walk(path);
+        else files.push(path);
+      }
+    };
+    walk(dir);
+    return files;
+  };
+  // A working copy as the listing gives it: its text, the hash of that text,
+  // which a tab sends back as `expected` when it writes or removes the copy,
+  // and the hash of the original it was made from, when that is recorded.
+  // A copy or base record that cannot be read is left out and reported in
+  // `problems`, so one of them does not fail the listing; the files stay.
+  const workingCopyFields = (copy: string, problems: string[][]) => {
+    const read = (file: string) => {
+      if (!readableCopy(file)) return undefined;
+      try {
+        return readFileSync(file, "utf8");
+      } catch (e) {
+        problems.push([file, (e as Error).message]);
+        return undefined;
+      }
+    };
+    const text = read(copy);
+    if (text === undefined) return {};
+    const base = read(basePath(copy));
+    return { workingCopy: text, workingCopyHash: sha(text), ...(base === undefined ? {} : { workingCopyBase: base }) };
+  };
+  // Two tabs on one workflow share its working copy, so a tab that sends
+  // `expected` (the copy's hash as it last saw it, or null for none) writes
+  // or removes the copy only while it still holds that.
+  const checkExpected = (copy: string, body: any) => {
+    if (!("expected" in body)) return;
+    const current = existsSync(copy) ? sha(readFileSync(copy, "utf8")) : null;
+    if (current !== body.expected) throw new HttpError(409, "The working copy was changed in another tab.");
   };
 
   // The projects whose runs are shown: this one first, then the registered
@@ -482,11 +537,21 @@ export function startServer(options: ServerOptions): KomposerServer {
     const out: Record<string, unknown>[] = [];
     const unavailable: Record<string, unknown>[] = [];
     const own: { path: string; text: string }[] = [];
+    // A working-copy folder that is there but cannot be searched hides every
+    // working copy below it, which then look absent; it is reported once, and
+    // the copies stay on disk.
+    try {
+      if (statSync(editorDir).isDirectory()) accessSync(editorDir, constants.X_OK);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") unavailable.push({ location: "project", kind: "working-copy", path: editorDir, reason: (e as Error).message });
+    }
     for (const location of locations) {
       const seen = new Set<string>();
       const scanned = scanLocation(location);
       own.push(...scanned.files);
       unavailable.push(...scanned.unavailable);
+      const problems: string[][] = [];
       for (const u of scanned.unavailable) if (u.kind !== "folder") seen.add(relative(location.path, u.path as string));
       for (const { path, text } of scanned.files) {
         const rel = relative(location.path, path);
@@ -501,16 +566,18 @@ export function startServer(options: ServerOptions): KomposerServer {
           ...realPathOf(path),
           text,
           hash: sha(text),
-          ...(readableCopy(copy) ? { workingCopy: readFileSync(copy, "utf8") } : {}),
+          ...workingCopyFields(copy, problems),
           ...leadsOutside(path),
         });
       }
-      // Working copies of new workflows that were never saved.
+      // Working copies of new workflows that were never saved, or whose
+      // original is gone.
       const copies = join(editorDir, location.id);
-      if (!existsSync(copies)) continue;
-      for (const copy of workflowFilesBelow(root, copies)) {
+      for (const copy of existsSync(copies) ? workingCopiesBelow(copies, problems) : []) {
         const rel = relative(copies, copy);
-        if (seen.has(rel) || !rel.endsWith(".yml") || !readableCopy(copy)) continue;
+        if (seen.has(rel) || !WORKFLOW_FILE.test(rel) || !readableCopy(copy)) continue;
+        const fields = workingCopyFields(copy, problems);
+        if (!("workingCopy" in fields)) continue;
         out.push({
           location: location.id,
           dir: dirname(rel) === "." ? "" : dirname(rel),
@@ -519,9 +586,10 @@ export function startServer(options: ServerOptions): KomposerServer {
           onDisk: false,
           text: "",
           hash: sha(""),
-          workingCopy: readFileSync(copy, "utf8"),
+          ...fields,
         });
       }
+      for (const [path, reason] of problems) unavailable.push({ location: location.id, kind: "working-copy", path, reason });
     }
     const other = runWorkflows(own, new Set([...own.map((w) => w.path), ...unavailable.filter((u) => u.kind === "file").map((u) => u.path as string)]));
     return { workflows: [...out, ...other.files], unavailable: [...unavailable, ...other.unavailable] };
@@ -563,18 +631,25 @@ export function startServer(options: ServerOptions): KomposerServer {
   const putWorkingCopy = (body: any) => {
     const { location, rel } = locate(body.path);
     if (typeof body.text !== "string") throw new HttpError(400, "text is required");
+    if (body.base !== undefined && typeof body.base !== "string") throw new HttpError(400, "base must be a hash");
     const copy = writableCopy(location, rel);
     mkdirSync(editorDir, { recursive: true });
     const ignore = join(editorDir, ".gitignore");
     if (!existsSync(ignore)) writeFileSync(ignore, "*\n");
+    checkExpected(copy, body);
     mkdirSync(dirname(copy), { recursive: true });
     writeFileSync(copy, body.text);
-    return { path: copy };
+    if (typeof body.base === "string") writeFileSync(basePath(copy), body.base);
+    else rmSync(basePath(copy), { force: true });
+    return { path: copy, hash: sha(body.text) };
   };
 
   const deleteWorkingCopy = (body: any) => {
     const { location, rel } = locate(body.path);
-    rmSync(writableCopy(location, rel), { force: true });
+    const copy = writableCopy(location, rel);
+    checkExpected(copy, body);
+    rmSync(copy, { force: true });
+    rmSync(basePath(copy), { force: true });
     return {};
   };
 
