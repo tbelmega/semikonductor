@@ -1544,3 +1544,16 @@ test("a state file an earlier fuse-flow wrote with approved for a step without a
     r.cleanup();
   }
 });
+
+test("a step instruction is printed as written, so a literal block keeps its line breaks and indentation", () => {
+  const r = new Repo();
+  try {
+    const out = r.start(
+      "lit",
+      "version: 1\nname: lit\nsteps:\n  - id: run\n    instruction: |\n      Run this:\n\n          bun test --bail\n          bun run check\n\n      Then report.\n",
+    );
+    expect(out).toContain("STEP run (1 of 1): Run this:\n\n    bun test --bail\n    bun run check\n\nThen report.\nMODE: attended.");
+  } finally {
+    r.cleanup();
+  }
+});

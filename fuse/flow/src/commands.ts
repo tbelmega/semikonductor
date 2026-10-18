@@ -711,7 +711,10 @@ function dropUntouchedChild(c: Ctx, step: Step): string[] {
 // What the agent does now. `above` is the refusal printed above the block,
 // whose reason the block does not repeat.
 function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above = ""): string[] {
-  const lines = [`STEP ${step.id} (${position(c, step)}): ${step.instruction.replace(/\s+/g, " ").trim()}`];
+  // The instruction as written, so a literal block keeps its line breaks and
+  // indentation, such as a code block; only blank lines before it and
+  // whitespace after it are dropped.
+  const lines = [`STEP ${step.id} (${position(c, step)}): ${step.instruction.replace(/^\s*\n/, "").trimEnd()}`];
   const owned = rulings(c.p);
   if (owned.length) {
     lines.push("RULINGS: where this workflow and the house rules overlap, the owner ruled:", ...owned.map((r) => `  - ${r}`));
