@@ -17,6 +17,19 @@ const env = Object.fromEntries(
     .map((m) => [m[1], m[2].replace(/^'(.*)'$/, "$1")]),
 );
 
+// The JSON value in a command's output, from its first `open` character on,
+// after any banner the command printed; undefined when there is none or it
+// does not parse, so a missing or broken record reads as unknown.
+function jsonIn(text: string, open: string): unknown {
+  const at = text.indexOf(open);
+  if (at < 0) return undefined;
+  try {
+    return JSON.parse(text.slice(at));
+  } catch {
+    return undefined;
+  }
+}
+
 const read = (name: string) => (existsSync(join(run, name)) ? readFileSync(join(run, name), "utf8") : "");
 const turns = read("timings.tsv")
   .split("\n")
@@ -37,12 +50,16 @@ const mechanical = /MECHANICAL: (PASS|FAIL)/.exec(read("mechanical.txt"))?.[1] ?
 function credits(dir: string): number | null {
   const r = Bun.spawnSync(["kiro-cli", "chat", "--list-sessions", "-f", "json"], { cwd: dir });
   if (r.exitCode !== 0) return null;
+  const groups = jsonIn(r.stdout.toString(), "[") as { cwd: string; sessions: { sessionId: string }[] }[] | undefined;
+  if (!Array.isArray(groups)) return null;
   let total = 0;
-  for (const group of JSON.parse(r.stdout.toString()) as { cwd: string; sessions: { sessionId: string }[] }[]) {
-    for (const { sessionId } of group.sessions) {
+  for (const group of groups) {
+    for (const { sessionId } of group.sessions ?? []) {
       const file = join(homedir(), ".kiro", "sessions", "cli", `${sessionId}.json`);
       if (!existsSync(file)) return null;
-      const metas = JSON.parse(readFileSync(file, "utf8"))?.session_state?.conversation_metadata?.user_turn_metadatas ?? [];
+      const session = jsonIn(readFileSync(file, "utf8"), "{") as Record<string, any> | undefined;
+      if (session === undefined) return null;
+      const metas = session?.session_state?.conversation_metadata?.user_turn_metadatas ?? [];
       for (const meta of metas) for (const usage of meta.metering_usage ?? []) total += usage.value ?? 0;
     }
   }
@@ -50,24 +67,20 @@ function credits(dir: string): number | null {
 }
 
 // opencode records a cost in US dollars on each assistant message; sum them
-// over every session in the fuse agent's private home.
+// over every session in the role's private home. The subagent sessions that
+// run the reviews count too, and `opencode session list` shows only the
+// sessions they started from, so the sum reads opencode's database.
 function opencodeUsd(home: string, project: string): number | null {
   const procEnv = { ...(process.env as Record<string, string>), HOME: home, XDG_CONFIG_HOME: join(home, ".config") };
-  const list = Bun.spawnSync(["opencode", "session", "list", "--format", "json"], { cwd: project, env: procEnv });
-  if (list.exitCode !== 0) return null;
-  const text = list.stdout.toString();
-  const sessions = JSON.parse(text.slice(Math.max(0, text.indexOf("[")))) as { id: string }[];
-  let total = 0;
-  for (const { id } of sessions) {
-    // opencode exits before a large export drains through a pipe, so the
-    // export goes to a file, which it writes synchronously.
-    const file = join(run, `opencode-export-${id}.json`);
-    Bun.spawnSync(["sh", "-c", 'opencode export "$1" > "$2"', "sh", id, file], { cwd: project, env: procEnv });
-    const out = readFileSync(file, "utf8");
-    const data = JSON.parse(out.slice(out.indexOf("{")));
-    for (const m of data.messages ?? []) total += m.info?.cost ?? 0;
-  }
-  return Math.round(total * 10000) / 10000;
+  const query = "select coalesce(sum(json_extract(data, '$.cost')), 0) as usd from message";
+  const r = Bun.spawnSync(["opencode", "db", query, "--format", "json"], { cwd: project, env: procEnv });
+  if (r.exitCode !== 0) return null;
+  const rows = jsonIn(r.stdout.toString(), "[") as { usd?: unknown }[] | undefined;
+  if (!Array.isArray(rows)) return null;
+  // No row means opencode has no database: the role never started a session.
+  if (rows.length === 0) return 0;
+  const usd = rows[0]?.usd;
+  return typeof usd === "number" ? Math.round(usd * 10000) / 10000 : null;
 }
 
 const opencode = env.FUSE_HARNESS === "opencode";

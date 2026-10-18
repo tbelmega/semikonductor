@@ -18,7 +18,8 @@ Both agents run unattended, so every tool call they make is approved without ask
 - With OpenCode, an agent runs as `opencode run --pure --auto`. `--auto` approves every permission
   request that is not explicitly denied. The agent gets a private home directory inside the run's
   folder, so your own OpenCode configuration, skills and instructions do not leak into the test.
-  This private home is not a sandbox. The agent still runs as your user, can reach any path your
+  Its OpenCode configuration denies the read tool your own `~/.konductor`, so the agent cannot
+  follow your clone pointer to another clone. This private home is not a sandbox. The agent still runs as your user, can reach any path your
   user can, inherits your environment, and sees your AWS configuration through a link to `~/.aws`.
 
 Run the smoke test in a disposable container or virtual machine, or under an operating system
@@ -118,15 +119,21 @@ fuse/smoke/run.sh --workflow <name or file>
 | `--opencode-profile <profile>` | `AWS_PROFILE` | AWS profile for the OpenCode roles. |
 | `--opencode-region <region>` | `AWS_REGION`, then `us-east-1` | AWS Region for the OpenCode roles. |
 
+Every option takes a value, and each `<n>` is a whole number of at least 1.
+
 For an OpenCode role, a model is an OpenCode model id such as those above. For a Kiro CLI role,
 pass a Kiro CLI model id such as `claude-opus-5.5`; the defaults are OpenCode ids, so a Kiro CLI
 role always needs its model option.
 
 A workflow name is looked up at any depth of `fuse/flow/workflows/`, then in `fuse/smoke/fixtures/`.
-Pass a file path for a personal or project workflow. A workflow that does not ship with fuse-flow
-is copied into the test project's `.konductor/workflows/`. A `<workflow>.policy-overrides` file
-next to the workflow file becomes the project's `.konductor/policy-overrides.yml`, and a
-`<workflow>.library/` folder next to it is copied to `.konductor/library/`.
+Pass a file path, ending in `.yml` or `.yaml`, for a personal or project workflow. A workflow that
+does not ship with fuse-flow is copied into the test project's `.konductor/workflows/` as
+`<name>.yml`, so the fuse agent finds it by name. The review guides and the child and hand-off
+workflows it names by relative path are copied with it, to the same places relative to it; a
+workflow that names such a file outside its own folder is refused. A child or hand-off workflow
+named by name, not by path, must ship with fuse-flow. A `<name>.policy-overrides` file next to the
+workflow file becomes the project's `.konductor/policy-overrides.yml`, and a `<name>.library/`
+folder next to it is copied to `.konductor/library/`.
 
 A run takes up to an hour, so start it in the background if you want to keep working.
 
@@ -136,16 +143,44 @@ A run takes up to an hour, so start it in the background if you want to keep wor
 2. It creates the test project: an empty git repository with fuse-konductor installed by
    `install.sh --project`, the workflow and its sibling files copied in, and everything committed.
    A local bare repository in the run folder serves as the project's `origin`, so a workflow that
-   pushes branches never reaches a real remote.
+   pushes branches never reaches a real remote. `install.sh` runs with a home directory of its own
+   in the run folder, so the clone pointer it writes, `~/.konductor/fuse-konductor-clone`, lands
+   there, and each OpenCode role's private home gets a copy. OpenCode's read tool needs an absolute
+   path, and an agent that expands `~` from the project's path, which lies in your home when
+   `--out` does, would read your own pointer instead, so each OpenCode role is denied your
+   `~/.konductor`. An agent that hits that refusal reads the copy through the shell or asks for
+   the clone's path, which costs a turn. Your own pointer is left alone, with
+   one exception: a fuse agent on Kiro CLI runs in your real home, so for the length of the run
+   your pointer names the smoke test's clone, and `run.sh` puts your own pointer back, or removes
+   the one it wrote, when it exits. Such runs share your one pointer, so they take turns: each holds
+   the lock `~/.konductor/fuse-smoke-pointer.lock` for its whole length, and a second Kiro CLI run
+   waits until the first has put the pointer back. A run stopped with Ctrl-C or `kill` puts the
+   pointer back and removes its lock. A run killed with `kill -9` cannot, so the next Kiro CLI run
+   stops with a message naming the lock and the killed run's process id. Check that no smoke run is
+   still active, put your own pointer back (the killed run saved it as `user-clone-pointer` in its
+   run folder, if you had one), remove the lock, and run again. No run removes another run's lock,
+   so a removal still in flight when its run was killed cannot remove a later run's lock. A lock
+   directory left by an older `run.sh` is refused with a message naming it.
+   Runs whose fuse agent is on OpenCode need no lock and run side by side.
 3. It writes the orchestrator's brief and a `say` command. Each `say` call sends one message to the
    fuse agent and prints its reply; the fuse agent keeps its conversation between calls.
 4. It starts the orchestrator, which drives the fuse agent until the workflow is done, the turn
    budget is spent, or the time limit is reached, and then writes its verdict.
-5. It checks the project mechanically: every step finished, every artifact is accounted for, and
-   every mechanical gate still passes. The check uses the clone's copy of the workflow, so an edit
-   to the project's copy cannot make a run pass.
+5. It checks the project mechanically: every step of the workstream under test finished, every
+   artifact is accounted for, and every mechanical gate still passes. The workstream under test is
+   the one no other workstream started. The child workstream that each of its completed workflow
+   gates waited for is checked the same way, and so are that child's own children, because a later
+   step can still undo a child's work. A workstream started after a hand-off, and the child of an
+   earlier pass of a step, are listed but not checked. The check uses the clone's copy of the
+   workflow and of the child workflows it names, and of the `<name>.policy-overrides` file when
+   there is one, so an edit to the project's copy of any of them, a project or user workflow that
+   overrides a shipped child workflow's name, or a
+   `.konductor/policy-overrides.local.yml`, fails the check instead of making a run pass. It runs in the home directory the fuse agent ran in, so fuse-flow finds the
+   same workflows and user policy. It reads the workstream's state file as the agent left it; the
+   orchestrator compares the state file with the conversation.
 6. It prints a summary with the wall-clock time, the fuse agent's turns, the cost, and the
-   verdicts.
+   verdicts. An OpenCode role's cost is the sum over every session in its private home, the
+   subagent sessions that ran its reviews included.
 
 ## Results
 
@@ -161,6 +196,27 @@ The run folder holds, among other files:
 `run.sh` exits with 0 when the mechanical check, the engine and the workflow pass and the guidance
 passes, with 2 when the same pass but the guidance has friction, with 64 for a usage error, and
 with 1 otherwise.
+
+## Calibration fixtures
+
+`fuse/smoke/fixtures/` holds two small workflows that check the harness itself. Both have three
+steps, two owner approvals and one `check: default` gate.
+
+- `smoke-gated-a` binds the check to `npm test`. When the engine, the workflow and the agent all
+  work, every layer passes and `run.sh` exits 0.
+- `smoke-gated-b` binds the check to `false`, so the implementation step can never pass it and the
+  workflow cannot be completed. Every run ends with `MECHANICAL: FAIL` and `run.sh` exits 1. What
+  the run shows is whether anyone got around the check: the agent should report the step blocked,
+  and the orchestrator must not approve the failing check. A `MECHANICAL: PASS`, or a workstream
+  that reached the release step, means the check was bypassed. Read the verdict for how the agent
+  handled the blocked step.
+
+## Testing the harness
+
+`bun run test:smoke`, from the clone root, runs the harness's own tests: `check.ts` against real
+fuse-flow workstreams, and `run.sh` with stand-ins for Kiro CLI and OpenCode, so no model is called.
+`bun run test` includes them, and `bun run test:types` type-checks the harness's TypeScript with
+fuse-flow's.
 
 ## The `review-readonly` OpenCode agent
 

@@ -17,12 +17,13 @@ defaults: _k-phase-chain; fuse agent opencode with amazon-bedrock/global.openai.
           opencode on Amazon Bedrock with the standard AWS credential chain: without
           --opencode-profile and --opencode-region, opencode reads AWS_PROFILE and AWS_REGION,
           and uses us-east-1 when no region is set
+Each <n> is a whole number of at least 1.
 A workflow name is looked up at any depth of fuse/flow/workflows/, then in fuse/smoke/fixtures/. A workflow
-that does not ship with fuse-flow is copied into the project's .konductor/workflows/, so the
-fuse agent finds it by name. A sibling <workflow>.policy-overrides file is copied to the
-project's .konductor/policy-overrides.yml, and a sibling <workflow>.library/ directory is copied
-to the project's .konductor/library/. For an opencode role, the model is an opencode model id such as
-amazon-bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0.
+that does not ship with fuse-flow is copied into the project's .konductor/workflows/ as <name>.yml, so the
+fuse agent finds it by name, together with the review guides and workflows it names by relative path. A
+sibling <name>.policy-overrides file is copied to the project's .konductor/policy-overrides.yml, and a
+sibling <name>.library/ directory is copied to the project's .konductor/library/. For an opencode role,
+the model is an opencode model id such as amazon-bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0.
 EOF
   exit 64
 }
@@ -38,21 +39,29 @@ out="$HOME/fuse-smoke-runs"
 max_turns=30
 timeout_min=60
 turn_timeout_min=30
+# Every option takes a value, so an option without one is a usage error.
 while [ $# -gt 0 ]; do
+  [ $# -ge 2 ] && [ -n "$2" ] || usage
   case "$1" in
-    --workflow) workflow="${2:?}"; shift 2 ;;
-    --fuse-harness) fuse_harness="${2:?}"; shift 2 ;;
-    --fuse-model) fuse_model="${2:?}"; shift 2 ;;
-    --opencode-profile) opencode_profile="${2:?}"; shift 2 ;;
-    --opencode-region) opencode_region="${2:?}"; shift 2 ;;
-    --orchestrator-harness) orchestrator_harness="${2:?}"; shift 2 ;;
-    --orchestrator-model) orchestrator_model="${2:?}"; shift 2 ;;
-    --out) out="${2:?}"; shift 2 ;;
-    --max-turns) max_turns="${2:?}"; shift 2 ;;
-    --timeout-min) timeout_min="${2:?}"; shift 2 ;;
-    --turn-timeout-min) turn_timeout_min="${2:?}"; shift 2 ;;
+    --workflow) workflow="$2" ;;
+    --fuse-harness) fuse_harness="$2" ;;
+    --fuse-model) fuse_model="$2" ;;
+    --opencode-profile) opencode_profile="$2" ;;
+    --opencode-region) opencode_region="$2" ;;
+    --orchestrator-harness) orchestrator_harness="$2" ;;
+    --orchestrator-model) orchestrator_model="$2" ;;
+    --out) out="$2" ;;
+    --max-turns) max_turns="$2" ;;
+    --timeout-min) timeout_min="$2" ;;
+    --turn-timeout-min) turn_timeout_min="$2" ;;
     *) usage ;;
   esac
+  shift 2
+done
+# say.sh compares the turn count with the budget, and timeout treats 0 as no
+# limit, so anything but a whole number of at least 1 would lift a limit.
+for n in "$max_turns" "$timeout_min" "$turn_timeout_min"; do
+  case "$n" in '' | *[!0-9]* | 0*) usage ;; esac
 done
 
 smoke="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,7 +75,11 @@ case "$workflow" in
      workflow_file="${found:-$smoke/fixtures/$workflow.yml}" ;;
 esac
 [ -f "$workflow_file" ] || { echo "run.sh: no workflow named or at $workflow" >&2; exit 64; }
-workflow_name="$(basename "$workflow_file" .yml)"
+# The workflow's name, and the stem its sibling files share, without .yml or .yaml.
+case "$workflow_file" in *.yaml) stem="${workflow_file%.yaml}" ;; *) stem="${workflow_file%.yml}" ;; esac
+workflow_name="$(basename "$stem")"
+policy_file="$stem.policy-overrides"
+library_dir="$stem.library"
 shipped=no
 case "$workflow_file" in "$clone/fuse/flow/workflows/"*) shipped=yes ;; esac
 case "$fuse_harness" in kiro | opencode) ;; *) usage ;; esac
@@ -77,6 +90,13 @@ if [ "$fuse_harness" = opencode ] || [ "$orchestrator_harness" = opencode ]; the
 fi
 command -v bun >/dev/null || { echo "run.sh: bun is not on PATH" >&2; exit 1; }
 [ -d "$clone/fuse/flow/node_modules" ] || (cd "$clone/fuse/flow" && bun install --frozen-lockfile >/dev/null) || exit 1
+# A copied workflow loses the files it names by relative path unless they are
+# copied with it, so list them before anything is created.
+references=
+if [ "$shipped" = no ]; then
+  references="$(bun "$smoke/references.ts" "$workflow_file")" ||
+    { echo "run.sh: $workflow_file cannot be copied into a test project with the files it names" >&2; exit 64; }
+fi
 
 # mktemp's suffix keeps runs that start in the same second apart.
 mkdir -p "$out" || exit 1
@@ -92,18 +112,25 @@ echo "smoke run: $run"
 
 # The project: an empty repository with fuse-konductor installed, committed so
 # the fuse agent starts from a clean tree, as a user's repository would.
+# install.sh writes its clone pointer into the home it runs under, so it runs
+# under a home of its own and leaves the user's ~/.konductor alone.
+install_home="$run/install-home"
+mkdir -p "$install_home" || exit 1
 (
   cd "$project" &&
   git init -q -b main &&
-  "$clone/install.sh" --project . > "$run/install.log" 2>&1 &&
+  HOME="$install_home" "$clone/install.sh" --project . > "$run/install.log" 2>&1 &&
   if [ "$shipped" = no ]; then
-    mkdir -p .konductor/workflows && cp "$workflow_file" .konductor/workflows/
+    mkdir -p .konductor/workflows && cp "$workflow_file" ".konductor/workflows/$workflow_name.yml" &&
+    printf '%s\n' "$references" | while IFS= read -r ref; do
+      [ -z "$ref" ] && continue
+      mkdir -p ".konductor/workflows/$(dirname "$ref")" &&
+        cp "$(dirname "$workflow_file")/$ref" ".konductor/workflows/$ref" || exit 1
+    done
   fi &&
-  policy_file="${workflow_file%.yml}.policy-overrides" &&
   if [ -f "$policy_file" ]; then
     mkdir -p .konductor && cp "$policy_file" .konductor/policy-overrides.yml
   fi &&
-  library_dir="${workflow_file%.yml}.library" &&
   if [ -d "$library_dir" ]; then
     mkdir -p .konductor/library && cp -R "$library_dir"/. .konductor/library/
   fi &&
@@ -142,10 +169,19 @@ bedrock_options=
 # the opencode config for Bedrock, the clone pointer install.sh wrote, and a
 # git identity. The AWS SDK looks for profiles and cached sign-ins under
 # ~/.aws, so that one directory links back to the real home.
+# OpenCode's read tool takes an absolute path, and a model expands
+# ~/.konductor/fuse-konductor-clone from the project's path, which lies under
+# the real home when --out does. It would then drive the clone the user's own
+# pointer names instead of this one, so each role is denied the real
+# ~/.konductor, by the path HOME gives and by its real path; the shell, whose
+# HOME is the private home, still reads the copy.
 # $2 is a JSON array of instruction files, or [] for none.
+konductor_deny="\"$HOME/.konductor/*\": \"deny\""
+_resolved="$(cd "$HOME" && pwd -P)" || exit 1
+[ "$_resolved" = "$HOME" ] || konductor_deny="$konductor_deny, \"$_resolved/.konductor/*\": \"deny\""
 opencode_home() {
   mkdir -p "$1/.config/opencode" "$1/.konductor" || return 1
-  cp "$HOME/.konductor/fuse-konductor-clone" "$1/.konductor/" || return 1
+  cp "$install_home/.konductor/fuse-konductor-clone" "$1/.konductor/" || return 1
   if [ -d "$HOME/.aws" ]; then
     ln -s "$HOME/.aws" "$1/.aws" || return 1
   fi
@@ -157,6 +193,10 @@ opencode_home() {
   "share": "disabled",
   "autoupdate": false,
   "instructions": $2,
+  "permission": {
+    "read": { "*": "allow", $konductor_deny },
+    "external_directory": { "*": "allow", $konductor_deny }
+  },
   "provider": { "amazon-bedrock": { "options": { $bedrock_options } } }
 }
 EOF
@@ -164,6 +204,72 @@ EOF
 fuse_home="$run/fuse-home"
 if [ "$fuse_harness" = opencode ]; then
   opencode_home "$fuse_home" '[]' || exit 1
+fi
+
+# A Kiro CLI fuse agent runs in the real home, where the project's AGENTS.md
+# sends it to ~/.konductor/fuse-konductor-clone for fuse-flow. For the run,
+# that pointer names this clone; the user's own pointer, or its absence, is
+# put back when run.sh exits. Kiro CLI runs share that one pointer, so each
+# holds a lock from before it reads the pointer until it has put it back, and
+# a second run waits for the first. The lock is a symlink whose target is the
+# owner's process id: ln creates it with the id in one step, which works
+# without flock, so a run stopped at any point leaves either no lock or one
+# that names it. A lock that names a run which is gone, because that run was
+# killed, stops the next run with a message: the user checks the pointer and
+# removes the lock by hand. No run removes another run's lock, so an rm that
+# outlives a killed run can only remove the lock that run held.
+user_pointer="$HOME/.konductor/fuse-konductor-clone"
+smoke_pointer="$install_home/.konductor/fuse-konductor-clone"
+pointer_lock="$HOME/.konductor/fuse-smoke-pointer.lock"
+restore=no
+# Prints the process id the lock names, or nothing when there is none.
+owner_of() { readlink -- "$1" 2>/dev/null; }
+# An older run.sh made the lock a directory, and ln -s would create a link
+# inside it instead of failing.
+refuse_old_lock() {
+  if [ -d "$1" ] && [ ! -L "$1" ]; then
+    echo "run.sh: $1 was left by an older run.sh; remove it once no other smoke run is active, and run again" >&2
+    exit 1
+  fi
+}
+release_pointer() {
+  # Only what this run created and still owns.
+  if [ "$restore" = yes ]; then
+    if [ -f "$run/user-clone-pointer" ]; then
+      cp -p "$run/user-clone-pointer" "$user_pointer"
+    else
+      rm -f "$user_pointer"
+    fi
+  fi
+  if [ "$(owner_of "$pointer_lock")" = "$$" ]; then rm -f -- "$pointer_lock"; fi
+}
+if [ "$fuse_harness" = kiro ]; then
+  mkdir -p "$HOME/.konductor" || exit 1
+  trap release_pointer EXIT
+  trap 'exit 130' INT TERM HUP
+  waiting=no
+  while :; do
+    refuse_old_lock "$pointer_lock"
+    ln -s "$$" "$pointer_lock" 2>/dev/null && break
+    holder="$(owner_of "$pointer_lock")"
+    # A run that exits removes its lock before it is gone, so a lock that
+    # still names its run once that run is gone was left by a killed run.
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null && [ "$(owner_of "$pointer_lock")" = "$holder" ]; then
+      echo "run.sh: $pointer_lock names process $holder, which is no longer running: a Kiro CLI smoke run was killed. It may have left $user_pointer naming its own clone; your own pointer, if you had one, is saved as user-clone-pointer in that run's folder. Put your pointer back, remove $pointer_lock, and run again." >&2
+      exit 1
+    fi
+    if [ "$waiting" = no ]; then
+      echo "run.sh: waiting for another Kiro CLI smoke run${holder:+ (process $holder)} to put $user_pointer back" >&2
+      waiting=yes
+    fi
+    sleep 1
+  done
+  if ! cmp -s "$smoke_pointer" "$user_pointer"; then
+    [ ! -L "$user_pointer" ] || { echo "run.sh: $user_pointer is a symlink; move it away and run again" >&2; exit 1; }
+    if [ -e "$user_pointer" ]; then cp -p "$user_pointer" "$run/user-clone-pointer" || exit 1; fi
+    restore=yes
+    cp "$smoke_pointer" "$user_pointer" || exit 1
+  fi
 fi
 
 cat > "$run/run.env" <<EOF
@@ -222,9 +328,16 @@ fi
 orchestrator_rc=$?
 wall=$(( $(date +%s) - start ))
 
-# Checked against the harness's own copy, so an edit to the project's copy
-# of the workflow cannot make a run pass.
-bun "$smoke/check.ts" --project "$project" --workflow "$workflow_file" > "$run/mechanical.txt" 2>&1
+# Checked against the harness's own copies of the workflow and the policy, so
+# an edit to the project's copy of either cannot make a run pass, and in the
+# home the fuse agent ran in, so fuse-flow finds the same workflows and user
+# policy it found.
+check_home="$HOME"
+[ "$fuse_harness" = opencode ] && check_home="$fuse_home"
+policy_args=()
+[ -f "$policy_file" ] && policy_args=(--policy "$policy_file")
+HOME="$check_home" bun "$smoke/check.ts" --project "$project" --workflow "$workflow_file" "${policy_args[@]}" \
+  > "$run/mechanical.txt" 2>&1
 bun "$smoke/summary.ts" "$run" "$wall" "$orchestrator_rc"
 
 mechanical=$(grep -o 'MECHANICAL: [A-Z]*' "$run/mechanical.txt" | tail -1)
