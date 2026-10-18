@@ -96,6 +96,7 @@ export function Present({
   linkTo,
   secondLinkTo,
   onOpenWorkflow,
+  onOpenSecondWorkflow,
   library,
   show,
   onShow,
@@ -114,10 +115,13 @@ export function Present({
   secondOptions: OpenWorkflow[];
   onSecond: (key: string | null) => void;
   // Where each diagram's workflow references lead; following one selects
-  // that workflow and stays on Present.
+  // that workflow and stays on Present. Each diagram has its own callback,
+  // because a followed link records the project its diagram's names
+  // resolved in, and the two diagrams can resolve in different projects.
   linkTo: (ref: string) => WorkflowLink;
   secondLinkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
+  onOpenSecondWorkflow: (key: string) => void;
   library: LibraryEntry[];
   show: FlowShow;
   onShow: (show: FlowShow) => void;
@@ -138,7 +142,12 @@ export function Present({
       {show.descriptions && description(w) && <p className="present-description">{description(w)}</p>}
     </>
   );
-  const diagram = (w: OpenWorkflow, links: (ref: string) => WorkflowLink, isSecond: boolean) => (
+  const diagram = (
+    w: OpenWorkflow,
+    links: (ref: string) => WorkflowLink,
+    open: (key: string) => void,
+    isSecond: boolean,
+  ) => (
     <Flow
       key={workflowKey(w)}
       steps={stepViews(w)}
@@ -153,7 +162,7 @@ export function Present({
       inputs={workflowInputs(w)}
       handOffs={workflowHandOffs(w)}
       linkTo={links}
-      onOpenWorkflow={onOpenWorkflow}
+      onOpenWorkflow={open}
       scroll={false}
       header={header(w)}
       legend={!isSecond}
@@ -182,8 +191,8 @@ export function Present({
       <main className="present-main">
         {workflow ? (
           <div className={`present-scroll${second ? " has-second" : ""}`}>
-            {diagram(workflow, linkTo, false)}
-            {second && diagram(second, secondLinkTo, true)}
+            {diagram(workflow, linkTo, onOpenWorkflow, false)}
+            {second && diagram(second, secondLinkTo, onOpenSecondWorkflow, true)}
           </div>
         ) : (
           <div className="center-empty">No workflow selected.</div>

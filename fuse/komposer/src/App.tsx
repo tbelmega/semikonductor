@@ -37,7 +37,6 @@ import {
   workflowHandOffs,
   workflowInputs,
   workflowKey,
-  type LocationId,
   type OpenWorkflow,
   type Session,
   type WorkflowFile,
@@ -53,34 +52,28 @@ import { Workstreams, type WorkstreamView } from "./Workstreams.tsx";
 import { Present } from "./Present.tsx";
 import { ALL_SHOWN, escapeAction, secondOptions, shownSecond, type FlowShow } from "./model/present.ts";
 import { projectName } from "./runView.ts";
+import {
+  abandoned,
+  answered,
+  changed,
+  checkedAs,
+  closed,
+  confirmedAs,
+  failedRequest,
+  loaded,
+  namesResolveIn,
+  compareSelection,
+  readingFrom,
+  savingAs,
+  stillConfirmed,
+  textChanged,
+  type Dialog,
+  type LinkContext,
+  type Loaded,
+  type Reading,
+  type SaveDialog,
+} from "./model/appState.ts";
 
-// id: this dialog, so an answer to a request it made is not taken up by
-// another. checking: the workstreams in progress are being read, for the
-// warning, and workstreams: what this dialog read; checkError: why they could
-// not be. warnings: the engine's warnings for the file Save as new would
-// write, and checked: the destination and text they were given for, so a
-// second Save writes it anyway. confirmed: the Save the user pressed, while
-// its checks run; any change in the dialog drops it, and so does Cancel, so
-// a check that answers later writes nothing. saving: the file is being
-// written; the dialog stays open until that is done.
-type SaveModal = {
-  type: "save";
-  id: number;
-  asNew: boolean;
-  location: LocationId;
-  folder: string;
-  name: string;
-  error?: string;
-  checking?: boolean;
-  checkError?: string;
-  workstreams?: WorkstreamSummary[];
-  warnings?: string[];
-  checked?: string;
-  confirmed?: number;
-  saving?: boolean;
-};
-type NewModal = { type: "new"; location: LocationId; folder: string; name: string; error?: string };
-type Modal = SaveModal | NewModal;
 // The file on disk when it differs from the version the edits were made
 // from; at is when that was seen, absent for a working copy restored after
 // the file changed. unknownBase: the working copy records no version it was
@@ -88,6 +81,14 @@ type Modal = SaveModal | NewModal;
 type DiskVersion = { text: string; hash: string; at?: string; unknownBase?: true };
 
 const timeNow = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// The save dialog's reading of the workstreams in progress on the workflow:
+// the shared list, once it answers the dialog's request or a newer one.
+function inProgressFor(d: Dialog, list: Loaded<WorkstreamSummary[]>, workflow: OpenWorkflow): Reading<WorkstreamSummary[]> {
+  if (d.type !== "save") return { state: "ready", value: [] };
+  const r = readingFrom(list, d.asked);
+  return r.state === "ready" ? { state: "ready", value: r.value.filter((w) => followsWorkflow(w, workflow) && stateOf(w) !== "COMPLETED") } : r;
+}
 
 // Whether a key press goes to a text field rather than to the page.
 const typingIn = (target: EventTarget | null) =>
@@ -100,7 +101,10 @@ export function App() {
   // to a name they hold leads to them, shown as unavailable.
   const [unavailable, setUnavailable] = useState<UnavailableWorkflow[]>([]);
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
-  const [workstreams, setWorkstreams] = useState<WorkstreamSummary[]>([]);
+  // With the request it answers, so the save dialog can wait for an answer
+  // newer than itself (appState).
+  const [workstreamsLoaded, setWorkstreamsLoaded] = useState<Loaded<WorkstreamSummary[]>>(loaded([]));
+  const workstreams = workstreamsLoaded.value;
   const [projects, setProjects] = useState<{ projects: ProjectSummary[]; error?: string }>({ projects: [] });
   const [page, setPage] = useState<Page>("edit");
   const [currentKey, setCurrentKey] = useState<string | null>(null);
@@ -137,7 +141,7 @@ export function App() {
   const [showDescriptions, setShowDescriptions] = useState(true);
   const [hoveredArtifact, setHoveredArtifact] = useState<string | null>(null);
   const [problemsOpen, setProblemsOpen] = useState(false);
-  const [modal, setModal] = useState<Modal | null>(null);
+  const [modal, setModal] = useState<Dialog | null>(null);
   const [diskVersions, setDiskVersions] = useState<Record<string, DiskVersion>>({});
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
@@ -204,6 +208,21 @@ export function App() {
   // workflows listing only while no newer version of a file was installed
   // since it was asked for (the watcher, a save, a discard or a load).
   const requests = useRef(requestSequencer<"workflows" | "workstreams" | "projects" | "library">());
+  // Reads the workstreams for request `asked`, the answer or the failure
+  // taken up only while that is the newest request (appState). A failure is
+  // passed on to the caller.
+  const readWorkstreams = async (asked: number) => {
+    try {
+      const ws = await api.workstreams();
+      const newest = requests.current.current("workstreams", asked);
+      setWorkstreamsLoaded((l) => answered(l, asked, ws.workstreams, newest));
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      const newest = requests.current.current("workstreams", asked);
+      setWorkstreamsLoaded((l) => failedRequest(l, asked, error, newest));
+      throw e;
+    }
+  };
   // Everything read from disk, read again: on load, when the window regains
   // focus, after a save, on the Workstreams page, and after a project is
   // added or removed, so workstreams, the library, policies and files changed
@@ -220,8 +239,10 @@ export function App() {
       projects: requests.current.begin("projects"),
       library: requests.current.begin("library"),
     };
-    const [w, ws, p, l] = await Promise.all([api.workflows(), api.workstreams(), api.projects(), api.library()]);
-    if (requests.current.current("workstreams", asked.workstreams)) setWorkstreams(ws.workstreams);
+    // The workstreams are taken up, or their failure recorded, on their own,
+    // so a save dialog waiting for them is answered whatever the other reads do.
+    const ws = readWorkstreams(asked.workstreams);
+    const [w, p, l] = await Promise.all([api.workflows(), api.projects(), api.library(), ws]);
     if (requests.current.current("projects", asked.projects)) setProjects(p);
     if (requests.current.current("library", asked.library)) setLibrary(l.entries);
     setRefreshes((n) => n + 1);
@@ -517,9 +538,18 @@ export function App() {
     while (steps.some((s) => s.id === id)) id = `new-step-${n++}`;
     return id;
   };
+  // The project the selected workflow's names resolve in, recorded with the
+  // link navigation that selected it (appState, namesResolveIn): another
+  // project's file, or a shared personal or shipped one, can be reached from
+  // workstreams of several projects, and names in it resolve in the project
+  // of the one it was reached from, as fuse-flow runs it there.
+  const [linkContext, setLinkContext] = useState<LinkContext>(null);
   // Selects a workflow for every page. The step selection belongs to the
-  // workflow it was made in, so it is cleared, and a panel that needs it closes.
-  const selectWorkflow = (key: string) => {
+  // workflow it was made in, so it is cleared, and a panel that needs it
+  // closes. `project` is where its names resolve, for a selection made by
+  // following a link; any other selection records none.
+  const selectWorkflow = (key: string, project?: string) => {
+    setLinkContext(project ? { key, project } : null);
     if (key === currentKey) return;
     setCurrentKey(key);
     setSelectedIndex(null);
@@ -551,19 +581,14 @@ export function App() {
   const pickCompare = (side: "left" | "right" | "swap", key?: string) => {
     const next = comparePick(shownPair, side, key);
     setCompareRight(next.right);
-    if (next.select !== null) selectWorkflow(next.select);
+    const select = compareSelection(side, next.select, currentKey);
+    if (select !== null) selectWorkflow(select);
   };
   const goPage = (next: Page) => {
     if (next === "compare") return openCompare();
     if (next === "workstreams") void refreshNow();
     setPage(next);
   };
-  // The project a followed link was read for, with the file it led to:
-  // another project's file can be followed by workstreams of several
-  // projects, and names in it resolve in the project of the one it was
-  // reached from (as fuse-flow runs it there), not in the first one the
-  // server lists it with.
-  const [linkContext, setLinkContext] = useState<{ key: string; project: string } | null>(null);
   // A workflow opened from the Workstreams page: selected, on the Edit page,
   // read for the project of the workstream whose link was followed. That is
   // the workstream the page shows, which is not always the one selected (the
@@ -571,9 +596,7 @@ export function App() {
   // were last resolved (resolveWorkstreamLink).
   const shownWorkstream = useRef<WorkstreamSummary | null>(null);
   const editWorkflow = (key: string) => {
-    const from = shownWorkstream.current;
-    setLinkContext(from ? { key, project: from.project } : null);
-    selectWorkflow(key);
+    selectWorkflow(key, shownWorkstream.current?.project);
     setPage("edit");
   };
   const openWorkflowStep = (key: string, stepIndex: number) => {
@@ -589,18 +612,23 @@ export function App() {
   };
   // A workflow reference of the open workflow (a hand-off, a workflow gate),
   // resolved the way fuse-flow resolves it: a name in the workflows of the
-  // project the open file belongs to when it is another project's file, else
-  // of this project.
-  const linkProject =
-    (isRun ? (linkContext && linkContext.key === currentKey ? linkContext.project : workflow?.project) : undefined) ?? session?.root;
+  // project namesResolveIn names.
+  const linkProject = namesResolveIn({
+    context: linkContext,
+    currentKey,
+    ownProject: isRun ? workflow?.project : undefined,
+    root: session?.root,
+  });
   const linkDir = projects.projects.find((p) => p.path === linkProject)?.workflowsDir ?? session?.locations[0].path ?? "";
   const resolveLink = (ref: string) => linkTo(ref, workflow!, workflows, linkDir, unavailable);
   // A link of the open workflow, followed: its target is read for the same project.
-  const followLink = (key: string) => {
-    if (linkProject) setLinkContext({ key, project: linkProject });
-    selectWorkflow(key);
-  };
+  const followLink = (key: string) => selectWorkflow(key, linkProject);
   const localLinkDir = projects.projects.find((p) => p.path === session?.root)?.workflowsDir ?? session?.locations[0].path ?? "";
+  // A link of Present's second diagram, followed. Present offers no run as
+  // the second workflow, so its names resolve in this project (localLinkDir),
+  // and its target is read for this project too, not for the project of the
+  // first diagram (rvk-state-2).
+  const followSecondLink = (key: string) => selectWorkflow(key, session?.root);
   // A workstream's workflow references resolve in the workstream's own project.
   const resolveWorkstreamLink = (item: WorkstreamSummary, from: OpenWorkflow) => {
     shownWorkstream.current = item;
@@ -678,28 +706,18 @@ export function App() {
   const dialogs = useRef(0);
   const openSave = () => {
     if (!workflow) return;
-    // The warning names the workstreams in progress now, not at page load,
-    // so Update original waits for them (ModalView). The answer belongs to
-    // this dialog only.
-    const id = ++dialogs.current;
-    const answered = (fields: Partial<SaveModal>) =>
-      setModal((m) => (m?.type === "save" && m.id === id ? { ...m, checking: false, ...fields } : m));
+    // The warning names the workstreams in progress now, not at page load:
+    // the dialog reads the shared list once it answers this request or a
+    // newer one, so Update original waits for that (ModalView).
     const asked = requests.current.begin("workstreams");
-    api
-      .workstreams()
-      .then((ws) => {
-        if (requests.current.current("workstreams", asked)) setWorkstreams(ws.workstreams);
-        answered({ workstreams: ws.workstreams });
-      })
-      .catch((e) => answered({ checkError: e instanceof Error ? e.message : String(e) }));
+    readWorkstreams(asked).catch(() => {});
     setModal({
       type: "save",
-      id,
+      asked,
       asNew: !workflow.onDisk,
       location: workflow.location === "run" ? "project" : workflow.location,
       folder: workflow.dir,
       name: workflow.file.replace(/\.ya?ml$/, ""),
-      checking: true,
     });
   };
   // One save: the text and the dialog's choice as they are when the user
@@ -711,17 +729,17 @@ export function App() {
     // Update original writes the open text where the engine last checked it.
     if (!modal.asNew && saveBlocked) return;
     const confirmed = ++dialogs.current;
-    const dialog: SaveModal = { ...modal, confirmed, error: undefined };
+    const dialog = confirmedAs(modal, confirmed);
     setModal(dialog);
-    const stillConfirmed = () => {
-      const now = modalRef.current;
+    // The pressed Save still holds: the dialog was not changed or closed, and
+    // the text is the one it was pressed for.
+    const holds = () => {
       const open = workflowsRef.current.find((w) => workflowKey(w) === currentKey);
-      return now?.type === "save" && now.confirmed === confirmed && open?.openText === workflow.openText;
+      return stillConfirmed(modalRef.current, confirmed) && open?.openText === workflow.openText;
     };
-    const update = (fields: Partial<SaveModal>) => setModal({ ...dialog, confirmed: undefined, saving: false, ...fields });
+    const update = (fields: Partial<SaveDialog>) => setModal((m) => checkedAs(m, confirmed, fields));
     // The text changed under a dialog still open: the dialog is offered again.
-    const abandon = () =>
-      setModal((m) => (m?.type === "save" && m.confirmed === confirmed ? { ...m, confirmed: undefined } : m));
+    const abandon = () => setModal((m) => abandoned(m, confirmed));
     localChanges.current++;
     // The working copy this tab knows now is the one the save's cleanup may
     // remove; a listing read meanwhile does not change it (workingCopySaver).
@@ -739,11 +757,11 @@ export function App() {
         const destination = `${location.path}/${folder ? `${folder}/` : ""}${dialog.name}.yml`;
         const text = editedWorkflow(workflow, movedRefEdits(workflow.openText, workflow.path, destination)).openText;
         const check = await api.validate(destination, text);
-        if (!stillConfirmed()) return abandon();
+        if (!holds()) return abandon();
         if (check.errors.length) return update({ error: `fuse-flow would refuse the file there: ${check.errors.join(" · ")}` });
         const checked = `${destination}\n${text}`;
         if (check.warnings.length && dialog.checked !== checked) return update({ warnings: check.warnings, checked });
-        setModal({ ...dialog, saving: true });
+        setModal((m) => savingAs(m, confirmed));
         const result = await api.saveNewWorkflow(dialog.location, dialog.folder, dialog.name, text);
         requests.current.invalidate("workflows");
         await saver.drop(workflow.path);
@@ -777,7 +795,7 @@ export function App() {
         setCurrentKey(workflowKey(saved));
         showToast(`Saved ${result.path}`);
       } else {
-        setModal({ ...dialog, saving: true });
+        setModal((m) => savingAs(m, confirmed));
         const result = await api.updateWorkflow(workflow.path, workflow.hash, workflow.openText);
         requests.current.invalidate("workflows");
         await saver.drop(workflow.path);
@@ -796,7 +814,7 @@ export function App() {
       setModal(null);
       void refreshNow();
     } catch (e) {
-      if (!stillConfirmed()) return abandon();
+      if (!holds()) return abandon();
       if (e instanceof ApiError && e.status === 409 && !dialog.asNew) {
         const listed = (await api.workflows()).workflows.find((w) => w.path === workflow.path);
         if (listed)
@@ -885,7 +903,6 @@ export function App() {
       onOpen={(key) => {
         // On Compare a row picks the left workflow and stays on Compare.
         if (page === "compare") return pickCompare("left", key);
-        setLinkContext(null);
         selectWorkflow(key);
         if (page === "workstreams") {
           setAllWorkstreams(false);
@@ -1014,6 +1031,7 @@ export function App() {
           linkTo={resolveLink}
           secondLinkTo={(ref) => linkTo(ref, presentSecondWorkflow!, workflows, localLinkDir, unavailable)}
           onOpenWorkflow={followLink}
+          onOpenSecondWorkflow={followSecondLink}
           library={library}
           show={presentShow}
           onShow={setPresentShow}
@@ -1133,13 +1151,11 @@ export function App() {
           session={session}
           workflow={workflow}
           structural={structureChanges(workflow)}
-          activeWorkstreams={(modal.type === "save" ? (modal.workstreams ?? []) : []).filter(
-            (w) => followsWorkflow(w, workflow) && stateOf(w) !== "COMPLETED",
-          )}
+          inProgress={inProgressFor(modal, workstreamsLoaded, workflow)}
           saveBlocked={saveBlocked}
           onSetName={(name) => {
             apply({ op: "setWorkflowField", key: "name", value: name });
-            setModal((m) => (m?.type === "save" ? { ...m, warnings: undefined, checked: undefined, confirmed: undefined } : m));
+            setModal(textChanged);
           }}
           onConfirm={modal.type === "new" ? confirmNew : save}
         />
@@ -1341,18 +1357,19 @@ function ModalView({
   session,
   workflow,
   structural,
-  activeWorkstreams,
+  inProgress,
   saveBlocked,
   onSetName,
   onConfirm,
 }: {
-  modal: Modal;
-  setModal: (m: Modal | null) => void;
+  modal: Dialog;
+  setModal: (update: (m: Dialog | null) => Dialog | null) => void;
   session: Session;
   workflow: OpenWorkflow;
   structural: string[];
-  // The workstreams in progress on the workflow, as this dialog read them.
-  activeWorkstreams: WorkstreamSummary[];
+  // The workstreams in progress on the workflow, as the dialog reads them
+  // (inProgressFor).
+  inProgress: Reading<WorkstreamSummary[]>;
   // Why the open text cannot be saved where it is, or null (the editor's Save).
   saveBlocked: string | null;
   // Sets the open workflow's name, as a warning about the file name offers.
@@ -1365,20 +1382,20 @@ function ModalView({
   const preview = `${location.path}/${modal.folder ? `${modal.folder.replace(/^\/+|\/+$/g, "")}/` : ""}${modal.name || "…"}.yml`;
   // Update original with changes a workstream depends on waits until the
   // workstreams in progress are known, so the warning is not missed.
-  const waiting = modal.type === "save" && !modal.asNew && structural.length > 0 && (modal.checking || !!modal.checkError);
-  const warning = modal.type === "save" && !modal.asNew && structural.length > 0 && activeWorkstreams.length > 0;
+  const updating = modal.type === "save" && !modal.asNew && structural.length > 0;
+  const waiting = updating && inProgress.state !== "ready";
+  const activeWorkstreams = inProgress.state === "ready" ? inProgress.value : [];
+  const warning = updating && activeWorkstreams.length > 0;
   const engineWarnings = modal.type === "save" && modal.asNew ? (modal.warnings ?? []) : [];
   // Update original writes the open text where it is, so the editor's checks apply.
   const blocked = modal.type === "save" && !modal.asNew ? saveBlocked : null;
   // A pressed Save: its checks run (a change drops it), then the file is written.
   const confirmed = modal.type === "save" && !!modal.confirmed;
   const saving = modal.type === "save" && !!modal.saving;
-  const close = () => !saving && setModal(null);
+  const close = () => setModal(closed);
   // A change of destination drops the warnings given for the old one; any
-  // change drops a Save whose checks are still running.
-  const patch = (fields: Partial<SaveModal>) =>
-    !saving &&
-    setModal({ ...modal, confirmed: undefined, ...("asNew" in fields || "location" in fields || "folder" in fields || "name" in fields ? { warnings: undefined, checked: undefined } : {}), ...fields } as Modal);
+  // change drops a Save whose checks are still running (appState, changed).
+  const patch = (fields: Partial<SaveDialog>) => setModal((m) => (m ? changed(m, fields as Partial<typeof m>) : m));
   return (
     <div className="modal-backdrop" onClick={close}>
       <div className="save-modal" onClick={(e) => e.stopPropagation()}>
@@ -1444,8 +1461,8 @@ function ModalView({
         )}
         {modal.type === "save" && waiting && (
           <div className="workstream-warning">
-            {modal.checkError
-              ? `Cannot read the workstreams in progress, so this save cannot warn about them: ${modal.checkError}. Close and try again, or save as a new file.`
+            {inProgress.state === "failed"
+              ? `Cannot read the workstreams in progress, so this save cannot warn about them: ${inProgress.error}. Close and try again, or save as a new file.`
               : "Reading the workstreams in progress on this workflow…"}
           </div>
         )}
