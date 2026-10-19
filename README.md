@@ -36,6 +36,8 @@ Any workflow of this kind, whether it is Konductor's, Fuse-Konductor's or one yo
 Konductor, the original project from AWS Solutions, gives the session such a written process: guides that say how to write requirements, design a system, review a design, split features, write specs, implement, review code, plan tests and document, each with its own checker, and workflows that produce these artifacts in order with human or agentic quality gates.
 Fuse-Konductor keeps these guides and turns them into modules, so you can adapt the pre-packaged workflows to the way your team works or assemble your own.
 
+![Komposer's Present view showing the fuse-system-development and fuse-feature-development workflows side by side, with their steps, agent and owner gates, and the hand-off between them](docs/images/komposer-present-view.png)
+
 You get this by installing one package. No servers to run and no infrastructure to provision: the skills, guides and workflows are files that your existing coding agent reads directly.
 
 ## Quick Start
@@ -86,17 +88,12 @@ Optionally, you can use [Komposer](fuse/komposer/README.md), a React app served 
 
 | Workflow                   | Steps                                                                                                                                                                      |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fuse/fuse-rapid-prototyping.yml` | A new product idea explored before it is designed: a short interview on the owner's intent, then many small build-and-feedback iterations on a runnable prototype with no code review loop, ending in a product brief of what to build that `fuse-system-development` can take up. |
+| `fuse/fuse-system-development.yml` | A new system, or a new module that needs its own architecture: intake, requirements, optional prototypes, a system design with a principal engineer review rehearsal by an agent, and a build order, with agent review before each owner decision. Each feature in the build order is then built with `fuse-feature-development`. |
 | `fuse/fuse-feature-development.yml` | One feature in an existing codebase: intake, design, implementation and code review. Agent review of the spec and of the whole change comes before the owner approves the spec and lands the work. Where the project shows signs of a pull request or similar review process, the owner can approve the work for it instead, and the workflow hands off to `fuse-pull-request`. |
 | `fuse/fuse-pull-request.yml` | A change through the project's pull request or code review process, the way the project runs it: open the request, answer each round of reviewer feedback with fixes that pass an agent review first, and finish once the change is merged. It can also be started on its own for an existing change or pull request. Feature branches, a fixed branch per worktree and commits on the integration branch all work; the house rules decide. |
-| `fuse/fuse-dependency-migration.yml` | A complex migration or refactoring that must leave the system behaving the same: catalogue the checks that prove it, add the missing ones, record a baseline, migrate in committed increments that each reach their checkpoint, and compare the result against the baseline in a report the owner reviews before landing. Like feature development, it hands off to `fuse-pull-request` when the owner approves the work for the project's review process. |
-| `fuse/fuse-system-development.yml` | A new system, or a new module that needs its own architecture: intake, requirements, optional prototypes, a system design with a principal engineer review rehearsal by an agent, and a build order, with agent review before each owner decision. Each feature in the build order is then built with `fuse-feature-development`. |
-| `fuse/fuse-rapid-prototyping.yml` | A new product idea explored before it is designed: a short interview on the owner's intent, then many small build-and-feedback iterations on a runnable prototype with no code review loop, ending in a product brief of what to build that `fuse-system-development` can take up. |
 | `fuse/fuse-bug-bash.yml` | A time-boxed bug bash on an existing codebase: intake, optional test tooling built first, a catalogue of the existing checks, a discovery wave of independent agents with different lenses and models, then, in a fixing run, fixes with independent review, a confirmation wave and a history rewrite, and a report for the owner. |
-| `konductor/_k-full-sdlc.yml` | Konductor's full chain: elicitation, codebase analysis, requirements, design, design review, feature splitting, specs, implementation, code review, testing, documentation and a final summary, with owner gates between phases. |
-| `konductor/_k-phase-chain.yml` | Konductor's lighter chain: requirements, design, feature splitting, specs, implementation, code review and QA, with no owner gates. |
-| `konductor/k-sop-*.yml` | Konductor's SOPs as workflows, one per SOP: design doc creation and review, principal engineer design review, Kiro specs, planning and verification, codebase analysis, search and context gathering, code review, adversarial pull request review, pre-review critique, cleanup, test coverage review, end-to-end test generation and light UI testing. |
-| `customization-examples/custom-example-*.yml` | Examples of project-specific workflows at different sizes.                                                                                                       |
-| `customization-examples/superpowers/superpowers.yml` | Spec-driven development after obra/superpowers: design, plan, branch and baseline, test-first implementation with a whole-branch review and the owner's choice of integration. Needs no Superpowers skills installed. |
+| `fuse/fuse-dependency-migration.yml` | A complex migration or refactoring that must leave the system behaving the same: catalogue the checks that prove it, add the missing ones, record a baseline, migrate in committed increments that each reach their checkpoint, and compare the result against the baseline in a report the owner reviews before landing. Like feature development, it hands off to `fuse-pull-request` when the owner approves the work for the project's review process. |
 
 For a single task, ask the session to use a skill directly; see [Skills and guides](#skills-and-guides).
 
@@ -117,6 +114,16 @@ step in the workflow. We call these instruction files "guides" rather than skill
 Guides have no frontmatter that gets loaded into every agent session, which keeps your agent's context clean.
 
 The skills live in [`skills/`](skills/), one folder per skill. The guides live in the artifact library, as `fuse/flow/library/artifacts/<artifact>/guide.md`, next to the artifact's template and review guide; [`fuse/flow/README.md`](fuse/flow/README.md) describes the library and how a project or a user overrides an entry.
+
+
+## Komposer
+
+Workflows are defined in .yml files (the structured, deterministic part) and .md files (the detailed instructions in prose).
+While you can edit any of these files directly, or have your agent edit them on your behalf, it is sometimes helpful to visualize a workflow.
+
+Komposer is a locally running React app that lets you edit, compare and present workflows as diagrams.
+
+![Komposer's Edit view showing the fuse-bug-bash workflow, with the workflow list on the left, the editable steps in the middle and the artifact library on the right](docs/images/komposer-edit-view.png)
 
 
 ## Contributing
