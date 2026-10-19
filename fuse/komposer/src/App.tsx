@@ -52,6 +52,7 @@ import { Workstreams, type WorkstreamView } from "./Workstreams.tsx";
 import { Present } from "./Present.tsx";
 import { ALL_SHOWN, escapeAction, secondOptions, shownSecond, type FlowShow } from "./model/present.ts";
 import { projectName } from "./runView.ts";
+import { entryIndex, entryProject, entryState, parseRoute, routePath, routedWorkflow } from "./model/route.ts";
 import {
   abandoned,
   answered,
@@ -106,7 +107,12 @@ export function App() {
   const [workstreamsLoaded, setWorkstreamsLoaded] = useState<Loaded<WorkstreamSummary[]>>(loaded([]));
   const workstreams = workstreamsLoaded.value;
   const [projects, setProjects] = useState<{ projects: ProjectSummary[]; error?: string }>({ projects: [] });
-  const [page, setPage] = useState<Page>("edit");
+  // The page the URL named when the app loaded (route.ts). The workflow it
+  // named, and the entry's project, wait in wantedRoute until the workflows
+  // are listed; back or forward before that replaces them.
+  const [page, setPage] = useState<Page>(() => parseRoute(location.pathname).page);
+  const [loadedRoute] = useState(() => ({ workflow: parseRoute(location.pathname).workflow, project: entryProject(history.state) }));
+  const wantedRoute = useRef<{ workflow: string | null; project?: string } | null>(loadedRoute);
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   // The Edit page's right rail: closed until a strip button or a step opens it.
@@ -255,14 +261,22 @@ export function App() {
     setUnavailable(w.unavailable);
     // React runs these updaters in the order the states were declared, so
     // merged and found are complete when the selection and the disk versions
-    // are updated.
+    // are updated, and the first selection is made when the link context is.
     const found: Record<string, DiskVersion> = {};
     let merged: OpenWorkflow[] = [];
+    let wanted: { key: string; project: string } | null = null;
     setWorkflows((all) => (merged = mergeListed(all, w.workflows, (file) => openListed(file, found))));
     setCurrentKey((key) => {
-      const first = merged.find((x) => x.location !== "run");
-      return key ?? (first ? workflowKey(first) : null);
+      if (key !== null) return key;
+      const route = wantedRoute.current;
+      const routed = routedWorkflow(merged, route?.workflow ?? null);
+      if (routed && route?.project) wanted = { key: workflowKey(routed), project: route.project };
+      const first = routed ?? merged.find((x) => x.location !== "run");
+      return first ? workflowKey(first) : null;
     });
+    // The entry's project, with the first selection, so the URL is written
+    // once with both.
+    setLinkContext((context) => wanted ?? context);
     const at = timeNow();
     setDiskVersions((all) => diskRecords(all, merged, w.workflows, workflowKey, found, at));
   };
@@ -544,6 +558,43 @@ export function App() {
   // workstreams of several projects, and names in it resolve in the project
   // of the one it was reached from, as fuse-flow runs it there.
   const [linkContext, setLinkContext] = useState<LinkContext>(null);
+  // The URL follows the page and the selected workflow (route.ts), so back
+  // and forward move between them and a link opens the same view. A change
+  // the user makes is a new history entry; one the app makes by itself (the
+  // first selection, a workflow that gives way, a save as a new file, going
+  // back or forward) replaces the entry. Each entry keeps its place in the
+  // tab's history and the project the workflow's names resolve in when it
+  // was opened by following a link, so going back to it, or reloading it,
+  // reads it for the same project.
+  const urlWrite = useRef<"push" | "replace">("push");
+  const shownRoute = useRef<string | null>(null);
+  const entryAt = useRef(entryIndex(history.state) ?? 0);
+  // While a refused back or forward is undone (goToEntry), the browser is on
+  // another entry than the app's, so the URL is not written until it is back.
+  const restoring = useRef(false);
+  const route = workflow ? routePath(page, workflow) : null;
+  const routeProject = linkContext && linkContext.key === currentKey ? linkContext.project : undefined;
+  const shown = useRef({ route, routeProject });
+  shown.current = { route, routeProject };
+  // The workflow the URL named, and the entry's project, are selected with
+  // the first listing (refresh); after that they are no longer wanted.
+  useEffect(() => {
+    if (workflow) wantedRoute.current = null;
+  }, [workflow]);
+  // The entry already names the route when it has the same path and the same
+  // project; following a link to the workflow shown, or selecting it again
+  // after a link led to it, changes only the project, and is a new entry.
+  useEffect(() => {
+    if (route === null || restoring.current) return;
+    const same = route === location.pathname && routeProject === entryProject(history.state);
+    const replace = urlWrite.current === "replace" || shownRoute.current === null || same;
+    urlWrite.current = "push";
+    shownRoute.current = route;
+    if (!replace) entryAt.current++;
+    const state = entryState(entryAt.current, routeProject);
+    if (replace) history.replaceState(state, "", route);
+    else history.pushState(state, "", route);
+  }, [route, routeProject]);
   // Selects a workflow for every page. The step selection belongs to the
   // workflow it was made in, so it is cleared, and a panel that needs it
   // closes. `project` is where its names resolve, for a selection made by
@@ -564,7 +615,10 @@ export function App() {
   // is selected.
   useEffect(() => {
     if (!currentKey || !localWorkflows[0]) return;
-    if (givesWay({ listed: !!workflow, readOnly: isRun, hasRun: false, openedByLink: true })) selectWorkflow(workflowKey(localWorkflows[0]));
+    if (givesWay({ listed: !!workflow, readOnly: isRun, hasRun: false, openedByLink: true })) {
+      urlWrite.current = "replace";
+      selectWorkflow(workflowKey(localWorkflows[0]));
+    }
   }, [currentKey, !!workflow, isRun, localWorkflows]);
   // The Compare page's two workflows: the selected workflow on the left, and
   // its own right side, kept while it is listed.
@@ -703,6 +757,58 @@ export function App() {
   // The save dialog as last rendered, for a save that finishes after an await.
   const modalRef = useRef(modal);
   modalRef.current = modal;
+  // Back or forward: the page and workflow of the entry gone to, its
+  // workflow read for the project the entry recorded. The URL then already
+  // shows them, so the entry is not written again. An open dialog closes;
+  // one that is writing a file cannot, so the move is undone (history.go)
+  // and the app stays where it is. URL writes wait until the browser is back
+  // on the app's entry (a move on meanwhile is undone too), which then names
+  // what the app shows by then (a save that finished meanwhile shows the
+  // saved file). Before the workflows are
+  // listed, the entry's workflow is selected once they are. When it is no
+  // longer listed, the selection stays, and the entry is corrected to name it.
+  const goToEntry = (state: unknown) => {
+    const at = entryIndex(state);
+    if (restoring.current && at !== undefined && at !== entryAt.current) return void history.go(entryAt.current - at);
+    if (restoring.current) {
+      restoring.current = false;
+      urlWrite.current = "push";
+      const now = shown.current;
+      if (at !== undefined && now.route) {
+        shownRoute.current = now.route;
+        history.replaceState(entryState(entryAt.current, now.routeProject), "", now.route);
+        return;
+      }
+    }
+    if (modalRef.current) {
+      if (closed(modalRef.current) !== null) {
+        if (at !== undefined && at !== entryAt.current) {
+          restoring.current = true;
+          history.go(entryAt.current - at);
+        }
+        return;
+      }
+      setModal(null);
+    }
+    if (at !== undefined) entryAt.current = at;
+    const next = parseRoute(location.pathname);
+    const target = routedWorkflow(workflows, next.workflow);
+    if (target) selectWorkflow(workflowKey(target), entryProject(state));
+    else if (!workflow) wantedRoute.current = { workflow: next.workflow, project: entryProject(state) };
+    else {
+      shownRoute.current = routePath(next.page, workflow);
+      history.replaceState(entryState(entryAt.current, routeProject), "", shownRoute.current);
+    }
+    if (next.page === "workstreams" && page !== "workstreams") void refreshNow();
+    setPage(next.page);
+  };
+  const goToEntryRef = useRef(goToEntry);
+  goToEntryRef.current = goToEntry;
+  useEffect(() => {
+    const onPop = (event: PopStateEvent) => goToEntryRef.current(event.state);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const dialogs = useRef(0);
   const openSave = () => {
     if (!workflow) return;
@@ -792,6 +898,7 @@ export function App() {
           delete next[currentKey];
           return next;
         });
+        if (workflowKey(saved) !== currentKey) urlWrite.current = "replace";
         setCurrentKey(workflowKey(saved));
         showToast(`Saved ${result.path}`);
       } else {

@@ -94,6 +94,13 @@ started with `bun run start`.
   another tab's change holds this tab's edits back, the browser asks before the page closes. A working copy, or a
   working-copy folder, that cannot be read is listed at the end of its location's section with the
   reason and left as it is; the other workflows load as usual.
+- **The address shows the page and the workflow,** such as
+  `/edit/project/release/ship.yml` for a workflow of the project's folder,
+  `/present/fuse-flow/fuse/fuse-bug-bash.yml` for a shipped one, or `/edit/run/<path>` for another
+  project's file. The browser's back and forward buttons move between pages and workflows, and a
+  reload or a link opens the same view. A tab that does not hold the token yet needs it added to the
+  link (`#token=...`, from the printed URL). An address naming a workflow that is not listed opens
+  the first one. Going back while a save writes a file keeps the page where it is.
 - **Saving a workflow that a workstream is following** affects that workstream, because fuse-flow
   reads the workflow again on every command. Komposer warns you when a save moves or renames
   steps that a workstream in progress depends on.

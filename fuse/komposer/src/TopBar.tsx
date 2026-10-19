@@ -3,8 +3,9 @@
 // on, the page switcher, and the theme button.
 
 import { ThemeToggle } from "./ThemeToggle.tsx";
+import type { Page } from "./model/route.ts";
 
-export type Page = "edit" | "compare" | "present" | "workstreams";
+export type { Page };
 
 export const PAGES: { id: Page; label: string; built: boolean }[] = [
   { id: "edit", label: "Edit", built: true },
