@@ -33,6 +33,21 @@ script installs plain skills and an always-on instruction block that every suppo
   - The engine refuses to complete a step while a required artifact is missing without a reason
     or a check fails. It hands over to the owner at owner gates and when a review reaches its
     round cap, with the owner's options in plain words.
+  - `continue` also refuses a step with an agent review until the reviewer has written a
+    findings file for the step's current pass, under the name the step block prints. A review
+    the owner waives is passed over with `continue --waived "<reason>"`, which records the
+    waiver and its reason in the state file and the hand-over. The maker classifies each review
+    finding as a required fix, optional or a false positive. Unless the review guide says
+    otherwise, a checked P0 or P1 is required and a P2 or P3 optional, fixed when cheap or listed
+    as deferred; a round with no required fix passes, and fixing its optional findings starts no
+    further round.
+  - A file a step without an owner gate records is `done`, and becomes `approved` only at a
+    later owner gate that approves it.
+  - When the workflow of a running workstream is edited, an owner's acceptance or block of a
+    review holds only while that review is unchanged: its number, its text, and the content of
+    each guide it follows. Otherwise the review runs again. The owner's approval is refused while
+    a gate the edit added has not run on the work, and a workflow file that has gone is refused
+    rather than replaced by a guess.
   - Where a step's instruction and an artifact's guide disagree, the step block says the
     instruction wins over a guide that ships with fuse, and asks the agent to name each
     disagreement; the review request tells the reviewer the same. A guide from the project's or
@@ -127,6 +142,13 @@ script installs plain skills and an always-on instruction block that every suppo
   and shows the runs of a project's workstreams. It keeps unsaved edits as a working copy, warns
   before a save affects a running workstream, follows the system's light or dark theme, and
   serves only to 127.0.0.1 behind a token.
+  - It refuses to save a workflow that fuse-flow would refuse, judges every read and write by the
+    real path it leads to, and lists workflows, workstreams and their states as fuse-flow reads
+    them.
+  - Edits survive two tabs on the same workflow, switching workflows, reloading and changes on
+    disk; the editor takes no edits while a confirmed save writes the file.
+  - A link followed from another project's workstream keeps resolving names in that project, on
+    every page.
 - **Skills:**
   - `fuse-workstream`: finds a workstream to resume, recommends a workflow for new work, starts it
     once the user agrees, and runs it, keeping fuse-flow's commands out of what the owner reads.
@@ -292,6 +314,22 @@ script installs plain skills and an always-on instruction block that every suppo
 Uninstall Konductor with its own `konductor uninstall` before installing Fuse-Konductor, so that
 its agents and generated files do not stay behind next to the new skills. Then follow
 `INSTALL.md`, or open a session in the clone and ask for the tutorial.
+
+### Upgrading from an earlier `fuse` commit
+
+Workstreams started with an earlier fuse-flow continue with the new one: it reads the paths,
+folder records and review acceptances the earlier version wrote. Before resuming a step whose
+review was running during the upgrade, check its findings files against the names the step block
+prints:
+
+- In a step with a check, script or child workstream before two or more reviews, the earlier
+  fuse-flow numbered the files by counting only the reviews, so an old `-gate<k>` file can carry
+  the number another review has now. Rename each old file to the number the step block prints for
+  its review, starting with the highest, so no file is overwritten. `fuse/flow/README.md`
+  describes this under the policy files.
+- `continue` refuses while a review it owes has no findings file under the printed name. Rename
+  the reviewer's file to that name, or, when the owner waives the review, pass over it with
+  `continue --waived "<reason>"`.
 
 ## [1.0.0] - 2026-09-23
 
