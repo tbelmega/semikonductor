@@ -8,7 +8,7 @@ import { parseWorkflowText } from "../../flow/src/parse.ts";
 import { copyStepEdits, differences, hasDifferences, stepDiff } from "../src/model/compare.ts";
 import { applyEdit } from "../src/model/yamlEdit.ts";
 import { problemsForText } from "../src/validate.ts";
-import { INVALID_MODE, modeBadge, modeSelectValue, openWorkflow, stepViews } from "../src/workflowView.ts";
+import { ATTENDED_TIP, INVALID_MODE, modeBadge, modeSelectValue, openWorkflow, stepViews, UNATTENDED_TIP } from "../src/workflowView.ts";
 
 const TEXT = `version: 1
 name: demo
@@ -216,11 +216,21 @@ describe("the mode in Compare", () => {
 });
 
 describe("the mode badge on a step card", () => {
-  test("no mode reads attended, unattended is marked, and an invalid mode is shown as written", () => {
-    expect(modeBadge(undefined)).toEqual({ label: "attended", title: "attended (the default)", unattended: false });
-    expect(modeBadge("attended")).toEqual({ label: "attended", title: "attended", unattended: false });
-    expect(modeBadge("unattended")).toEqual({ label: "unattended", title: "unattended", unattended: true });
-    expect(modeBadge("sometimes")).toEqual({ label: "sometimes", title: "sometimes", unattended: false });
+  test("attended shows the owner and the agent, unattended the agent alone, and an invalid mode no glyphs, as written", () => {
+    expect(modeBadge(undefined)).toEqual({ glyphs: ["owner", "agent"], label: "attended", title: `${ATTENDED_TIP} This is the default.` });
+    expect(modeBadge("attended")).toEqual({ glyphs: ["owner", "agent"], label: "attended", title: ATTENDED_TIP });
+    expect(modeBadge("unattended")).toEqual({ glyphs: ["agent"], label: "unattended", title: UNATTENDED_TIP });
+    expect(modeBadge("sometimes")).toEqual({
+      glyphs: [],
+      label: "sometimes",
+      title: "Invalid mode sometimes: a mode is attended or unattended.",
+    });
+  });
+
+  test("the unattended tooltip names the judgement calls and the owner gate that approves them", () => {
+    expect(modeBadge("unattended").title).toBe(
+      "Runs unattended. The agent makes decisions as judgement calls during the step and presents them for your approval at the next owner gate.",
+    );
   });
 });
 

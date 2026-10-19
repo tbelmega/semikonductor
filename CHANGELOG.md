@@ -95,7 +95,9 @@ script installs plain skills and an always-on instruction block that every suppo
     completion blocks gain a `DECISIONS:` line whenever finished work, in the workstream or in any
     workstream it delegated to, has not been reviewed, with four ways for the owner to respond.
     The shipped fuse workflows mark the steps that work alone as unattended, and Komposer shows
-    and sets the mode.
+    and sets the mode as the Autonomy Mode. A step card shows the mode as glyphs, an owner and an
+    agent for attended and the agent alone for unattended, and gate pills carry the same owner and
+    agent glyphs, with a cog for checks and scripts.
 - **Shipped workflows:**
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
     implementation and code review, with agent reviews before the owner approves the spec and

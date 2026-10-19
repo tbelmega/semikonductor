@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Gate } from "../../flow/src/schemas/gate.ts";
 import { resolveLibrary, type LibraryEntry } from "./api.ts";
 import { wordDiff, type WordRun } from "./diff.ts";
-import { childSlug, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { childSlug, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
 import {
   alignSteps,
   applyProblem,
@@ -448,7 +448,7 @@ function Card({
         <div className={`compare-condition${d?.condition ? " is-chg" : ""}`}>
           <span className="compare-condition-label">only if</span>
           <span className="compare-condition-kind" style={{ background: GATE_STYLE[step.condition.kind].bg, color: GATE_STYLE[step.condition.kind].fg }}>
-            {GATE_STYLE[step.condition.kind].label}
+            <GateKindLabel kind={step.condition.kind} className="" />
           </span>
           <span className="compare-condition-text">{step.condition.text}</span>
         </div>
@@ -499,7 +499,7 @@ function Card({
                 className={`compare-gate${mark(side, k, gates, gatesChanged)}`}
                 style={{ background: style.bg, color: style.fg }}
               >
-                <span className="compare-gate-kind">{style.label}</span>
+                <GateKindLabel kind={g.kind} className="compare-gate-kind" />
                 <span className="compare-gate-text">{g.text}</span>
                 {extra && <span className="compare-gate-extra">{extra}</span>}
               </span>

@@ -471,11 +471,21 @@ export function modeSelectValue(mode: string | undefined): string {
   return mode === "unattended" ? mode : INVALID_MODE;
 }
 
-// The mode badge on a step card: no mode reads as attended, and an invalid
-// mode is shown as written.
-export function modeBadge(mode: string | undefined): { label: string; title: string; unattended: boolean } {
-  if (mode === undefined) return { label: "attended", title: "attended (the default)", unattended: false };
-  return { label: mode, title: mode, unattended: mode === "unattended" };
+// The mode badge on a step card: who works in the step, drawn as the owner
+// and agent glyphs of the gates, with its explanation as the tooltip. An
+// attended step has the owner and the agent, an unattended one the agent
+// alone; the owner alone is kept for a step that is fully manual work. No
+// mode reads as attended, and an invalid mode has no glyphs and is shown as
+// written.
+export type ModeGlyph = "owner" | "agent";
+export const ATTENDED_TIP = "Runs attended. The agent may stop often to ask you for input.";
+export const UNATTENDED_TIP =
+  "Runs unattended. The agent makes decisions as judgement calls during the step and presents them for your approval at the next owner gate.";
+export function modeBadge(mode: string | undefined): { glyphs: ModeGlyph[]; label: string; title: string } {
+  if (mode === undefined) return { glyphs: ["owner", "agent"], label: "attended", title: `${ATTENDED_TIP} This is the default.` };
+  if (mode === "attended") return { glyphs: ["owner", "agent"], label: mode, title: ATTENDED_TIP };
+  if (mode === "unattended") return { glyphs: ["agent"], label: mode, title: UNATTENDED_TIP };
+  return { glyphs: [], label: mode, title: `Invalid mode ${mode}: a mode is attended or unattended.` };
 }
 
 export function gatesInRunOrder(gates: Gate[]): { gate: Gate; fileIndex: number }[] {

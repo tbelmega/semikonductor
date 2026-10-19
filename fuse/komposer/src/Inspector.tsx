@@ -21,6 +21,7 @@ import {
   delegationOf,
   gatesInRunOrder,
   INVALID_MODE,
+  modeBadge,
   modeSelectValue,
   stepViews,
   workflowHandOffs,
@@ -33,6 +34,7 @@ import {
 import type { WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
+import { ModeBadge } from "./Flow.tsx";
 import type { Problem } from "./validate.ts";
 import { sectionsWithProblems, type StepSection } from "./model/stepSections.ts";
 import { reviewInEffectRows } from "./model/reviewInEffect.ts";
@@ -365,22 +367,27 @@ function StepTab({
           </label>
           {err("id") && <div className="field-error full-span">{err("id")}</div>}
           <label className="field full-span">
-            <FieldLabel label="Mode" doc={DOCS.mode} />
+            <FieldLabel label="Autonomy Mode" doc={DOCS.mode} />
             {/* No mode is attended. An explicit "attended" shows as attended and
                 stays as written until the author picks another value; any other
-                value is shown as written, beside its error. */}
-            <select
-              className="field-input"
-              value={modeSelectValue(step.mode)}
-              onChange={(e) => e.target.value !== INVALID_MODE && setStep("mode", e.target.value)}
-              data-error={!!err("mode")}
-            >
-              <option value="">attended (default)</option>
-              <option value="unattended">unattended</option>
-              {modeSelectValue(step.mode) === INVALID_MODE && (
-                <option value={INVALID_MODE}>{step.mode === "" ? '""' : step.mode} (invalid)</option>
-              )}
-            </select>
+                value is shown as written, beside its error. A valid mode shows
+                its glyph pill inside the select, before the word. */}
+            <span className={`mode-field${modeSelectValue(step.mode) === INVALID_MODE ? "" : ` has-glyphs-${modeBadge(step.mode).glyphs.length}`}`}>
+              {modeSelectValue(step.mode) !== INVALID_MODE && <ModeBadge mode={step.mode} decorative />}
+              <select
+                className="field-input"
+                value={modeSelectValue(step.mode)}
+                title={modeBadge(step.mode).title}
+                onChange={(e) => e.target.value !== INVALID_MODE && setStep("mode", e.target.value)}
+                data-error={!!err("mode")}
+              >
+                <option value="">attended (default)</option>
+                <option value="unattended">unattended</option>
+                {modeSelectValue(step.mode) === INVALID_MODE && (
+                  <option value={INVALID_MODE}>{step.mode === "" ? '""' : step.mode} (invalid)</option>
+                )}
+              </select>
+            </span>
           </label>
           {err("mode") && <div className="field-error full-span">{err("mode")}</div>}
           <label className="field full-span">

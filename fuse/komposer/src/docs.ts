@@ -45,7 +45,18 @@ export const DOCS: Record<string, FieldDoc> = {
   title: doc("title", false, stepShape.title),
   description: doc("description", false, stepShape.description),
   phase: doc("phase", false, stepShape.phase),
-  mode: doc("mode", false, stepShape.mode),
+  // The Autonomy Mode field says what the owner can expect, in Komposer's
+  // own words: the schema's description, with its engine effect, is written
+  // for the engine and is too long for this tooltip.
+  mode: {
+    yamlKey: "mode",
+    required: false,
+    description:
+      "Sets what the agent expects of the owner's availability for questions and decisions.\n\n" +
+      "Attended: the agent may stop often to ask the owner for input.\n" +
+      "Unattended: the agent tries to finish the step without asking. It makes judgement calls, records them, " +
+      "and presents them for the owner's review and approval later.",
+  },
   instruction: doc("instruction", true, stepShape.instruction),
   condition: doc("condition", false, stepShape.condition),
   consumes: doc("consumes", false, stepShape.consumes),

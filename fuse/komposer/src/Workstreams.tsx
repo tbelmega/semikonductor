@@ -36,7 +36,7 @@ import {
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { ProjectList, workflowStem } from "./ProjectList.tsx";
 import { WorkflowLinkButton, WorkstreamLinkButton } from "./Links.tsx";
-import { childSlug, delegationTip, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { childSlug, delegationTip, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
 
 export type WorkstreamView = "summary" | "diagram";
 
@@ -467,7 +467,7 @@ function WorkstreamDiagram({
                       className="step-condition-kind"
                       style={{ background: GATE_STYLE[step.condition.kind].bg, color: GATE_STYLE[step.condition.kind].fg }}
                     >
-                      {GATE_STYLE[step.condition.kind].label}
+                      <GateKindLabel kind={step.condition.kind} className="" />
                     </span>
                     <span className="step-condition-text">{step.condition.text || "…"}</span>
                   </div>
@@ -505,7 +505,7 @@ function WorkstreamDiagram({
                             style={{ background: style.bg, color: style.fg }}
                             onClick={() => link.ok && onOpenWorkflow(link.key)}
                           >
-                            <span className="gate-kind">{style.label}</span>
+                            <GateKindLabel kind={gate.kind} />
                             <span className="gate-text">{gate.text}</span>
                             <span className="gate-extra">
                               {link.ok
@@ -519,7 +519,7 @@ function WorkstreamDiagram({
                       }
                       return (
                         <span key={k} className="gate-pill" title={gate.text} style={{ background: style.bg, color: style.fg }}>
-                          <span className="gate-kind">{style.label}</span>
+                          <GateKindLabel kind={gate.kind} />
                           {gate.text && <span className="gate-text">{gate.text}</span>}
                         </span>
                       );

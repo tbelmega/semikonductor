@@ -7,12 +7,12 @@
 // leave, and next to a second diagram in one scroll area.
 
 import { useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Cog, User, X, type LucideIcon } from "lucide-react";
 import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
 import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import type { LibraryEntry } from "./api.ts";
 import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
-import { gatesInRunOrder, modeBadge, type ArtifactRole, type StepView, type WorkflowLink } from "./workflowView.ts";
+import { gatesInRunOrder, modeBadge, type ArtifactRole, type ModeGlyph, type StepView, type WorkflowLink } from "./workflowView.ts";
 import { layoutEdges } from "./layout.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
@@ -42,13 +42,50 @@ export const childSlug = (gate: Gate, stepId: string, parent?: string) => {
 
 // What a workflow gate does, for its pill's tooltip: the child's workflow,
 // its slug, what it is given and what it returns.
-// A step card's mode badge, on every page that draws step cards. Compare
-// marks it changed when the other side's mode differs.
-export function ModeBadge({ mode, changed }: { mode: string | undefined; changed?: boolean }) {
+// A gate kind's glyph, in the gate's own colour: the owner, the agent, or a
+// cog for the mechanical kinds. A workflow gate has none.
+export const GATE_ICON: Record<Gate["kind"], LucideIcon | undefined> = {
+  workflow: undefined,
+  check: Cog,
+  script: Cog,
+  agent: Bot,
+  "owner-action": User,
+};
+
+// A gate or condition kind as its pill shows it: the glyph, then the keyword.
+export function GateKindLabel({ kind, className = "gate-kind" }: { kind: Gate["kind"]; className?: string }) {
+  const Icon = GATE_ICON[kind];
+  return (
+    <span className={`${className} kind-label`.trim()}>
+      {Icon && <Icon className="kind-icon" aria-hidden="true" />}
+      {GATE_STYLE[kind].label}
+    </span>
+  );
+}
+
+// A step card's mode badge, on every page that draws step cards: one glyph
+// segment per actor, coloured like that actor's gates, and no words; the
+// tooltip explains the mode. An invalid mode is shown as written. Compare
+// marks it changed when the other side's mode differs. Inside the Mode
+// select, where the select's own text gives the word, it is decorative.
+const MODE_KIND: Record<ModeGlyph, Gate["kind"]> = { owner: "owner-action", agent: "agent" };
+export function ModeBadge({ mode, changed, decorative }: { mode: string | undefined; changed?: boolean; decorative?: boolean }) {
   const badge = modeBadge(mode);
   return (
-    <span className={`step-mode${badge.unattended ? " is-unattended" : ""}${changed ? " is-chg" : ""}`} title={badge.title}>
-      {badge.label}
+    <span
+      className={`step-mode${badge.glyphs.length ? "" : " is-invalid"}${changed ? " is-chg" : ""}`}
+      {...(decorative ? { "aria-hidden": true } : { title: badge.title, role: "img", "aria-label": badge.title })}
+    >
+      {badge.glyphs.map((glyph) => {
+        const Icon = GATE_ICON[MODE_KIND[glyph]]!;
+        const style = GATE_STYLE[MODE_KIND[glyph]];
+        return (
+          <span key={glyph} className="step-mode-glyph" style={{ background: style.bg, color: style.fg }}>
+            <Icon className="kind-icon" aria-hidden="true" />
+          </span>
+        );
+      })}
+      {badge.glyphs.length === 0 && badge.label}
     </span>
   );
 }
@@ -427,7 +464,7 @@ function StepCard({
               className="step-condition-kind"
               style={{ background: GATE_STYLE[step.condition.kind].bg, color: GATE_STYLE[step.condition.kind].fg }}
             >
-              {GATE_STYLE[step.condition.kind].label}
+              <GateKindLabel kind={step.condition.kind} className="" />
             </span>
             <span className="step-condition-text">{step.condition.text || "…"}</span>
           </div>
@@ -504,7 +541,7 @@ function StepCard({
                     }}
                   >
                     <span className="gate-num">{k + 1}</span>
-                    <span className="gate-kind">{style.label}</span>
+                    <GateKindLabel kind={gate.kind} />
                     <span className="gate-text">{gate.text}</span>
                     <span className="gate-extra">{link.ok ? `↳ ${childSlug(gate, step.id)}` : link.unavailable ? "unavailable" : "not found"}</span>
                     {gate.route_back_to.length > 0 && (
@@ -518,7 +555,7 @@ function StepCard({
               return (
                 <span key={k} className="gate-pill" title={tip} style={{ background: style.bg, color: style.fg }}>
                   <span className="gate-num">{k + 1}</span>
-                  <span className="gate-kind">{style.label}</span>
+                  <GateKindLabel kind={gate.kind} />
                   {gate.text && <span className="gate-text">{gate.text}</span>}
                   {extra && <span className="gate-extra">{extra}</span>}
                   {gate.route_back_to.length > 0 && (

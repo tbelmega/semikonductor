@@ -548,20 +548,66 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .step-mode {
   flex: none;
   margin-left: auto;
-  padding: 0 6px;
+  display: inline-flex;
+  align-items: stretch;
+  height: 20px;
   border-radius: 999px;
+  overflow: hidden;
   font: 600 10.5px "JetBrains Mono", monospace;
   color: var(--text-faint);
   background: transparent;
 }
-.step-mode.is-unattended {
-  color: var(--text-strong);
-  background: var(--surface-sunken);
+.step-mode-glyph {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
 }
+.step-mode-glyph .kind-icon {
+  width: 12px;
+  height: 12px;
+}
+.step-mode.is-invalid {
+  align-items: center;
+  padding: 0 6px;
+}
+/* Compare's changed mark is a ring, so it does not hide the glyph colours. */
 .step-mode.is-chg {
-  color: var(--sem-amber-text);
-  background: var(--sem-amber-bg);
+  overflow: visible;
+  outline: 1.5px solid var(--sem-amber-line);
+  outline-offset: 1px;
 }
+.step-mode.is-chg .step-mode-glyph:first-child { border-radius: 999px 0 0 999px; }
+.step-mode.is-chg .step-mode-glyph:last-child { border-radius: 0 999px 999px 0; }
+.step-mode.is-chg .step-mode-glyph:only-child { border-radius: 999px; }
+/* A gate or condition kind: its glyph, then its keyword. */
+.kind-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kind-label .kind-icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+/* The Mode select carries the mode's glyph pill before its word. */
+.mode-field {
+  position: relative;
+  display: block;
+}
+.mode-field > .step-mode {
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  transform: translateY(-50%);
+  margin: 0;
+  pointer-events: none;
+}
+.mode-field > select {
+  width: 100%;
+}
+.mode-field.has-glyphs-1 > select { padding-left: 44px; }
+.mode-field.has-glyphs-2 > select { padding-left: 68px; }
 .step-condition {
   display: flex;
   align-items: center;
@@ -834,6 +880,9 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .info-tooltip-effect {
   opacity: 0.75;
   margin-top: 6px;
+}
+.info-tooltip-desc {
+  white-space: pre-line;
 }
 .field-input {
   font: 400 13.5px "IBM Plex Sans", sans-serif;
