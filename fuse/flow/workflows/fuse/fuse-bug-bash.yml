@@ -167,9 +167,12 @@ steps:
       Land each agent's commits on this checkout, run every check on the result after each
       landing, and have each series reviewed by an independent
       reviewer before you treat it as done; give the reviewer's findings to a fresh fix agent and
-      repeat until the review is clean or only optional findings remain. When the same area
-      produces findings in three review rounds in a row, stop patching it: redesign it as one
-      simple rule, or record it for the owner. Record each finding's disposition in the index,
+      repeat until the review is clean or only optional findings remain. When the same file or
+      area produces findings in three review rounds in a row, stop patching it and follow the
+      guide's rule for areas that do not converge: replace the special cases with one simple rule
+      only where that fits inside the area's current structure; otherwise start no further fix
+      round there, defer its open findings to the owner, and write a refactoring proposal for the
+      report. Record each finding's disposition in the index,
       each agent's cost in the cost ledger, and each decision you made on your own judgement in
       the decisions file. Start no fix round that would leave too little of the time limit for the
       confirmation step's whole-change review and the report. When the owner sent the work back
@@ -246,7 +249,8 @@ steps:
       Write the report following the bug-bash-report guide: the outcome first, then what was fixed
       by area, what is left for the owner with your recommendation for each, the state of every
       review, and what each lens and model found and cost, so the next bug bash can choose its
-      lenses. Order it for the owner: the decisions they must make come first. When the run
+      lenses. Order it for the owner: the decisions they must make come first, with a refactoring
+      proposal for each area the run stopped fixing because it did not converge. When the run
       reached its limits with findings at or above the threshold still open, make the case for a
       second pass: what this run found and fixed for its cost, what is open, and what a second
       pass would take, estimated from the cost ledger. In a fixing run,

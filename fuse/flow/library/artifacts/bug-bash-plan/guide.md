@@ -146,9 +146,18 @@ second documentation pass; a short live run.
   result.
 - **Every series gets an independent review**, and its findings go to a fresh fix agent. Expect the
   first review of a change to core logic to find serious problems in the fixes themselves.
-- **Three rounds in one area means redesign.** When the same area produces findings in three review
-  rounds in a row, stop adding special cases: replace them with one simple rule, or record the
-  area for the owner.
+- **Three rounds in one area means it needs a redesign, not more fixes.** When the same file or
+  area produces findings in three review rounds in a row, each fix is adding a guard that the next
+  review gets around, and the structure is the problem. Stop adding special cases:
+  - Where the special cases can be replaced by one simple rule inside the area's current
+    structure, such as one function every caller uses, do that in the next round, and say so in
+    the decisions file.
+  - Otherwise, and when the one rule also produces findings, start no further fix round in the
+    area. Defer its open findings to the owner and write a refactoring proposal for the report:
+    why the structure keeps producing defects, the shape you propose, which open findings it would
+    close, the tests it needs, such as component or browser tests the project lacks, and its
+    size. A restructure is the owner's call and its own piece of work, outside the bug bash's
+    time box.
 - **Decisions the owner should see** go to the workstream's decisions file, with the default you
   built and how to revert it.
 

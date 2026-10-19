@@ -6,7 +6,9 @@ of reading. Every count and claim in it must match the findings index and the re
 ## What it holds, in this order
 
 1. **For the owner:** the decisions they must make, each with the context to decide it and your
-   recommendation. Point to the decisions file for those already recorded there.
+   recommendation. Point to the decisions file for those already recorded there. Each area the
+   run stopped fixing because it did not converge comes with its refactoring proposal, as the
+   bug-bash-plan guide describes.
 2. **Outcome:** whether the run met its done condition or reached its limits; the number of
    findings by severity and by disposition; the commits and the checks that pass on the final head.
    When the limits ended the run with findings at or above the threshold open, the case for a
