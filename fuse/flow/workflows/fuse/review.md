@@ -66,6 +66,10 @@ round. When the round cap is reached with required fixes open, make the last rou
 anyway, start no further review, and report the step blocked, naming the fixes no reviewer has
 seen. The owner decides, and can grant a round to review them.
 
+An owner's ruling recorded for the workstream wins over these round rules where it applies, such
+as a bug bash's limit ruling, under which required findings left open when the limits are reached
+are deferred to the owner instead of fixed, and the step completes with them listed.
+
 In the hand-over, list each round's findings with how each was handled, and the deferred ones.
 
 After the owner sends the work back to a step, its next pass starts the round count again, and

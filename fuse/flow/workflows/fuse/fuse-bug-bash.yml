@@ -60,7 +60,11 @@ steps:
       present it with the decisions the owner must check first. When the owner has delegated
       the whole run in advance and is not there, settle each point from their standing
       instructions and the house rules, record each such decision in the decisions file, and
-      record the gate's approval with a note that quotes the instruction it rests on.
+      record the gate's approval with a note that quotes the instruction it rests on. Settle with
+      the owner what happens when the limits are reached, following the guide's section on the
+      end of a bug bash, and record it in the plan as the limit ruling: by default, time and spend
+      are reserved for the wrap-up, no new fix round starts, required findings still open are
+      deferred to the owner, and reviews that cannot run any more are waived under this ruling.
     consumes: [request]
     produces:
       - artifact: bug-bash-plan
@@ -78,8 +82,12 @@ steps:
       Have the test tooling the plan names built as a feature of the project, in the child
       workstream this step starts, and run that workstream to its end; the owner's decisions in it
       are made there. Hand its intake the plan's test tooling section as the owner's request, so
-      it starts from the gaps and the agreed scope. When the child is complete, record in the
-      plan what was built, how it runs and which gaps remain.
+      it starts from the gaps and the agreed scope. The bug bash runs on a head that has the
+      tooling. When the child ends with the tooling approved for the project's review process
+      rather than landed, follow its hand-off and wait for the owner to land the tooling, unless
+      the owner agrees to run the bug bash on top of the tooling's commits before they land. When
+      the tooling is on the head the bug bash uses, record in the plan what was built, how it
+      runs, which head the catalogue and discovery start from, and which gaps remain.
     consumes: [bug-bash-plan]
     updates:
       - artifact: bug-bash-plan
@@ -174,8 +182,9 @@ steps:
       round there, defer its open findings to the owner, and write a refactoring proposal for the
       report. Record each finding's disposition in the index,
       each agent's cost in the cost ledger, and each decision you made on your own judgement in
-      the decisions file. Start no fix round that would leave too little of the time limit for the
-      confirmation step's whole-change review and the report. When the owner sent the work back
+      the decisions file. Start no fix round that would leave too little of the time or spend
+      limit for the wrap-up the plan reserves. When the limits are reached, follow the plan's
+      limit ruling. When the owner sent the work back
       for a second pass, take its limits from the owner's note and record them in the decisions
       file. The whole change is reviewed as one change at the end of the confirmation step.
     consumes: [bug-bash-plan, bug-bash-findings]
@@ -201,8 +210,8 @@ steps:
       new confirmed findings at or above the threshold and the plan's limits allow; then record
       what remains for the owner. The bug bash is done when a confirmation wave finds no new
       confirmed finding at or above the threshold, or when the limits are reached, which the
-      report must say. The step's agent gate then reviews the whole change, with the
-      confirmation fixes, as one change.
+      report must say; at the limits, follow the plan's limit ruling. The step's agent gate then
+      reviews the whole change, with the confirmation fixes, as one change.
     consumes: [bug-bash-plan, bug-bash-findings]
     updates:
       - artifact: code
@@ -253,7 +262,9 @@ steps:
       proposal for each area the run stopped fixing because it did not converge. When the run
       reached its limits with findings at or above the threshold still open, make the case for a
       second pass: what this run found and fixed for its cost, what is open, and what a second
-      pass would take, estimated from the cost ledger. In a fixing run,
+      pass would take, estimated from the cost ledger. The owner starts a second pass by sending
+      the work back to the fix step, with the new limits in the note; that is a send-back, never
+      an approval of this gate. In a fixing run,
       say how the fixes land, the way the house rules ask; the owner lands them.
     consumes: [bug-bash-plan, bug-bash-findings]
     produces:
@@ -263,5 +274,5 @@ steps:
       - agent: review the report against the findings index and the review records, so that every count and claim in it is true
         guide: review.md
         max_rounds: 1
-      - owner-action: accept the report, and land the fixes when the run made any; or send the work back to the fix step, with new limits, for a second pass
+      - owner-action: accept the report, and land the fixes when the run made any
         route_back_to: [fix, discovery]

@@ -12,8 +12,9 @@ for running agents and fixes. The house rules win where they say otherwise.
 3. **Mode:** report only, or fixing; in a fixing run, the severity threshold for what is fixed
    (by default P1 and above) and whether the owner triages the findings first.
 4. **Quality bar:** the severities below, adapted to the project with an example of each.
-5. **Limits:** wall-clock time and spend, per phase where it matters, and which live or costly
-   runs are allowed.
+5. **Limits:** wall-clock time and spend, per phase where it matters, which live or costly runs
+   are allowed, and the limit ruling: what happens when the limits are reached, as the section on
+   the end of a bug bash describes.
 6. **Reviewers:** the model and harness for the author agents and for the independent reviewers.
    An independent reviewer is a different model family from the author's where one is available.
 7. **Test tooling:** what exists, the gaps that would hinder this run, and whether the owner has
@@ -46,7 +47,9 @@ this run: fixes in an area no test can reach, such as a user interface without b
 can only be checked by agents by hand, and races and wiring bugs there are exactly what such
 checks miss. For each such gap, say what it costs the run and what tooling would close it, and
 recommend at the intake gate whether to build it first. When the owner agrees, the test-tooling
-step builds it as a feature workstream; the bug bash continues once it has landed.
+step builds it as a feature workstream. The bug bash then runs on a head that has the tooling:
+once it has landed, or, when the owner agrees, on top of its commits before they land, for
+example while a pull request for them is open. The plan names that head.
 
 ## Catalogue
 
@@ -172,8 +175,13 @@ must. When an unattended step meets a question only the owner can answer:
 - Go on with the default. Work that has no safe default, because it would be wasted or harmful if
   the owner decided otherwise, waits; the rest of the run continues.
 - Read the decisions file for answers after every landing and before every new round or step.
-  Apply each answer, reverting the default where the owner chose otherwise, and record that you
-  did.
+  An answer that concerns the current step's work is applied before its gates run, reverting the
+  default where the owner chose otherwise; record that you did. An answer that changes the work of
+  a step already completed, such as code the fix and confirmation steps checked and reviewed, is
+  not applied in place: it goes back to that step, so its checks and reviews run again. Sending
+  work back is the owner's decision, so do it with `--back-to` and the answer in the note only
+  when the owner's answer asks for it; otherwise keep the default, mark the answer pending, and
+  put it first in the report's decisions for the owner.
 - Questions still open at the end go first in the report's decisions for the owner.
 
 ## History
@@ -193,9 +201,21 @@ A fixing run is done when a confirmation wave finds no new confirmed finding at 
 threshold and every series' last review is clean or has only optional findings, or when the limits
 are reached. The report says which.
 
-The limits are there to stop runaway cost, and reaching them is a normal end. Plan the end of the
-time limit so that the run still finishes well: start no new fix round once the time left would
-not cover the whole-change review, the history rewrite and the report. The report then shows the
-owner what the run found and fixed for its cost and what is still open, and makes the case for a
-second pass where findings at or above the threshold remain. The owner starts it by sending the
-work back to the fix step with new limits.
+The limits are there to stop runaway cost, and reaching them is a normal end. Intake settles the
+limit ruling with the owner and records it in the plan, so that a run that reaches its limits
+still gets to the report without waiting for the owner. By default:
+
+- Reserve time and spend for the wrap-up: the whole-change review, the history rewrite and the
+  report with their reviews, estimated from the cost ledger as the run goes. Start no new fix
+  round once what is left would not cover them.
+- When the limits are reached, start no new fix round. A review that has run still counts: its
+  required findings that are left open are deferred to the owner under the limit ruling, marked
+  so in the index, and the step completes with them listed in its hand-over. A required review
+  that can no longer run is waived with `continue --waived`, with a reason that quotes the limit
+  ruling.
+- The report labels every change no reviewer has seen and every required finding left open, and
+  puts them first in the decisions for the owner.
+
+The report then shows the owner what the run found and fixed for its cost and what is still
+open, and makes the case for a second pass where findings at or above the threshold remain. The
+owner starts it by sending the work back to the fix step with new limits.
