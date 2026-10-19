@@ -208,13 +208,19 @@ still gets to the report without waiting for the owner. By default:
 - Reserve time and spend for the wrap-up: the whole-change review, the history rewrite and the
   report with their reviews, estimated from the cost ledger as the run goes. Start no new fix
   round once what is left would not cover them.
-- When the limits are reached, start no new fix round. A review that has run still counts: its
-  required findings that are left open are deferred to the owner under the limit ruling, marked
-  so in the index, and the step completes with them listed in its hand-over. A required review
-  that can no longer run is waived with `continue --waived`, with a reason that quotes the limit
-  ruling.
-- The report labels every change no reviewer has seen and every required finding left open, and
-  puts them first in the decisions for the owner.
+- When the limits are reached, start no new fix round, and land no series that is still in
+  progress. A review that has run still counts: its required findings that are left open are
+  deferred to the owner under the limit ruling, marked so in the index, and the step completes
+  with them listed in its hand-over. A required review that can no longer run is waived with
+  `continue --waived`, with a reason that quotes the limit ruling.
+- When the default check still fails at the limits, for example because a test failed on the
+  baseline and its fix did not get done, the step cannot complete, and the check is never
+  narrowed or weakened to let it. Report the step blocked with `continue --blocked`, naming the
+  failing check, then move on to the report with `continue --forward-to report` and a note that
+  quotes the limit ruling, which is the owner's advance decision for this jump. The steps passed
+  over are recorded as skipped, and their checks as not run.
+- The report labels every failing check, every change no reviewer has seen, every step passed
+  over and every required finding left open, and puts them first in the decisions for the owner.
 
 The report then shows the owner what the run found and fixed for its cost and what is still
 open, and makes the case for a second pass where findings at or above the threshold remain. The

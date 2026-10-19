@@ -64,7 +64,9 @@ steps:
       the owner what happens when the limits are reached, following the guide's section on the
       end of a bug bash, and record it in the plan as the limit ruling: by default, time and spend
       are reserved for the wrap-up, no new fix round starts, required findings still open are
-      deferred to the owner, and reviews that cannot run any more are waived under this ruling.
+      deferred to the owner, reviews that cannot run any more are waived under this ruling, and a
+      step whose default check still fails is reported blocked and the run moves on to the report
+      under this ruling, so the failure stays recorded.
     consumes: [request]
     produces:
       - artifact: bug-bash-plan
@@ -172,8 +174,9 @@ steps:
       with the owner's git identity, and the house rules on tests: a bug fix starts with a test
       that reproduces it and fails, and no test is weakened to get to green. A file that several
       sets of findings change, such as a README or a large component, has one owner per round.
-      Land each agent's commits on this checkout, run every check on the result after each
-      landing, and have each series reviewed by an independent
+      Land each agent's commits on this checkout only when the default check passes on the
+      result, or fails only the way it failed on the baseline; a series that breaks it goes back
+      to a fix agent or is dropped. Run every check on the result after each landing, and have each series reviewed by an independent
       reviewer before you treat it as done; give the reviewer's findings to a fresh fix agent and
       repeat until the review is clean or only optional findings remain. When the same file or
       area produces findings in three review rounds in a row, stop patching it and follow the
