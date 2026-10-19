@@ -114,6 +114,27 @@ describe("opening", () => {
     }
   });
 
+  test("moving from a waiting anchor onto one without a text opens nothing", () => {
+    for (const text of ["", null]) {
+      const p = page();
+      p.move(p.anchor("a"));
+      p.wait(OPEN_DELAY / 3);
+      p.move(p.anchor("empty", text));
+      p.wait(OPEN_DELAY);
+      expect(p.showing()).toBeNull();
+      p.wait(OPEN_DELAY * 4);
+      expect(p.showing()).toBeNull();
+    }
+  });
+
+  test("a tip opened at once that nothing holds closes a moment later", () => {
+    const p = page();
+    p.tip.press(p.anchor("pressed"), false);
+    expect(p.showing()).toBe("pressed");
+    p.wait(CLOSE_DELAY);
+    expect(p.showing()).toBeNull();
+  });
+
   test("an element without a text opens nothing", () => {
     const p = page();
     p.move(p.anchor("x", ""));

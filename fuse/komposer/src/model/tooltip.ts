@@ -98,6 +98,8 @@ export function createTooltip<A, C>(env: TipEnv<A, C>): Tooltip<A, C> {
       const shown = source === "attr" ? env.text(anchor) : content;
       if (shown === null || shown === undefined || shown === "") return;
       set({ anchor, content: shown, source });
+      // Whatever opened it, a tip nothing holds closes a moment later.
+      check();
     };
     if (immediate || (!current && env.now() - closedAt < WARM_MS)) return go();
     pending = anchor;
@@ -108,8 +110,9 @@ export function createTooltip<A, C>(env: TipEnv<A, C>): Tooltip<A, C> {
     pointerOver(anchor, onTip) {
       if (current && !env.connected(current.anchor)) close();
       if (onTip || (anchor !== null && anchor === current?.anchor)) return cancelOpen();
-      if (anchor === null) cancelOpen();
-      else if (anchor !== pending && env.text(anchor)) open(anchor, "attr", undefined, false);
+      // An element whose text is empty is no anchor, like plain content.
+      if (anchor === null || !env.text(anchor)) cancelOpen();
+      else if (anchor !== pending) open(anchor, "attr", undefined, false);
       check();
     },
     pointerLeftWindow() {
