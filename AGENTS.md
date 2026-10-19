@@ -28,6 +28,7 @@ not installed the skills yet, and the tutorial is also how they install them.
 skills/        # Skill definitions (SKILL.md + optional scripts)
 fuse/flow/     # fuse-flow workflow runner and workflow definitions; see fuse/flow/README.md
                # (workflows/fuse/ the primary ones, workflows/konductor/ Konductor's, its SOPs as k-sop-*)
+fuse/komposer/ # Komposer, the workflow editor; read fuse/komposer/AGENTS.md before changing it
 install.sh     # Installer; see INSTALL.md
 AGENTS.fuse.md # Always-on block that install.sh writes into harness instruction files
 ```
