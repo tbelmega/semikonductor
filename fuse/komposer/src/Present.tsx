@@ -74,7 +74,7 @@ function DrawerStrip({
   const rotate = side === "left" ? (open ? 180 : 0) : open ? 0 : 180;
   return (
     <div className={`drawer-strip is-${side}`}>
-      <button type="button" className="drawer-pin" title={tip} aria-label={tip} aria-expanded={open} onClick={(event) => onPin(event.currentTarget.closest(".present-drawer"))}>
+      <button type="button" className="drawer-pin" data-tip={tip} aria-label={tip} aria-expanded={open} onClick={(event) => onPin(event.currentTarget.closest(".present-drawer"))}>
         <ChevronRight size={14} strokeWidth={2} style={{ transform: `rotate(${rotate}deg)` }} />
       </button>
       <span className="drawer-label" aria-hidden="true">
@@ -225,7 +225,7 @@ export function Present({
                 <path d="M6 9l6 6 6-6" />
               </svg>
               <select
-                title="Show a second workflow next to this one"
+                data-tip="Show a second workflow next to this one"
                 value={second ? workflowKey(second) : ""}
                 onChange={(event) => onSecond(event.target.value || null)}
               >

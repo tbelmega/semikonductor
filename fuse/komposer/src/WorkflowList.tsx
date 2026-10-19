@@ -132,7 +132,7 @@ export function WorkflowList({
           placeholder="Search workflows"
           aria-label="Search workflows"
         />
-        <button className="new-workflow-btn" title="New workflow" onClick={onNew}>
+        <button className="new-workflow-btn" data-tip="New workflow" onClick={onNew}>
           + New
         </button>
       </div>
@@ -140,7 +140,7 @@ export function WorkflowList({
         {mode === "workstreams" && (
           <button
             className={`lane-all${allWorkstreams ? " is-current" : ""}`}
-            title="Show the workstreams of every workflow"
+            data-tip="Show the workstreams of every workflow"
             onClick={onAllWorkstreams}
           >
             <span className="lane-all-label">All workstreams</span>
@@ -156,7 +156,7 @@ export function WorkflowList({
               <button
                 className="lane-group-head lane-toggle"
                 aria-expanded={sectionOpen(group.loc)}
-                title={LOCATION_ROOT[group.loc]}
+                data-tip={LOCATION_ROOT[group.loc]}
                 onClick={() => folders.toggle(`${group.loc}:`, "", true)}
               >
                 <Chevron open={sectionOpen(group.loc)} />
@@ -209,20 +209,20 @@ export function WorkflowList({
                         <button
                           className={`lane-row${isLeft ? " is-current" : ""}${isRight ? " is-right" : ""}${asRight ? " has-as-right" : ""}${counted && !counted.count ? " is-faded" : ""}`}
                           onClick={() => onOpen(key)}
-                          title={w.path}
+                          data-tip={w.path}
                           style={{ paddingLeft: `${10 + parts.length * 12}px` }}
                         >
                           <span className="lane-row-head">
                             <span className="lane-row-name">{stem(w.file)}</span>
-                            {problemCount > 0 && <span className="dot dot-problem" title="Has problems" />}
-                            {dirty && <span className="dot dot-unsaved" title="Unsaved changes" />}
+                            {problemCount > 0 && <span className="dot dot-problem" role="img" aria-label="Has problems" data-tip="Has problems" />}
+                            {dirty && <span className="dot dot-unsaved" role="img" aria-label="Unsaved changes" data-tip="Unsaved changes" />}
                             {comparing && isLeft && <span className="lane-row-tag is-left">left</span>}
                             {isRight && <span className="lane-row-tag is-right">right</span>}
                           </span>
                           <span className="lane-row-meta">{meta}</span>
                         </button>
                         {asRight && (
-                          <button className="lane-as-right" title="Compare against this workflow, on the right" onClick={() => onCompareRight?.(key)}>
+                          <button className="lane-as-right" data-tip="Compare against this workflow, on the right" onClick={() => onCompareRight?.(key)}>
                             as right
                           </button>
                         )}
@@ -232,10 +232,10 @@ export function WorkflowList({
                 })}
               {sectionOpen(group.loc) &&
                 group.broken.map((u) => (
-                  <div key={`unavailable:${u.path}`} className="lane-row lane-row-unavailable" title={`${u.path}: ${u.reason}`}>
+                  <div key={`unavailable:${u.path}`} className="lane-row lane-row-unavailable" data-tip={`${u.path}: ${u.reason}`}>
                     <span className="lane-row-head">
                       <span className="lane-row-name">{u.shown}</span>
-                      <span className="dot dot-problem" title={unavailableNote(u.kind).dot} />
+                      <span className="dot dot-problem" role="img" aria-label={unavailableNote(u.kind).dot} data-tip={unavailableNote(u.kind).dot} />
                     </span>
                     <span className="lane-row-meta">
                       {unavailableNote(u.kind).meta}: {u.reason}

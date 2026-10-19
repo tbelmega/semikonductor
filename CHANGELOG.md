@@ -156,6 +156,8 @@ script installs plain skills and an always-on instruction block that every suppo
     disk; the editor takes no edits while a confirmed save writes the file.
   - A link followed from another project's workstream keeps resolving names in that project, on
     every page.
+  - Its tooltips open quickly on hover, at once on click or keyboard focus, and look the same
+    everywhere.
 - **Skills:**
   - `fuse-workstream`: finds a workstream to resume, recommends a workflow for new work, starts it
     once the user agrees, and runs it, keeping fuse-flow's commands out of what the owner reads.

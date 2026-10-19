@@ -190,8 +190,8 @@ function Detail({
           </div>
         </div>
         <div className="ws-detail-meta">
-          <span title={workstream.workflowPath}>{file}</span>
-          <span title={workstream.project}>{projectName(workstream.project)}</span>
+          <span data-tip={workstream.workflowPath}>{file}</span>
+          <span data-tip={workstream.project}>{projectName(workstream.project)}</span>
           {workstream.summary && (
             <span>
               started {dateTime(workstream.summary.started)} · {done ? "took" : "running for"} {duration(runDuration(workstream))}
@@ -264,7 +264,7 @@ function Summary({
         {workstreamStats(workstream).map((stat) => (
           <div key={stat.label} className="ws-stat">
             <span className="ws-kicker">{stat.label}</span>
-            <span className="ws-stat-value" title={stat.value}>
+            <span className="ws-stat-value" data-tip={stat.value}>
               {stat.value}
             </span>
           </div>
@@ -416,7 +416,7 @@ function WorkstreamDiagram({
               <span
                 key={input.artifact}
                 className="chip chip-input"
-                title={[
+                data-tip={[
                   `input ${input.artifact}, ${input.required ? "required" : "optional"}`,
                   input.description ?? "",
                   given ? `given: ${given}` : "not given",
@@ -461,7 +461,7 @@ function WorkstreamDiagram({
                   <ModeBadge mode={step.mode} />
                 </div>
                 {step.condition && (
-                  <div className="step-condition" title={`${step.condition.kind}: ${step.condition.text}`}>
+                  <div className="step-condition" data-tip={`${step.condition.kind}: ${step.condition.text}`}>
                     <span className="step-condition-label">only if</span>
                     <span
                       className="step-condition-kind"
@@ -481,7 +481,7 @@ function WorkstreamDiagram({
                       </span>
                     ))}
                     {step.artifacts.map((a, k) => (
-                      <span key={`out-${a.artifact}-${k}`} className={`chip chip-produces role-${a.role}`} title={a.path}>
+                      <span key={`out-${a.artifact}-${k}`} className={`chip chip-produces role-${a.role}`} data-tip={a.path}>
                         {a.role === "updates" ? "~" : ""}
                         {a.artifact}
                         {a.role === "optional_produces" ? "?" : ""}
@@ -500,7 +500,7 @@ function WorkstreamDiagram({
                             key={k}
                             type="button"
                             className={`gate-pill gate-pill-link${link.ok ? "" : " is-unresolved"}`}
-                            title={delegationTip(gate, link)}
+                            data-tip={delegationTip(gate, link)}
                             aria-disabled={!link.ok}
                             style={{ background: style.bg, color: style.fg }}
                             onClick={() => link.ok && onOpenWorkflow(link.key)}
@@ -518,7 +518,7 @@ function WorkstreamDiagram({
                         );
                       }
                       return (
-                        <span key={k} className="gate-pill" title={gate.text} style={{ background: style.bg, color: style.fg }}>
+                        <span key={k} className="gate-pill" data-tip={gate.text} style={{ background: style.bg, color: style.fg }}>
                           <GateKindLabel kind={gate.kind} />
                           {gate.text && <span className="gate-text">{gate.text}</span>}
                         </span>

@@ -9,9 +9,12 @@ import "./tokens/effects.css";
 import "./tokens/base.css";
 import "./styles.css";
 import { App } from "./App.tsx";
+import { TooltipLayer } from "./Tooltip.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <TooltipLayer>
+      <App />
+    </TooltipLayer>
   </StrictMode>,
 );

@@ -19,7 +19,7 @@ export function TopBar({ project, page, onPage }: { project: string; page: Page;
       <div className="top-bar-brand">
         <div className="brand-disc" />
         <div className="brand-name">Komposer</div>
-        <span className="project-pill" title="The project Komposer was started on">
+        <span className="project-pill" data-tip="The project Komposer was started on">
           {project}
         </span>
       </div>
@@ -31,7 +31,7 @@ export function TopBar({ project, page, onPage }: { project: string; page: Page;
             className={`page-btn${page === id ? " is-active" : ""}`}
             aria-current={page === id ? "page" : undefined}
             aria-disabled={!built}
-            title={built ? `${label} (${i + 1})` : `${label}: not built yet`}
+            data-tip={built ? `${label} (${i + 1})` : `${label}: not built yet`}
             onClick={() => built && onPage(id)}
           >
             {label}

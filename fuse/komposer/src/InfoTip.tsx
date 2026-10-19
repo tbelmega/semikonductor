@@ -1,49 +1,52 @@
 // SPDX-License-Identifier: Apache-2.0
-// The dark info tooltip shown on hovering a field's "i" icon: YAML key,
-// required/optional, the schema description and a separate engine-effect
-// line, positioned below the icon or above when there isn't room.
+// The info tooltip shown on hovering or focusing a field's "i" icon: YAML
+// key, required/optional, the description, terms and a separate
+// engine-effect line. The shared tooltip layer draws and places it.
 
-import { useState } from "react";
 import { Info } from "lucide-react";
 import type { FieldDoc } from "./docs.ts";
+import { useTooltip } from "./Tooltip.tsx";
 
-export function InfoTip({ doc }: { doc: FieldDoc }) {
-  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
-
-  const onEnter = (e: React.MouseEvent<HTMLSpanElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const below = r.bottom < window.innerHeight - 240;
-    setPos({
-      left: Math.max(8, Math.min(r.left + r.width / 2 - 155, window.innerWidth - 318)),
-      ...(below ? { top: r.bottom + 6 } : { bottom: window.innerHeight - r.top + 6 }),
-    });
-  };
-
+function InfoContent({ doc }: { doc: FieldDoc }) {
   return (
-    <span className="info-tip-wrap" onMouseEnter={onEnter} onMouseLeave={() => setPos(null)}>
-      <span className="info-icon" aria-label="field info">
-        <Info size={10} strokeWidth={1.75} />
-      </span>
-      {pos && (
-        <div className="info-tooltip" style={{ left: pos.left, top: pos.top, bottom: pos.bottom }}>
-          {!doc.hideKey && (
-            <div className="info-tooltip-key">
-              {doc.yamlKey} <span className="info-tooltip-tag">{doc.required ? "required" : "optional"}</span>
-            </div>
-          )}
-          <div className="info-tooltip-desc">{doc.description}</div>
-          {doc.terms && (
-            <ul className="info-tooltip-terms">
-              {doc.terms.map(({ term, text }) => (
-                <li key={term}>
-                  <strong>{term}:</strong> {text}
-                </li>
-              ))}
-            </ul>
-          )}
-          {doc.engineEffect && <div className="info-tooltip-effect">Engine effect: {doc.engineEffect}</div>}
+    <>
+      {!doc.hideKey && (
+        <div className="info-tooltip-key">
+          {doc.yamlKey} <span className="info-tooltip-tag">{doc.required ? "required" : "optional"}</span>
         </div>
       )}
+      <div className="info-tooltip-desc">{doc.description}</div>
+      {doc.terms && (
+        <ul className="info-tooltip-terms">
+          {doc.terms.map(({ term, text }) => (
+            <li key={term}>
+              <strong>{term}:</strong> {text}
+            </li>
+          ))}
+        </ul>
+      )}
+      {doc.engineEffect && <div className="info-tooltip-effect">Engine effect: {doc.engineEffect}</div>}
+    </>
+  );
+}
+
+export function InfoTip({ doc }: { doc: FieldDoc }) {
+  const tooltip = useTooltip();
+  const show = (anchor: Element) => tooltip.show(anchor, <InfoContent doc={doc} />);
+  return (
+    <span className="info-tip-wrap">
+      <span
+        className="info-icon"
+        role="img"
+        aria-label="field info"
+        tabIndex={0}
+        onMouseEnter={(e) => show(e.currentTarget)}
+        onMouseLeave={(e) => tooltip.hide(e.currentTarget)}
+        onFocus={(e) => show(e.currentTarget)}
+        onBlur={(e) => tooltip.hide(e.currentTarget)}
+      >
+        <Info size={10} strokeWidth={1.75} />
+      </span>
     </span>
   );
 }

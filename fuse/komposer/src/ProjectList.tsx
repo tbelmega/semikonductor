@@ -70,7 +70,7 @@ export function ProjectList({
         <button
           type="button"
           className="ws-add-projects"
-          title="Look for workstreams in a folder and the four folder levels below it"
+          data-tip="Look for workstreams in a folder and the four folder levels below it"
           onClick={() => setAdding(true)}
         >
           <FolderPlus size={15} strokeWidth={1.75} /> Add projects
@@ -89,7 +89,7 @@ export function ProjectList({
                   type="button"
                   className="ws-project-toggle lane-toggle"
                   aria-expanded={open}
-                  title={project.path}
+                  data-tip={project.path}
                   onClick={() => sections.toggle(`project:${project.path}`, project.name, true)}
                 >
                   <Chevron open={open} />
@@ -97,7 +97,7 @@ export function ProjectList({
                   {tag && <span className="ws-project-tag">{tag}</span>}
                   <span
                     className={`ws-project-count${project.missing || project.error ? " is-missing" : ""}`}
-                    title={project.error}
+                    data-tip={project.error}
                   >
                     {projectCount(group, filtered)}
                   </span>
@@ -106,7 +106,7 @@ export function ProjectList({
                   <button
                     type="button"
                     className="ws-project-remove"
-                    title={`Remove ${project.name} from the list; its workstreams stay where they are`}
+                    data-tip={`Remove ${project.name} from the list; its workstreams stay where they are`}
                     onClick={() => remove(project)}
                   >
                     Remove
@@ -125,7 +125,7 @@ export function ProjectList({
                         type="button"
                         className={`ws-row${key === selectedKey ? " is-current" : ""}`}
                         style={depth ? { paddingLeft: `${10 + 18 * depth}px` } : undefined}
-                        title={reason || workstream.workflowPath}
+                        data-tip={reason || workstream.workflowPath}
                         onClick={() => onSelect(workstream)}
                       >
                         <span className={`ws-dot ${state.className}`} />
@@ -200,7 +200,7 @@ function AddProjectsModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
       <div className="save-modal add-projects-modal" role="dialog" aria-labelledby="add-projects-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <h2 id="add-projects-title">Add projects</h2>
-          <button className="icon-mini" title="Close" aria-label="Close" onClick={onClose}>
+          <button className="icon-mini" data-tip="Close" aria-label="Close" onClick={onClose}>
             <X />
           </button>
         </div>

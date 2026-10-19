@@ -101,7 +101,7 @@ export function RailStrip({
             key={id}
             type="button"
             className={`rail-strip-btn${active ? " is-active" : ""}`}
-            title={tip}
+            data-tip={tip}
             aria-pressed={active}
             aria-disabled={disabled}
             onClick={() => !disabled && onPick(active ? null : id)}
@@ -188,7 +188,7 @@ export function RailPanel({
       <div className="rail-panel-head">
         <span className="rail-panel-title">{TAB_TITLE[tab]}</span>
         <span className="rail-panel-sub">{subtitle}</span>
-        <button type="button" className="rail-close" title="Close panel (Esc)" onClick={onClose}>
+        <button type="button" className="rail-close" data-tip="Close panel (Esc)" onClick={onClose}>
           <X size={14} /> Close
         </button>
       </div>
@@ -377,7 +377,7 @@ function StepTab({
               <select
                 className="field-input"
                 value={modeSelectValue(step.mode)}
-                title={modeBadge(step.mode).title}
+                data-tip={modeBadge(step.mode).title}
                 onChange={(e) => e.target.value !== INVALID_MODE && setStep("mode", e.target.value)}
                 data-error={!!err("mode")}
               >
@@ -416,9 +416,10 @@ function StepTab({
             <span className="grow" />
             <select
               className="mode-select"
+              aria-label="Instruction style"
               value={style}
               disabled={!blockInstruction}
-              title={blockInstruction ? undefined : "The step is written in braces or its list in brackets, where the instruction is a flow scalar, not a block"}
+              data-tip={blockInstruction ? undefined : "The step is written in braces or its list in brackets, where the instruction is a flow scalar, not a block"}
               onChange={(e) =>
                 onEdit({
                   op: "setInstruction",
@@ -511,7 +512,7 @@ function StepTab({
                 <button
                   key={a.id}
                   className={`toggle-pill${on ? " is-on" : ""}`}
-                  title={`from ${a.from}`}
+                  data-tip={`from ${a.from}`}
                   onClick={() =>
                     onEdit({
                       op: "setConsumes",
@@ -587,7 +588,7 @@ function StepTab({
                     <button
                       type="button"
                       className={`library-badge${entry ? "" : " is-missing"}`}
-                      title={
+                      data-tip={
                         entry
                           ? [
                               `Open ${a.artifact} in the library`,
@@ -603,7 +604,7 @@ function StepTab({
                     </button>
                     <button
                       className="icon-mini"
-                      title="Remove output"
+                      data-tip="Remove output"
                       aria-label="Remove output"
                       onClick={() => onEdit({ op: "removeOutput", step: selectedIndex, mode: a.role, index })}
                     >
@@ -763,7 +764,7 @@ function StepTab({
                     <span className="grow" />
                     <button
                       className="icon-mini"
-                      title="Remove gate"
+                      data-tip="Remove gate"
                       aria-label="Remove gate"
                       onClick={() => onEdit({ op: "removeGate", step: selectedIndex, index: fileIndex })}
                     >
@@ -941,7 +942,7 @@ function StepTab({
           <div className="expand-modal">
             <div className="modal-title-row">
               <h2>Instruction</h2>
-              <button className="icon-mini" title="Close" aria-label="Close" onClick={() => setExpand(false)}>
+              <button className="icon-mini" data-tip="Close" aria-label="Close" onClick={() => setExpand(false)}>
                 <X />
               </button>
             </div>
@@ -988,7 +989,7 @@ function StepSectionView({
       <button type="button" className="step-section-head" aria-expanded={open} onClick={onToggle} disabled={problem}>
         <Chevron open={open} />
         <span className="step-section-title">{title}</span>
-        {problem && <span className="step-section-problem" title="This section has a problem" />}
+        {problem && <span className="step-section-problem" role="img" aria-label="This section has a problem" data-tip="This section has a problem" />}
         {!open && <span className="step-section-summary">{summary}</span>}
       </button>
       {open && <div className="step-section-body">{children}</div>}
@@ -1122,7 +1123,7 @@ function WorkflowTab({
               </span>
               <div className="rail-box-row">
                 <span className="location-pill">{workflow.location}</span>
-                <span className="file-path mono" title={workflow.path}>
+                <span className="file-path mono" data-tip={workflow.path}>
                   {workflow.path}
                 </span>
               </div>
@@ -1263,7 +1264,7 @@ function LibraryTab({
         </span>
         <button
           className="icon-mini"
-          title={selectedStep ? `Add to ${selectedStep.id}` : "Select a step to add to"}
+          data-tip={selectedStep ? `Add to ${selectedStep.id}` : "Select a step to add to"}
           aria-label={selectedStep ? `Add to ${selectedStep.id}` : "Select a step to add to"}
           disabled={!selectedStep}
           onClick={(event) => {
@@ -1334,14 +1335,14 @@ function LibraryTab({
             {Object.hasOwn(open.files, shownFile) ? (
               <>
                 {open.links?.[shownFile] && (
-                  <div className="library-link" title={open.links[shownFile].path}>
+                  <div className="library-link" data-tip={open.links[shownFile].path}>
                     {shownFile} is a link to <span className="mono">{open.links[shownFile].display}</span>
                   </div>
                 )}
                 <pre className="library-file">{open.files[shownFile]}</pre>
               </>
             ) : (
-              <div className="library-link" title={open.links?.[shownFile]?.path}>
+              <div className="library-link" data-tip={open.links?.[shownFile]?.path}>
                 {shownFile} leads to <span className="mono">{open.links?.[shownFile]?.display}</span>, outside the folders
                 Komposer reads, so its text is not shown.
               </div>
@@ -1427,7 +1428,7 @@ function LibraryTab({
               <button
                 className="library-section-head lane-toggle"
                 aria-expanded={open}
-                title={LEVEL_ROOT[lv]}
+                data-tip={LEVEL_ROOT[lv]}
                 onClick={() => folders.toggle(`${lv}:`, "", true)}
               >
                 <Chevron open={open} />
@@ -1582,7 +1583,8 @@ function DelegationFields({
         className="field-input mono-input is-small"
         value={gate.slug ?? ""}
         placeholder={DEFAULT_CHILD_SLUG}
-        title={`for workstream <slug>: ${(gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{step}", stepId)}`}
+        aria-label="Child workstream slug"
+        data-tip={`for workstream <slug>: ${(gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{step}", stepId)}`}
         onChange={(e) => onSet({ slug: e.target.value || null })}
       />
       {listForm ? (
@@ -1595,7 +1597,7 @@ function DelegationFields({
           onKeyDown={(e) => e.key === "Enter" && commit()}
         />
       ) : (
-        <span className="mono delegation-written" title="Written as a mapping; edit in YAML">
+        <span className="mono delegation-written" data-tip="Written as a mapping; edit in YAML">
           {returns.map(([id, from]) => (id === from ? id : `${id} ← ${from}`)).join(", ")}
         </span>
       )}
@@ -1611,7 +1613,7 @@ function DelegationFields({
         type="button"
         className="delegation-open"
         disabled={!link.ok}
-        title={link.ok ? `Open ${link.path}` : link.reason}
+        data-tip={link.ok ? `Open ${link.path}` : link.reason}
         onClick={() => link.ok && onOpenWorkflow(link.key)}
       >
         {link.ok ? `Open ${gate.text || "…"} →` : `${gate.text || "…"} · not found`}
@@ -1635,7 +1637,7 @@ function ReviewInEffect({
       <span className="rail-kicker">Review in effect</span>
       {rows.map((row) => (
         <div key={row.key} className="review-in-effect-row">
-          <span className="mono review-in-effect-what" title={row.file?.path}>
+          <span className="mono review-in-effect-what" data-tip={row.file?.path}>
             {row.name}
           </span>
           <span className="review-in-effect-from">{row.from}</span>
@@ -1661,7 +1663,7 @@ function GateGuideButton({ guide, onView }: { guide: FileRef & { exists: boolean
       type="button"
       className="text-button"
       disabled={!opens}
-      title={unreadable ? `${guide.path} cannot be read: ${guide.unreadable}` : guide.path}
+      data-tip={unreadable ? `${guide.path} cannot be read: ${guide.unreadable}` : guide.path}
       onClick={() => onView(guide)}
     >
       {unreadable ? "Cannot be read" : opens ? "Open" : "Not found"}
@@ -1690,7 +1692,7 @@ function GuideViewer({
           ← Back to {backTo}
         </button>
         <span className="guide-viewer-title">{title}</span>
-        <span className="guide-viewer-path" title={file.path}>
+        <span className="guide-viewer-path" data-tip={file.path}>
           {file.display}
         </span>
       </div>

@@ -127,7 +127,7 @@ export function Compare(props: CompareProps) {
     <div className="center compare">
       <div className="compare-pickers">
         <Picker side="left" workflows={props.workflows} value={left} onPick={(key) => props.onPick("left", key)} />
-        <button type="button" className="compare-swap" title="Swap left and right" onClick={props.onSwap} disabled={!right}>
+        <button type="button" className="compare-swap" data-tip="Swap left and right" aria-label="Swap left and right" onClick={props.onSwap} disabled={!right}>
           <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" />
           </svg>
@@ -137,7 +137,7 @@ export function Compare(props: CompareProps) {
       </div>
       <div className="compare-summary">
         {(Object.keys(ROW) as RowKind[]).map((kind) => (
-          <span key={kind} className="compare-count" title={ROW[kind].tip}>
+          <span key={kind} className="compare-count" data-tip={ROW[kind].tip}>
             <span className={`compare-mark is-${kind}`}>{ROW[kind].mark}</span>
             {counts[kind]} {ROW[kind].label}
           </span>
@@ -154,7 +154,7 @@ export function Compare(props: CompareProps) {
         <button
           className={`compare-save${props.dirty && !props.saveBlocked ? " is-enabled" : ""}`}
           disabled={!props.dirty || !!props.saveBlocked}
-          title={props.saveBlocked ?? (props.dirty ? `Save ${left.file}` : "No changes to save")}
+          data-tip={props.saveBlocked ?? (props.dirty ? `Save ${left.file}` : "No changes to save")}
           onClick={props.onSave}
         >
           Save…
@@ -168,7 +168,7 @@ export function Compare(props: CompareProps) {
           <div className="compare-rows">
             {items.map((item, i) =>
               item.type === "gap" ? (
-                <button key={`gap-${i}`} className="compare-gap" title="Show the identical steps" onClick={() => props.onOnlyDifferences(false)}>
+                <button key={`gap-${i}`} className="compare-gap" data-tip="Show the identical steps" onClick={() => props.onOnlyDifferences(false)}>
                   <span className="compare-gap-mark">=</span>
                   {item.ids.length} identical step{item.ids.length === 1 ? "" : "s"} · {item.ids.join(", ")}
                 </button>
@@ -267,7 +267,7 @@ function Row({
     head = (
       <button
         className="compare-apply"
-        title="Make the left step match this one"
+        data-tip="Make the left step match this one"
         onClick={() => run(() => copyStepEdits(rightSteps, row.right!, leftSteps, undefined, files), `Applied all changes to ${x!.id}`)}
       >
         ← Apply all
@@ -277,7 +277,7 @@ function Row({
     head = (
       <button
         className="compare-apply"
-        title="Copy this step into the left workflow"
+        data-tip="Copy this step into the left workflow"
         onClick={() =>
           run(() => copyStepEdits(rightSteps, row.right!, leftSteps, row.at, files), `Added ${y.id} to ${leftName} as step ${row.at + 1}`, true)
         }
@@ -287,7 +287,7 @@ function Row({
     );
   if (y && row.kind === "moved")
     head = (
-      <button className="compare-apply" title="Move the left step to this position" onClick={() => run(() => moveEdits(row), `Moved ${y.id} in ${leftName}`, true)}>
+      <button className="compare-apply" data-tip="Move the left step to this position" onClick={() => run(() => moveEdits(row), `Moved ${y.id} in ${leftName}`, true)}>
         ← Move left step here
       </button>
     );
@@ -312,7 +312,7 @@ function Row({
       )}
       <div className="compare-gutter">
         <span className={`compare-gutter-line is-${row.kind}`} />
-        <span className={`compare-mark is-${row.kind} is-big`} title={ROW[row.kind].tip}>
+        <span className={`compare-mark is-${row.kind} is-big`} data-tip={ROW[row.kind].tip}>
           {ROW[row.kind].mark}
         </span>
       </div>
@@ -323,12 +323,12 @@ function Row({
               {lines.map((line, k) => (
                 <div key={k} className="compare-diff">
                   <span className={`compare-diff-mark is-${line.mark}`}>{DIFF_MARK[line.mark]}</span>
-                  <span className="compare-diff-label" title={line.label}>
+                  <span className="compare-diff-label" data-tip={line.label}>
                     {line.label}
                   </span>
                   <button
                     className="compare-diff-apply"
-                    title={line.refused ?? "Apply this change to the left workflow"}
+                    data-tip={line.refused ?? "Apply this change to the left workflow"}
                     onClick={() =>
                       run(() => {
                         if (line.refused) throw new Error(line.refused);
@@ -349,7 +349,7 @@ function Row({
           {row.kind === "left" && (
             <button
               className="compare-apply"
-              title="Delete this step from the left workflow"
+              data-tip="Delete this step from the left workflow"
               onClick={() => run(() => removeEdits(row), `Removed ${x!.id} from ${leftName}`, true)}
             >
               ← Apply · remove from left
@@ -412,7 +412,7 @@ function Card({
       className={`compare-card is-${row.kind}${onSelect ? " is-editable" : ""}${selected ? " is-selected" : ""}${problem ? " has-problems" : ""}`}
       data-left-step={side === "left" ? index : undefined}
       onClick={onSelect}
-      title={onSelect ? "Edit this step" : undefined}
+      data-tip={onSelect ? "Edit this step" : undefined}
     >
       <div className="compare-card-head">
         <span className="compare-card-num">{index + 1}</span>
@@ -477,7 +477,7 @@ function Card({
               <span
                 key={`o-${outputKey(a)}`}
                 className={`compare-chip is-output${mark(side, outputKey(a), outputs, d?.outputsChanged)}`}
-                title={`${ROLE_LABEL[a.role]} · ${a.path}`}
+                data-tip={`${ROLE_LABEL[a.role]} · ${a.path}`}
               >
                 {a.role === "updates" && <span className="compare-chip-arrow">~</span>}
                 {a.artifact}

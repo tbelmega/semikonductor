@@ -854,20 +854,27 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   border-color: var(--accent);
   color: var(--accent-text);
 }
-.info-tooltip {
+/* The one tooltip (Tooltip.tsx), drawn in a layer on the body. A field's
+   info content fills the full width; a plain-text tip is as wide as its
+   text, keeps its line breaks, and wraps long paths anywhere. */
+.tooltip {
   position: fixed;
+  /* Above the modal backdrop (80) and the toast (100). */
+  z-index: 110;
   width: 310px;
-  z-index: 60;
   background: var(--surface-inverse);
   color: var(--text-inverse);
   border-radius: 8px;
   box-shadow: var(--shadow-lg);
   padding: 10px 12px;
   font: 400 12px/1.5 "IBM Plex Sans", sans-serif;
-  /* The tooltip sits inside the field label; it does not take the label's
-     capitals and letter spacing. */
-  text-transform: none;
-  letter-spacing: normal;
+}
+.tooltip.is-text {
+  width: max-content;
+  max-width: 360px;
+  padding: 6px 10px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 .info-tooltip-key {
   font: 600 12px "JetBrains Mono", monospace;

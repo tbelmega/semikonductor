@@ -25,7 +25,7 @@ export function WorkflowLinkButton({
     <button
       type="button"
       className={`workflow-link${link.ok ? "" : " is-unresolved"}`}
-      title={link.ok ? `Open ${link.path}` : link.reason}
+      data-tip={link.ok ? `Open ${link.path}` : link.reason}
       aria-disabled={!link.ok}
       onClick={(event) => {
         event.stopPropagation();
@@ -52,7 +52,7 @@ export function WorkstreamLinkButton({
     <button
       type="button"
       className={`workstream-link${found ? "" : " is-unresolved"}`}
-      title={found ? `Show workstream ${slug}` : `No workstream ${slug} in this project`}
+      data-tip={found ? `Show workstream ${slug}` : `No workstream ${slug} in this project`}
       aria-disabled={!found}
       onClick={() => found && onOpen(slug)}
     >

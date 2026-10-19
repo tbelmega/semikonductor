@@ -74,7 +74,7 @@ export function ModeBadge({ mode, changed, decorative }: { mode: string | undefi
   return (
     <span
       className={`step-mode${badge.glyphs.length ? "" : " is-invalid"}${changed ? " is-chg" : ""}`}
-      {...(decorative ? { "aria-hidden": true } : { title: badge.title, role: "img", "aria-label": badge.title })}
+      {...(decorative ? { "aria-hidden": true } : { "data-tip": badge.title, role: "img", "aria-label": badge.title })}
     >
       {badge.glyphs.map((glyph) => {
         const Icon = GATE_ICON[MODE_KIND[glyph]]!;
@@ -259,7 +259,7 @@ export function Flow({
                 <span
                   key={input.artifact}
                   className={`chip chip-input${hoveredArtifact === input.artifact ? " is-hovered" : ""}`}
-                  title={[`input ${input.artifact}, ${input.required ? "required" : "optional"}`, input.description ?? ""]
+                  data-tip={[`input ${input.artifact}, ${input.required ? "required" : "optional"}`, input.description ?? ""]
                     .filter(Boolean)
                     .join("\n")}
                   onMouseEnter={() => onHoverArtifact(input.artifact)}
@@ -458,7 +458,7 @@ function StepCard({
           <ModeBadge mode={step.mode} />
         </div>
         {show.conditions && step.condition && (
-          <div className="step-condition" title={`${step.condition.kind}: ${step.condition.text}`}>
+          <div className="step-condition" data-tip={`${step.condition.kind}: ${step.condition.text}`}>
             <span className="step-condition-label">only if</span>
             <span
               className="step-condition-kind"
@@ -479,7 +479,7 @@ function StepCard({
                 <span
                   key={id}
                   className={`chip chip-consumes${bad ? " is-bad" : ""}${hovered ? " is-hovered" : ""}`}
-                  title={
+                  data-tip={
                     bad ? "Not produced by an earlier step" : inputIds.includes(id) ? `consumes ${id}, an input of the workflow` : `consumes ${id}`
                   }
                   onMouseEnter={() => onHoverArtifact(id)}
@@ -498,7 +498,7 @@ function StepCard({
                 <span
                   key={`${a.role}-${a.artifact}-${idx}`}
                   className={`chip chip-produces role-${a.role}${hovered ? " is-hovered" : ""}`}
-                  title={`${{ produces: "produces", optional_produces: "may produce", updates: "updates" }[a.role]} · ${a.path}${
+                  data-tip={`${{ produces: "produces", optional_produces: "may produce", updates: "updates" }[a.role]} · ${a.path}${
                     entry ? ` · library: ${entry.level}` : " · no library entry"
                   }`}
                   onMouseEnter={() => onHoverArtifact(a.artifact)}
@@ -533,7 +533,7 @@ function StepCard({
                     key={k}
                     type="button"
                     className={`gate-pill gate-pill-link${link.ok ? "" : " is-unresolved"}`}
-                    title={delegationTip(gate, link)}
+                    data-tip={delegationTip(gate, link)}
                     style={{ background: style.bg, color: style.fg }}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -553,7 +553,7 @@ function StepCard({
               const extra = gate.kind === "agent" ? `×${gate.max_rounds ?? 2}${gate.guide ? " · guide" : ""}` : "";
               const tip = `${gate.kind}: ${gate.text}${gate.guide ? `\nguide: ${gate.guide}` : ""}${gate.route_back_to.length ? `\nroute back to: ${gate.route_back_to.join(", ")}` : ""}`;
               return (
-                <span key={k} className="gate-pill" title={tip} style={{ background: style.bg, color: style.fg }}>
+                <span key={k} className="gate-pill" data-tip={tip} style={{ background: style.bg, color: style.fg }}>
                   <span className="gate-num">{k + 1}</span>
                   <GateKindLabel kind={gate.kind} />
                   {gate.text && <span className="gate-text">{gate.text}</span>}
@@ -577,13 +577,13 @@ function StepCard({
         <span />
       ) : (
         <div className="step-actions" onClick={(event) => event.stopPropagation()}>
-          <button title="Move up" aria-label="Move up" disabled={!canMoveUp} onClick={onMoveUp}>
+          <button data-tip="Move up" aria-label="Move up" disabled={!canMoveUp} onClick={onMoveUp}>
             <ArrowUp size={13} strokeWidth={1.75} />
           </button>
-          <button title="Move down" aria-label="Move down" disabled={!canMoveDown} onClick={onMoveDown}>
+          <button data-tip="Move down" aria-label="Move down" disabled={!canMoveDown} onClick={onMoveDown}>
             <ArrowDown size={13} strokeWidth={1.75} />
           </button>
-          <button title="Delete step" aria-label="Delete step" onClick={onDelete}>
+          <button data-tip="Delete step" aria-label="Delete step" onClick={onDelete}>
             <X size={15} strokeWidth={1.75} />
           </button>
         </div>

@@ -9,7 +9,7 @@ export function ThemeToggle() {
   const { theme, toggle } = useTheme();
   const dark = theme === "dark";
   return (
-    <button className="theme-toggle" title={`Switch to the ${dark ? "light" : "dark"} theme`} onClick={toggle}>
+    <button className="theme-toggle" data-tip={`Switch to the ${dark ? "light" : "dark"} theme`} onClick={toggle}>
       {dark ? <Sun size={15} strokeWidth={1.75} /> : <Moon size={15} strokeWidth={1.75} />}
       {dark ? "Light" : "Dark"}
     </button>

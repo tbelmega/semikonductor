@@ -1307,7 +1307,7 @@ function EditCenter({
           <div className="center-header-title">{workflow.file}</div>
           <div className="center-header-sub">
             <span className={`center-header-status${dirty && !readOnly ? " is-dirty" : ""}`}>{status}</span>
-            <span className="center-header-path mono" title={workflow.path}>
+            <span className="center-header-path mono" data-tip={workflow.path}>
               {readOnly ? workflow.path : `${LOCATION_ROOT[workflow.location]}${workflow.dir ? `${workflow.dir}/` : ""}${workflow.file}`}
             </span>
           </div>
@@ -1322,7 +1322,7 @@ function EditCenter({
           <button
             className={`save-btn${dirty && !saveBlocked ? " is-enabled" : " is-disabled"}`}
             disabled={!dirty || !!saveBlocked}
-            title={saveBlocked ?? ""}
+            data-tip={saveBlocked ?? ""}
             onClick={onSave}
           >
             Save…
@@ -1401,7 +1401,7 @@ function ModalView({
       <div className="save-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
           <h2>{modal.type === "new" ? "New workflow" : `Save ${workflow.file}`}</h2>
-          <button className="icon-mini" title="Close" aria-label="Close" disabled={saving} onClick={close}>
+          <button className="icon-mini" data-tip="Close" aria-label="Close" disabled={saving} onClick={close}>
             <X />
           </button>
         </div>
