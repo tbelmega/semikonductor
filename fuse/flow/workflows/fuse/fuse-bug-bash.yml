@@ -4,9 +4,13 @@
 # A bug bash: a time-boxed hunt for the problems worth fixing in an existing codebase, by many
 # independent agents with different lenses and models, followed, when the owner wants it, by
 # fixes that pass independent review and a confirmation wave with lenses not used before. It can
-# run as a report only, which changes nothing, or as a fixing run. The owner sets the scope, the
+# run as a report only, which changes nothing, or as a fixing run. When the test tooling has gaps
+# that would hinder the run, the owner can have it built first in a fuse-feature-development child
+# workstream. The owner sets the scope, the
 # quality bar, the time and spend limits and whether they triage the findings themselves; the
 # agent orchestrates everything else and records the decisions it makes on its own judgement.
+# When the limits are reached with findings still open, the report makes the case for a second
+# pass, which the owner starts by sending the work back to the fix step.
 # The bug-bash-plan guide holds the method: the quality bar, the lens catalogue and the
 # orchestration rules that the first run of this method paid for. review.md next to this file is
 # the review guide for the agent gates.
@@ -36,7 +40,16 @@ steps:
       findings before anything is fixed or the threshold decides; the time and spend limits; the
       reviewer models and harnesses, from the house rules where they name them; which live or
       costly runs are allowed, such as end-to-end runs against real services; and what must wait
-      for the owner even in an unattended run. In a fixing run, settle with the owner the command
+      for the owner even in an unattended run. Before you present the plan, assess the project's
+      test tooling, following the guide's test tooling section: the test tools, harnesses and
+      quality tools, how each is run, whether continuous integration runs it, and the gaps that
+      would hinder this bug bash. Usually the existing tooling is enough. When a gap would hinder
+      the run, such as a user interface with no browser tests, so that fixes in it could only be
+      checked by hand, recommend in the plan that the owner has the missing tooling built first;
+      when they agree, the test-tooling step builds it before the catalogue. Settle how the agent
+      reaches the owner during the run: questions go to the decisions file, as the guide's owner
+      channel section says, and the owner is notified through the channel the house rules name,
+      if they name one. In a fixing run, settle with the owner the command
       that the fix and confirmation steps run as the project's default check, normally the
       project's full test suite, and record it in .konductor/policy-overrides.yml as
       `checks: { default: <command> }` unless the policy already binds it; those steps run
@@ -56,20 +69,39 @@ steps:
       - owner-action: approve the plan
         route_back_to: intake
 
+  - id: test-tooling
+    title: Test tooling
+    phase: Scope
+    condition:
+      agent: the owner agreed at intake to have missing test tooling built before the bug bash
+    instruction: >
+      Have the test tooling the plan names built as a feature of the project, in the child
+      workstream this step starts, and run that workstream to its end; the owner's decisions in it
+      are made there. Hand its intake the plan's test tooling section as the owner's request, so
+      it starts from the gaps and the agreed scope. When the child is complete, record in the
+      plan what was built, how it runs and which gaps remain.
+    consumes: [bug-bash-plan]
+    updates:
+      - artifact: bug-bash-plan
+        path: .konductor/bug-bash/{slug}/plan.md
+    gates:
+      - workflow: fuse-feature-development
+
   - id: catalogue
     title: Catalogue
     phase: Scope
     mode: unattended
     instruction: >
       Catalogue what the project already has to find problems, following the bug-bash-plan
-      guide's catalogue section. Run every existing check once from a clean clone, outside the
+      guide's catalogue section, starting from the test tooling intake assessed and whatever the
+      test-tooling step built. Run every existing check once from a clean clone, outside the
       owner's checkout, and record each result as the baseline: a check that fails before anything
-      changed is a finding, or an environment problem to fix before discovery. List the test tools,
-      harnesses and quality tools, how each is run and where it runs in continuous integration, and
-      the gaps, such as checks that exist but never run, areas without tests, and documented claims
-      no test covers. Then choose the discovery lenses for this project from the guide's lens
-      catalogue, split the scope into areas with one owner each, and assign each lens its model
-      and whether it reads or experiments. Record all of it in the plan.
+      changed is a finding, or an environment problem to fix before discovery. List what a lens
+      can use: checks that exist but never run, areas without tests, and documented claims no
+      test covers. Then choose the discovery lenses for this project from the guide's lens
+      catalogue, weighing what each lens found for its cost in the reports of earlier bug bashes,
+      where there are any; split the scope into areas with one owner each, and assign each lens
+      its model and whether it reads or experiments. Record all of it in the plan.
     consumes: [bug-bash-plan]
     updates:
       - artifact: bug-bash-plan
@@ -88,9 +120,9 @@ steps:
       reads, mark duplicates and where two models found the same problem, and group the findings
       by the files a fix would change. Check every P0 and P1 against the code or a reproduction
       before it is fixed: yourself when there are few, otherwise by having each fix agent
-      re-establish its findings first, as the guide's fixing rules say. Record what each lens found, what it cost
-      and how long it took, for the report. Stop the wave when its lenses are done or the plan's
-      limit for discovery is reached.
+      re-establish its findings first, as the guide's fixing rules say. Record what each lens
+      found, what it cost and how long it took in the run's cost ledger, as the guide describes.
+      Stop the wave when its lenses are done or the plan's limit for discovery is reached.
     consumes: [bug-bash-plan]
     produces:
       - artifact: bug-bash-findings
@@ -128,16 +160,21 @@ steps:
     instruction: >
       Fix the findings the plan's threshold or the owner's triage selects, following the
       bug-bash-plan guide's fixing rules. Give each fix agent a set of findings that share files,
-      with file ownership that does not overlap another agent's, its own clone at the current head,
-      and the house rules on tests: a bug fix starts with a test that reproduces it and fails, and
-      no test is weakened to get to green. Land each agent's commits on this checkout, run every
-      check on the result after each landing, and have each series reviewed by an independent
+      with file ownership that does not overlap another agent's, its own clone at the current head
+      with the owner's git identity, and the house rules on tests: a bug fix starts with a test
+      that reproduces it and fails, and no test is weakened to get to green. A file that several
+      sets of findings change, such as a README or a large component, has one owner per round.
+      Land each agent's commits on this checkout, run every check on the result after each
+      landing, and have each series reviewed by an independent
       reviewer before you treat it as done; give the reviewer's findings to a fresh fix agent and
       repeat until the review is clean or only optional findings remain. When the same area
       produces findings in three review rounds in a row, stop patching it: redesign it as one
-      simple rule, or record it for the owner. Record each finding's disposition in the index, and
-      each decision you made on your own judgement in the decisions file. The whole change is
-      reviewed as one change at the end of the confirmation step.
+      simple rule, or record it for the owner. Record each finding's disposition in the index,
+      each agent's cost in the cost ledger, and each decision you made on your own judgement in
+      the decisions file. Start no fix round that would leave too little of the time limit for the
+      confirmation step's whole-change review and the report. When the owner sent the work back
+      for a second pass, take its limits from the owner's note and record them in the decisions
+      file. The whole change is reviewed as one change at the end of the confirmation step.
     consumes: [bug-bash-plan, bug-bash-findings]
     updates:
       - artifact: code
@@ -176,6 +213,32 @@ steps:
         max_rounds: 2
         route_back_to: fix
 
+  - id: history
+    title: History
+    phase: Report
+    mode: unattended
+    condition:
+      agent: the fix and confirmation steps made commits that nobody else has yet, and the house rules do not ask to keep a fix history as it was made
+    instruction: >
+      Rewrite the commits the fix and confirmation steps made into commits by behaviour, following
+      the bug-bash-plan guide's history section; a commit shape the house rules set wins. Each
+      commit describes one behaviour in its final form, with its review fixes, tests and
+      documentation folded in, and has the owner's git identity as its author. Rewrite only
+      commits nobody else has: none that is published, and none on a branch someone else works
+      on. Check that the final
+      tree is identical to the one before, and run the default check on every new commit; where
+      two behaviours cannot be separated without a commit failing it, keep them in one commit.
+      Record the old head in the decisions file, so the owner can compare.
+    consumes: [bug-bash-plan]
+    updates:
+      - artifact: code
+        path: .
+    gates:
+      - check: default
+      - agent: review each rewritten commit's message against its diff, and check that the final tree is identical to the head before the rewrite
+        guide: review.md
+        max_rounds: 1
+
   - id: report
     title: Report
     phase: Report
@@ -183,7 +246,10 @@ steps:
       Write the report following the bug-bash-report guide: the outcome first, then what was fixed
       by area, what is left for the owner with your recommendation for each, the state of every
       review, and what each lens and model found and cost, so the next bug bash can choose its
-      lenses. Order it for the owner: the decisions they must make come first. In a fixing run,
+      lenses. Order it for the owner: the decisions they must make come first. When the run
+      reached its limits with findings at or above the threshold still open, make the case for a
+      second pass: what this run found and fixed for its cost, what is open, and what a second
+      pass would take, estimated from the cost ledger. In a fixing run,
       say how the fixes land, the way the house rules ask; the owner lands them.
     consumes: [bug-bash-plan, bug-bash-findings]
     produces:
@@ -193,5 +259,5 @@ steps:
       - agent: review the report against the findings index and the review records, so that every count and claim in it is true
         guide: review.md
         max_rounds: 1
-      - owner-action: accept the report, and land the fixes when the run made any
+      - owner-action: accept the report, and land the fixes when the run made any; or send the work back to the fix step, with new limits, for a second pass
         route_back_to: [fix, discovery]

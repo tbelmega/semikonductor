@@ -391,7 +391,7 @@ describe("the workflows shipped in fuse/flow/workflows", () => {
     expect(unattended("fuse-rapid-prototyping.yml")).toEqual(["brief"]);
     expect(unattended("fuse-dependency-migration.yml")).toEqual(["guardrails", "migration", "verification"]);
     expect(unattended("fuse-pull-request.yml")).toEqual(["feedback", "merge"]);
-    expect(unattended("fuse-bug-bash.yml")).toEqual(["catalogue", "discovery", "fix", "confirm"]);
+    expect(unattended("fuse-bug-bash.yml")).toEqual(["catalogue", "discovery", "fix", "confirm", "history"]);
     for (const file of ["fuse-feature-development.yml", "fuse-dependency-migration.yml"]) {
       const text = readFileSync(join(FLOW_DIR, "workflows", "fuse", file), "utf8").replace(/\s+/g, " ");
       expect(text).not.toContain("list each decision");

@@ -16,9 +16,13 @@ for running agents and fixes. The house rules win where they say otherwise.
    runs are allowed.
 6. **Reviewers:** the model and harness for the author agents and for the independent reviewers.
    An independent reviewer is a different model family from the author's where one is available.
-7. **Records:** the folder that holds the run's records. It is ignored by git and inside the
-   repository, never only in the harness's scratch space, which a restart can delete.
-8. **Catalogue** and **lenses**, written by the catalogue step.
+7. **Test tooling:** what exists, the gaps that would hinder this run, and whether the owner has
+   the missing tooling built first.
+8. **Owner channel:** how the owner is notified of questions during the run, if at all.
+9. **Records:** the folder that holds the run's records, including the cost ledger. It is ignored
+   by git and inside the repository, never only in the harness's scratch space, which a restart
+   can delete.
+10. **Catalogue** and **lenses**, written by the catalogue step.
 
 ## Quality bar
 
@@ -34,14 +38,23 @@ Rate by impact on a realistic user, not by how clever the finding is. A finding 
 under conditions the owner has ruled out, such as concurrent use of a single-user tool, is not a
 finding; say so when you reject it.
 
+## Test tooling
+
+Intake lists each test tool, harness and quality tool, how to run it, and whether continuous
+integration runs it. Usually that is enough for a bug bash. A gap matters when it would hinder
+this run: fixes in an area no test can reach, such as a user interface without browser tests,
+can only be checked by agents by hand, and races and wiring bugs there are exactly what such
+checks miss. For each such gap, say what it costs the run and what tooling would close it, and
+recommend at the intake gate whether to build it first. When the owner agrees, the test-tooling
+step builds it as a feature workstream; the bug bash continues once it has landed.
+
 ## Catalogue
 
-Run every existing check once, from a clean clone, and record the result. List each test tool and
-harness, how to run it, and whether continuous integration runs it. A check that exists but never
-runs is a finding. List the documented claims that a lens can verify: commands, flags, exit codes,
-printed output, file locations, precedence rules. Note the environment problems the baseline
-shows, such as a broken personal link that crashes a test run, and work around them in clones
-rather than changing the owner's files.
+Run every existing check once, from a clean clone, and record the result. A check that exists but
+never runs is a finding. List the documented claims that a lens can verify: commands, flags, exit
+codes, printed output, file locations, precedence rules. Note the environment problems the
+baseline shows, such as a broken personal link that crashes a test run, and work around them in
+clones rather than changing the owner's files.
 
 ## Lens catalogue
 
@@ -93,8 +106,15 @@ second documentation pass; a short live run.
   route lost one series' safety check.
 - **Background processes survive the harness.** A reviewer started from a shell may be killed by
   the harness's process cleanup after a few minutes. Start long runs in a way that outlives the
-  calling turn, such as a user service with a time limit, and check them with a watchdog: a run
-  whose log has not changed for 15 minutes is restarted.
+  calling turn, such as a user service with a time limit.
+- **Watchdog.** Check every running agent, reviewers and subagents included, at least every 15
+  minutes: a run whose log or transcript has not changed for 15 minutes is stopped and restarted,
+  and the restart is recorded in the cost ledger.
+- **Cost ledger.** Keep one file in the records folder with a line per agent: its task, model and
+  harness, its cost in the unit the harness reports, its wall time, and the findings it found or
+  fixed. Where a harness reports no cost, record its token counts and say that the cost is
+  unknown; never leave a line out. The report's method section and the next bug bash's choice of
+  lenses are built from it.
 - **Credentials expire.** Note when the credentials of each model provider expire and renew them
   before they do.
 - **Validate every result file on receipt**, and rerun or repair it before triage.
@@ -106,9 +126,13 @@ second documentation pass; a short live run.
 
 ## Fixing rules
 
-- **Disjoint ownership.** Each fix agent owns a set of files no other running agent changes. Shared
-  documentation, such as a README, is the usual conflict: give it one owner per round, or have each
-  agent put its documentation changes in one final commit.
+- **Disjoint ownership.** Each fix agent owns a set of files no other running agent changes. A file
+  that several sets of findings change, such as a README or a large component, is the usual
+  conflict: give it one owner per round, and have the other agents list the changes they need in
+  it, as integration work.
+- **The owner's git identity.** Before an agent's first commit, set `user.name` and `user.email`
+  in its clone to the owner's, from the owner's checkout. An agent with a scratch home directory
+  has no identity of its own and invents one.
 - **Fix agents verify first.** Each re-establishes the finding with a reproduction or a quote, and
   records it rejected, with the reason, when it does not hold. With more than a dozen P0 and P1
   findings this is how they are verified; checking them all yourself first costs more than the
@@ -128,8 +152,41 @@ second documentation pass; a short live run.
 - **Decisions the owner should see** go to the workstream's decisions file, with the default you
   built and how to revert it.
 
+## Owner channel
+
+The owner may answer questions while the run goes on, but the run never waits for them unless it
+must. When an unattended step meets a question only the owner can answer:
+
+- Write it to the workstream's decisions file as an open question: the question, the default you
+  go ahead with, what changes if the owner chooses otherwise, and how to revert the default.
+  Notify the owner through the channel the plan names; with none, the file is enough.
+- Go on with the default. Work that has no safe default, because it would be wasted or harmful if
+  the owner decided otherwise, waits; the rest of the run continues.
+- Read the decisions file for answers after every landing and before every new round or step.
+  Apply each answer, reverting the default where the owner chose otherwise, and record that you
+  did.
+- Questions still open at the end go first in the report's decisions for the owner.
+
+## History
+
+Fix agents commit in small steps, and reviews add fix commits on top, so a fixing run's history
+is long and the same files come back many times. When the house rules set no other commit shape,
+rewrite it before the owner lands it, into one commit per behaviour in its final form: group the
+commits by the behaviour they change, not by round or agent, and fold each review fix into the
+commit it fixes. Use the date of the last commit in each group. Rewrite only commits nobody else
+has. Check that the final tree is byte-identical to the head before the rewrite and that the
+default check passes on every new commit. Where a group depends on code a later group adds, move
+the commit it needs or merge the two groups, and record each such move in the decisions file.
+
 ## When the bug bash is done
 
 A fixing run is done when a confirmation wave finds no new confirmed finding at or above the
 threshold and every series' last review is clean or has only optional findings, or when the limits
 are reached. The report says which.
+
+The limits are there to stop runaway cost, and reaching them is a normal end. Plan the end of the
+time limit so that the run still finishes well: start no new fix round once the time left would
+not cover the whole-change review, the history rewrite and the report. The report then shows the
+owner what the run found and fixed for its cost and what is still open, and makes the case for a
+second pass where findings at or above the threshold remain. The owner starts it by sending the
+work back to the fix step with new limits.
