@@ -8,26 +8,26 @@
 # - One step: each SOP step adds a section to the same plan, and nothing is handed on before the
 #   plan is complete.
 # - The SOP's outputs, which it only returned in chat, are sections of one written plan, so a later
-#   workstream (k-verify-sop) can read the success criteria. Started after a k-context-gathering-sop
+#   workstream (k-sop-verify) can read the success criteria. Started after a k-sop-context-gathering
 #   workstream, the plan takes its analysis documents as inputs.
-# - The plan's Verification phase names the k-verify-sop workflow instead of the verify SOP.
+# - The plan's Verification phase names the k-sop-verify workflow instead of the verify SOP.
 # - The plan's artifact id is work-plan, not the library's implementation-plan, whose guide and
 #   template describe a different plan.
 # - The task format rules about marking tasks complete apply when the plan is executed, which is
 #   outside this workflow; the plan states them for whoever executes it.
 version: 1
-name: k-plan-sop
+name: k-sop-plan
 description: Port of the former k-plan SOP, a work breakdown for one objective with success criteria,
   prioritized and estimated tasks, dependencies, the skill each task needs, a buffered effort
   baseline and a phased execution plan.
 inputs:
   - artifact: analysis-summary
-    description: The analysis summary, when the plan follows k-context-gathering-sop.
+    description: The analysis summary, when the plan follows k-sop-context-gathering.
   - artifact: additional-analysis
-    description: The additional analysis, when the plan follows k-context-gathering-sop and its
+    description: The additional analysis, when the plan follows k-sop-context-gathering and its
       complexity assessment required one.
 hands_off_to:
-  - workflow: k-verify-sop
+  - workflow: k-sop-verify
     when: once the plan has been executed, to verify the work against the plan's success criteria
 steps:
   - id: plan
@@ -61,7 +61,7 @@ steps:
       Derive the calendar timeline separately, accounting for parallel tracks where the
       dependencies allow; that does not change the effort sum.
       (6) Execution Plan: phases ordered by the dependencies, with parallel tasks marked as such,
-      a Verification phase that writes the tests, verifies the work with the k-verify-sop workflow
+      a Verification phase that writes the tests, verifies the work with the k-sop-verify workflow
       against these success criteria and collects the evidence, and a Documentation phase when the
       work changes anything user-facing. State the rules for executing the plan: mark each task
       complete immediately after finishing it, and verify every requirement before declaring the

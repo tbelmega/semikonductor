@@ -27,7 +27,7 @@ not installed the skills yet, and the tutorial is also how they install them.
 ```
 skills/        # Skill definitions (SKILL.md + optional scripts)
 fuse/flow/     # fuse-flow workflow runner and workflow definitions; see fuse/flow/README.md
-               # (workflows/fuse/ the primary ones, workflows/konductor/ Konductor's, its SOPs as *-sop)
+               # (workflows/fuse/ the primary ones, workflows/konductor/ Konductor's, its SOPs as k-sop-*)
 install.sh     # Installer; see INSTALL.md
 AGENTS.fuse.md # Always-on block that install.sh writes into harness instruction files
 ```
@@ -43,9 +43,9 @@ Run every test suite from the repository root with `bun run test`.
   guide describes, opening with when to use the skill ("Use when ...") and then saying briefly
   what it does, in at most 1024 characters. Write the body by the
   [best practices](https://agentskills.io/skill-creation/best-practices).
-- Konductor's workflows in `fuse/flow/workflows/konductor/` use a `k-*` name, except the older
-  `kiro-spec-workflow-sop`; the ones ported from its SOPs end in `-sop`. Skills are unprefixed
-  unless avoiding a known collision.
+- Konductor's workflows in `fuse/flow/workflows/konductor/` use a `k-` name: `_k-*` for its
+  chains, and `k-sop-*` for the ones ported from its SOPs, so those sort together. Skills are
+  unprefixed unless avoiding a known collision.
 - **License headers:** All code files must carry an SPDX short-form identifier as the very first line
   (before any docstring or comment block), matching the project's declared Apache-2.0 license.
   `Apache-2.0` is the only permitted SPDX identifier in this package. Do not introduce any other

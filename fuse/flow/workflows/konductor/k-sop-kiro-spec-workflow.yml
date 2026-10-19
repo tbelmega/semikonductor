@@ -24,7 +24,7 @@
 #   can send the work back to the step that needs fixing before the workflow completes.
 # As in the SOP, design.md gets only the author's self-check: no agent gate was added.
 version: 1
-name: kiro-spec-workflow-sop
+name: k-sop-kiro-spec-workflow
 description: Port of the former kiro-spec-workflow SOP. Turns one feature's scoped user stories and
   the architect's design artifacts into a Kiro IDE spec, requirements.md, design.md and tasks.md,
   each approved by the owner, then checks that the three trace to each other.

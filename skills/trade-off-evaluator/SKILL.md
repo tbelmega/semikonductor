@@ -118,7 +118,7 @@ library's `design`, `api-model` and `threat-model` guides cover those
 
 ## When to Use
 
-- The quality gates step of the `k-design-doc-creation-sop` workflow, for each significant decision
+- The quality gates step of the `k-sop-design-doc-creation` workflow, for each significant decision
 - Standalone: engineer asks to compare options for a specific decision
 - When an ADR's Alternatives table needs scored backing
 

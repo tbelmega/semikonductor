@@ -10,7 +10,7 @@ Example format:
 - Removed `skills/bar/` — superseded by `skills/baz/`, which covers the same case more simply
 
 **SOPs / Workflows:**
-- `k-plan-sop`: added a dependency check step — catches cycles before estimation
+- `k-sop-plan`: added a dependency check step — catches cycles before estimation
 - `fuse/flow/workflows/konductor/_k-phase-chain.yml`: renamed skill reference `bar` → `baz` — avoids a naming collision
 
 **CLI / Docs / Other:**

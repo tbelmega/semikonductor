@@ -25,7 +25,7 @@
 # - The SOP does not commit, so neither does this workflow; the cleanup stays in the working tree
 #   for the owner.
 version: 1
-name: k-code-cleanup-sop
+name: k-sop-code-cleanup
 description: Port of the former k-code-cleanup SOP. Removes AI-generated slop from a branch's
   changes before a pull request, without changing behavior, then reviews the cleaned code and
   reports what was removed, what was kept and what the review found.

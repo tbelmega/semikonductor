@@ -25,7 +25,7 @@
 # - Read-only is an instruction in every step, not a mechanical gate: a critique of uncommitted
 #   changes has no clean tree to compare against.
 version: 1
-name: k-pre-cr-critique-sop
+name: k-sop-pre-cr-critique
 description: Port of the former k-pre-cr-critique SOP. A fast, read-only critique of local changes
   before a pull request, across six dimensions, with a fix, won't fix or defer decision on each
   finding, chosen by the agent or walked through with the owner.

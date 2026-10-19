@@ -26,7 +26,7 @@
 # - An empty diff stops the workstream as blocked; the owner decides what happens next.
 # - The SOP has no owner gate and no review of its own report; neither does this workflow.
 version: 1
-name: k-adversarial-pull-request-review-sop
+name: k-sop-adversarial-pull-request-review
 description: Port of the former k-adversarial-pull-request-review SOP. An adversarial second-pass
   review of a diff, after standard review, through three independent lens passes (security, data
   integrity, schema and contract), a reuse pass and an independent checker, ending in a verdict

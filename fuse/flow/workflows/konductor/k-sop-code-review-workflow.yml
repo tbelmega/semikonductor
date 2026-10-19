@@ -20,7 +20,7 @@
 #   location from the categorized files and asks the owner for the environment when there are
 #   infra files.
 # - Step 6 calls the k-adversarial-pull-request-review SOP. Here the adversarial step delegates to
-#   its port, k-adversarial-pull-request-review-sop, through a workflow gate: fuse-flow creates a
+#   its port, k-sop-adversarial-pull-request-review, through a workflow gate: fuse-flow creates a
 #   child workstream for each pass of the step, gives it the review diff and the review scope as
 #   its inputs, and returns its report to the report step as adversarial-report. The gate needs
 #   the port to exist, so the SOP's skip when that SOP is unavailable does not apply.
@@ -34,7 +34,7 @@
 #   "should fix".
 # - The SOP has no owner gate and no review of its own report; neither does this workflow.
 version: 1
-name: k-code-review-workflow-sop
+name: k-sop-code-review-workflow
 description: Port of the former k-code-review-workflow SOP. A multi-skill review of the changed
   backend, frontend and infrastructure files, a false-positive critique, an adversarial second
   pass, and one prioritized report with a verdict. Reports only; it does not fix.
@@ -156,7 +156,7 @@ steps:
       conclusions. The child's report comes back as the adversarial report, and the report step
       merges its findings. Change no file other than the child's own artifacts.
     gates:
-      - workflow: k-adversarial-pull-request-review-sop
+      - workflow: k-sop-adversarial-pull-request-review
         slug: "{slug}-adversarial"
         inputs: { given-diff: review-diff, given-scope: review-scope }
         returns: { adversarial-report: adversarial-review-report }

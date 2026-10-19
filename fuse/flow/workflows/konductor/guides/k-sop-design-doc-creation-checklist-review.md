@@ -1,6 +1,6 @@
 # Maker-checker pass on a new design draft
 
-The review for the `draft` step of `k-design-doc-creation-sop`, and the rules the
+The review for the `draft` step of `k-sop-design-doc-creation`, and the rules the
 `adversarial-review` and `final-output` steps check the document against again. It ports the
 "maker-checker pass" of the former k-design-doc-creation SOP: the draft is checked against the
 design guide's checklist, and it does not move on while a CRITICAL finding is open.

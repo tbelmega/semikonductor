@@ -1,6 +1,6 @@
 # Adversarial review of a new design document
 
-The review for the `adversarial-review` step of `k-design-doc-creation-sop`. It ports Phase 4,
+The review for the `adversarial-review` step of `k-sop-design-doc-creation`. It ports Phase 4,
 the adversarial review loop, of the former k-design-doc-creation SOP: every major design decision
 is challenged before the owner sees the document.
 
@@ -57,7 +57,7 @@ engineer override. For a broken pattern, fix every occurrence in the same pass.
    back to the `draft` step; an override is the owner's approval as is, with the finding recorded
    as an engineer override.
 2. **Otherwise correct.** Apply the corrections for every accepted finding. Then check the
-   document against the maker-checker rules in `k-design-doc-creation-sop-checklist-review.md`
+   document against the maker-checker rules in `k-sop-design-doc-creation-checklist-review.md`
    next to this guide, and fix every CRITICAL finding, before the next round.
 3. **Exit condition.** A round passes when it has 0 CRITICAL and 0 IMPORTANT findings, and fewer
    than 3 MINOR findings. A round with any CRITICAL or IMPORTANT finding, or with 3 or more MINOR

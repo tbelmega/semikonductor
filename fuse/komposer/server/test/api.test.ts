@@ -155,7 +155,7 @@ describe("workflows", () => {
     expect(project.path).toBe(join(root, ".konductor", "workflows", "two-steps.yml"));
     expect(workflows.find((w: any) => w.location === "personal")).toMatchObject({ dir: "docs", file: "mine.yml" });
     const shipped = workflows.find((w: any) => w.location === "fuse-flow" && w.file === "superpowers.yml");
-    expect(shipped).toMatchObject({ dir: "examples/superpowers" });
+    expect(shipped).toMatchObject({ dir: "customization-examples/superpowers" });
   });
 
   test("updates the original when its hash is still the base hash", async () => {
@@ -1454,7 +1454,7 @@ describe("projects", () => {
 
 describe("example runs", () => {
   const EXAMPLES = realpathSync(resolve(import.meta.dir, "..", "..", "example-runs"));
-  const example = (size: string) => join(PACKAGE_WORKFLOWS, "examples", `custom-example-${size}.yml`);
+  const example = (size: string) => join(PACKAGE_WORKFLOWS, "customization-examples", `custom-example-${size}.yml`);
 
   beforeEach(() => {
     server.stop();

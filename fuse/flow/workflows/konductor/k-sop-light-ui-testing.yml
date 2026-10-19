@@ -27,7 +27,7 @@
 #   agent check the file by hand and hand the step to the owner.
 # - output_dir: the ui-test-prompts artifact path, tests/page/{slug}/ by default, a folder of its
 #   own per workstream under the SOP's tests/page/, so prompts left by another run or by
-#   k-e2e-test-generation-sop are never counted as this run's; a project's policy moves it.
+#   k-sop-e2e-test-generation are never counted as this run's; a project's policy moves it.
 # - Step 6's results are written to ui-test-results, so the report can be resumed.
 # - Prompts that submit a form whose validation trigger is unknown are flagged and named in the
 #   run question, and scope_confirmed covers them only when the owner's advance authorization
@@ -35,7 +35,7 @@
 # - The SOP's Quality Gate lists are self-checks in the steps they concern; no independent review
 #   was added.
 version: 1
-name: k-light-ui-testing-sop
+name: k-sop-light-ui-testing
 description: Port of the former k-light-ui-testing SOP. Discovers a deployed web page in the
   browser, writes markdown test prompts for the features the owner names, runs the ones the owner
   chooses live in the browser, and reports pass or fail per prompt.

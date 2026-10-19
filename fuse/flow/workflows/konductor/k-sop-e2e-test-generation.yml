@@ -26,7 +26,7 @@
 #   recorded parameters.
 # - prompts_dir: the unit-test-prompts artifact path, tests/page/{slug}/ by default, a folder of
 #   its own per workstream under the SOP's tests/page/, so prompts left by another run or by
-#   k-light-ui-testing-sop are never counted as this run's; a project's policy moves it.
+#   k-sop-light-ui-testing are never counted as this run's; a project's policy moves it.
 # - The e2e-test-strategy guide needs an output file, so steps 4A and 4B-iv give it one, the
 #   optional e2e-test-strategy artifact; the SOP named none.
 # - Step 6's push "as part of k-full-sdlc" is dropped: fuse-flow's _k-full-sdlc does not call this
@@ -38,7 +38,7 @@
 # - The SOP's Quality Gate lists are self-checks in the steps they concern; no independent review
 #   was added.
 version: 1
-name: k-e2e-test-generation-sop
+name: k-sop-e2e-test-generation
 description: Port of the former k-e2e-test-generation SOP. Discovers a deployed web app in the
   browser, then writes unit test prompts or Cypress or Playwright functional tests from what it
   found, validates them, commits them and reports.

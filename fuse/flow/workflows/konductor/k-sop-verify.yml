@@ -8,7 +8,7 @@
 # - One step: every SOP step feeds the same evidence report, and each check must pass before the
 #   next, so there is no hand-over in between. The CDK checks are a conditional part of the
 #   instruction rather than a conditional step, because their results go into the same report.
-# - The SOP's "from the plan SOP" success criteria come from a plan written with the k-plan-sop
+# - The SOP's "from the plan SOP" success criteria come from a plan written with the k-sop-plan
 #   workflow, which runs as its own workstream; started after it, this workflow takes its plan
 #   as the work-plan input.
 # - A check: default gate is added, so the engine itself refuses to finish while the project's
@@ -23,14 +23,14 @@
 # - A test suite that calls a deployed system runs only when the owner authorized that target;
 #   otherwise it is recorded NOT RUN. The SOP ran every suite.
 version: 1
-name: k-verify-sop
+name: k-sop-verify
 description: Port of the former k-verify SOP, evidence that a finished change works, from the build,
   the tests, lint, CDK checks where they apply and a manual check against the success criteria,
   collected in one report.
 inputs:
   - artifact: work-plan
     description: The plan whose Success Criteria the change is verified against, when the work
-      follows a k-plan-sop workstream.
+      follows a k-sop-plan workstream.
 steps:
   - id: verify
     title: 1-7. Verify
@@ -45,7 +45,7 @@ steps:
       that has a shell tool may run them instead.
       (1) Pre-check, before any build: the success criteria are defined, taken from the request or
       from the Success Criteria section of the plan given as this workstream's input, or of this
-      task's plan written with the k-plan-sop workflow;
+      task's plan written with the k-sop-plan workflow;
       if they are not, ask the owner to define them or extract them from the task context. Every
       TODO comment this implementation introduced is resolved, or deferred with a tracked
       follow-up. Do not build until both hold.

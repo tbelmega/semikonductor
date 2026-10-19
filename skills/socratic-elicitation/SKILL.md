@@ -25,7 +25,7 @@ Both modes draw on the same underlying discipline: [Socratic questioning](https:
 
 - User says "ask me questions first", "what am I missing?", "help me think this through before we start"
 - Anti-pattern detected: Assumption Cascade or Scope Creep
-- The elicitation step of the `k-design-doc-creation-sop` workflow
+- The elicitation step of the `k-sop-design-doc-creation` workflow
 
 **Question dimensions (generate questions from these areas):**
 

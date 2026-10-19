@@ -129,10 +129,12 @@ script installs plain skills and an always-on instruction block that every suppo
     requirements, design and build order as inputs.
   - In `workflows/konductor/`: `_k-full-sdlc` and `_k-phase-chain`, Konductor's full lifecycle
     pass and lighter phase chain, and one workflow per remaining Konductor SOP, named after it with
-    a `-sop` suffix, such as `k-design-doc-creation-sop` and `k-code-review-workflow-sop`. Duties
+    a `k-sop-` prefix, so they sort together, such as `k-sop-design-doc-creation` and
+    `k-sop-code-review-workflow`. Duties
     the SOPs took on for the skills they loaded, such as credentials, the owner's confirmation and
     cleanup around `app-discovery`, are steps and gates of these workflows.
-  - Examples: four project-specific workflows, and a native workflow after obra/superpowers.
+  - In `workflows/customization-examples/`: four project-specific workflows, and a native
+    workflow after obra/superpowers, as examples of shaping fuse to a project.
   - The workflows in `workflows/fuse/` take acceptance tests from the spec, start every bug fix with a
     failing reproduction, and have the reviewer check the tests against the spec, instead of
     forcing test-first on every change. Specs are saved under date-prefixed paths in
@@ -303,7 +305,7 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `aws-service-validator` skill, now `aws.md`, the AWS check of `doc-accuracy-analyzer`.
 - The `find-aws-skills` skill, now the search-and-load part of `aws-mcp-usage`.
 - The `infra-validation` skill, now `k-infra-review.md` in `fuse/flow/workflows/konductor/`, the
-  infrastructure lens of `k-code-review-workflow-sop`. `verification` points infrastructure
+  infrastructure lens of `k-sop-code-review-workflow`. `verification` points infrastructure
   changes at it.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in
@@ -330,6 +332,11 @@ prints:
 - `continue` refuses while a review it owes has no findings file under the printed name. Rename
   the reviewer's file to that name, or, when the owner waives the review, pass over it with
   `continue --waived "<reason>"`.
+- Some shipped workflows were renamed: the Konductor SOP workflows `k-<name>-sop` are now
+  `k-sop-<name>`, `kiro-spec-workflow-sop` is `k-sop-kiro-spec-workflow`, and `workflows/examples/`
+  is `workflows/customization-examples/`. A workstream that follows an old name is refused with
+  "no workflow named". Change the `workflow:` line of its `.konductor/workstreams/<slug>.yml` to
+  the new name, and update your own workflows that hand off to or wait for an old name or path.
 
 ## [1.0.0] - 2026-09-23
 

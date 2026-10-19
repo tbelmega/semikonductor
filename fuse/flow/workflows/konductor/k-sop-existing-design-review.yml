@@ -25,11 +25,11 @@
 # - The SOP's tool names fs_read and fs_write are left out; the agent reads and writes with its
 #   harness's own tools.
 version: 1
-name: k-existing-design-review-sop
+name: k-sop-existing-design-review
 description: Port of the former k-existing-design-review SOP. Reviews a completed set of design
   artifacts (system design, threat model, API specs, data models, security policies, diagrams)
   across ten dimensions before implementation starts, and recommends READY FOR IMPLEMENTATION or
-  NOT READY. Not for writing a new design document; use k-design-doc-creation-sop for that.
+  NOT READY. Not for writing a new design document; use k-sop-design-doc-creation for that.
 steps:
   - id: discover
     title: 1-2. Discover the design artifacts and confirm the scope

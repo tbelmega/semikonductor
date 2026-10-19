@@ -15,7 +15,7 @@
 # - The report's artifact id is codebase-assessment, not _k-full-sdlc's codebase-analysis, because
 #   the two documents have different purposes.
 version: 1
-name: k-codebase-analysis-sop
+name: k-sop-codebase-analysis
 description: Port of the former k-codebase-analysis SOP, a static deep-dive report on a codebase's
   architecture, SOLID adherence, design patterns, dependencies, code quality, security,
   performance and technical debt, with Mermaid diagrams and prioritized recommendations.

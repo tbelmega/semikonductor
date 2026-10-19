@@ -34,7 +34,7 @@ Use this skill in one of three modes. The principles in section 4 apply to all o
   definitions are in `<clone>/fuse/flow/src/schemas/`.
 - **Read the existing examples:** `<clone>/fuse/flow/fuse-flow list` names every workflow with its
   description. The artifact library is in `<clone>/fuse/flow/library/artifacts/`, with a one-line
-  description of each entry in its `entry.yml`. `examples/superpowers/superpowers.yml` is the
+  description of each entry in its `entry.yml`. `customization-examples/superpowers/superpowers.yml` is the
   most complete example of a native workflow, and keeps its own review guide in its folder.
   `konductor/_k-full-sdlc.yml` shows a long workflow whose guides link to skills shipped in the clone.
 - **Komposer,** the local editor that shows a workflow as a diagram, is in `<clone>/fuse/komposer`;
@@ -314,7 +314,7 @@ judgment call as a deviation and report it at the end.
 
 ### Example
 
-`fuse/flow/workflows/examples/superpowers/superpowers.yml` encodes [obra/superpowers](https://github.com/obra/superpowers):
+`fuse/flow/workflows/customization-examples/superpowers/superpowers.yml` encodes [obra/superpowers](https://github.com/obra/superpowers):
 
 | Superpowers | superpowers.yml |
 |---|---|

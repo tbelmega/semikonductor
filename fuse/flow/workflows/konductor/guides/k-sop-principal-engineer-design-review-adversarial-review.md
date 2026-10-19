@@ -1,6 +1,6 @@
 # Adversarial review before principal engineer submission
 
-The review for the `adversarial-review` step of `k-principal-engineer-design-review-sop`. It
+The review for the `adversarial-review` step of `k-sop-principal-engineer-design-review`. It
 ports Step 3, the adversarial review loop, of the former k-principal-engineer-design-review SOP:
 every design decision, trade-off and architectural choice is challenged, for at most 5 rounds,
 before a principal engineer sees the document.

@@ -1,6 +1,6 @@
 # Infrastructure lens
 
-The standards for AWS CDK and CloudFormation code that the `k-code-review-workflow-sop` review
+The standards for AWS CDK and CloudFormation code that the `k-sop-code-review-workflow` review
 step applies to the infrastructure files: security vulnerabilities, cost optimization
 opportunities, compliance gaps and operational readiness, covering IAM, encryption, logging,
 backup and alignment with the AWS Well-Architected Framework pillars: security (encryption, IAM,

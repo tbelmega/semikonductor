@@ -27,11 +27,11 @@
 #   .konductor/{slug}/, so a later step or session can resume from them.
 # - The quality gate's "Fix these before submission? [y/n]" is the owner gate on the last step.
 version: 1
-name: k-design-doc-creation-sop
+name: k-sop-design-doc-creation
 description: Port of the former k-design-doc-creation SOP. A new design document from a topic, user
   stories or a problem statement, through elicitation, a checked draft, quality gates and an
   adversarial review, until it is ready for principal engineer review. To review an existing
-  design package, use k-existing-design-review-sop instead.
+  design package, use k-sop-existing-design-review instead.
 steps:
   - id: elicitation
     title: 1. Requirements elicitation
@@ -90,7 +90,7 @@ steps:
       - agent: >
           check the draft against the design guide's checklist and this step's outside-in,
           diagram and ADR rules (the maker-checker pass). A CRITICAL finding is a required fix
-        guide: guides/k-design-doc-creation-sop-checklist-review.md
+        guide: guides/k-sop-design-doc-creation-checklist-review.md
         max_rounds: 3
   - id: quality-gates
     title: 3. Quality gates
@@ -143,7 +143,7 @@ steps:
       document against the draft step's maker-checker rules again and fix every CRITICAL finding
       before the next round. Do not discard any finding silently: each is fixed, or recorded with
       your reason as rejected, for the owner to confirm as an engineer override. The gate's own
-      review guide (guides/k-design-doc-creation-sop-adversarial-review.md next to this workflow)
+      review guide (guides/k-sop-design-doc-creation-adversarial-review.md next to this workflow)
       gives the exit condition and when to stop the loop for the owner. Write the adversarial review
       summary: the panel decision, for each round its findings by severity and the corrections
       applied, the findings marked for engineer override, and the issues still open.
@@ -163,7 +163,7 @@ steps:
           challenge every major architectural decision, trade-off and AWS service choice in the
           design with the design adversarial review guide, classifying each finding CRITICAL
           (architectural), CRITICAL (factual), IMPORTANT or MINOR
-        guide: guides/k-design-doc-creation-sop-adversarial-review.md
+        guide: guides/k-sop-design-doc-creation-adversarial-review.md
         max_rounds: 5
         route_back_to: draft
   - id: final-output

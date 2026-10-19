@@ -31,7 +31,7 @@
 # - Step 7 is the report step's closing message; the workflow-complete hand-over carries the
 #   owner's next options, so no owner gate was added.
 version: 1
-name: k-test-coverage-review-sop
+name: k-sop-test-coverage-review
 description: Port of the former k-test-coverage-review SOP. After implementation and before
   release, finds the test coverage gaps, plans end-to-end tests when the owner wants them, plans
   the security tests, and recommends READY FOR RELEASE or NOT READY in one consolidated report.

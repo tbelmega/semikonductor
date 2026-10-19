@@ -17,7 +17,7 @@ function load(storageKey: string): Record<string, boolean> {
   }
 }
 
-// `key` names one folder of the list, such as "fuse-flow:examples/superpowers";
+// `key` names one folder of the list, such as "fuse-flow:customization-examples/superpowers";
 // `name` is the folder's own name, which decides its default. A location
 // section passes `defaultOpen` instead, since it is not a folder.
 export function useFolderState(storageKey: string) {

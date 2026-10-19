@@ -13,7 +13,7 @@
 # - The search tools are named as examples, and the web tools by what they do, so the workflow
 #   does not depend on one harness's tool names.
 version: 1
-name: k-comprehensive-search-sop
+name: k-sop-comprehensive-search
 description: Port of the former k-comprehensive-search SOP, a thorough search of the codebase, external
   documentation or both for one target, summarized with file paths, line numbers and short
   snippets.

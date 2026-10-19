@@ -71,7 +71,7 @@ const USAGE = `usage:
                                                 the project's workflows
 
 workflows: a name is looked up as <name>.yml in .konductor/workflows/, ~/.konductor/workflows/,
-           then the workflows that ship with fuse-flow; in each, at any depth (examples/,
+           then the workflows that ship with fuse-flow; in each, at any depth (customization-examples/,
            personal/, team/)
 library:   artifact guides in .konductor/library/artifacts/<id>/, ~/.konductor/library/artifacts/<id>/,
            then the library that ships with fuse-flow

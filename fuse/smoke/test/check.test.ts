@@ -348,14 +348,14 @@ test("an edited project copy of a child workflow fails", () => {
   expect(result.code).toBe(1);
 });
 
-const SHIPPED_SEARCH = resolve(SMOKE_DIR, "..", "flow", "workflows", "konductor", "k-comprehensive-search-sop.yml");
+const SHIPPED_SEARCH = resolve(SMOKE_DIR, "..", "flow", "workflows", "konductor", "k-sop-comprehensive-search.yml");
 const SEARCHING = `version: 1
 name: searching
 steps:
   - id: delegate
     instruction: let the shipped search workflow search
     gates:
-      - workflow: k-comprehensive-search-sop
+      - workflow: k-sop-comprehensive-search
         slug: "{slug}-search"
 `;
 
@@ -387,7 +387,7 @@ test("a project override of a shipped child workflow fails, even when the parent
   const shipped = readFileSync(SHIPPED_SEARCH, "utf8");
   const declaration = "    produces:\n      - artifact: search-results\n        path: .konductor/{slug}/search-results.md\n";
   expect(shipped).toContain(declaration);
-  write(root, ".konductor/workflows/k-comprehensive-search-sop.yml", shipped.replace(declaration, ""));
+  write(root, ".konductor/workflows/k-sop-comprehensive-search.yml", shipped.replace(declaration, ""));
   const parent = join(root, "harness", "searching.yml");
   write(root, "harness/searching.yml", SEARCHING);
   flow(root, env, "start", "hello", "--workflow", parent);

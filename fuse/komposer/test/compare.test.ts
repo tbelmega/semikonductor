@@ -55,9 +55,9 @@ const read = (path: string) => readFileSync(`${FLOW}/${path}`, "utf8");
 const FUSE = ["fuse-dependency-migration", "fuse-feature-development", "fuse-rapid-prototyping", "fuse-system-development"].map(
   (n) => `fuse/${n}.yml`,
 );
-const EXAMPLES = readdirSync(`${FLOW}/examples`)
+const EXAMPLES = readdirSync(`${FLOW}/customization-examples`)
   .filter((f) => f.endsWith(".yml"))
-  .map((f) => `examples/${f}`);
+  .map((f) => `customization-examples/${f}`);
 
 const LEFT = `version: 1
 name: left
@@ -163,7 +163,7 @@ describe("alignSteps", () => {
   });
 
   test("custom-example-medium against -large gives the reference screenshot's counts", () => {
-    const rows = alignSteps(steps(read("examples/custom-example-medium.yml")), steps(read("examples/custom-example-large.yml")));
+    const rows = alignSteps(steps(read("customization-examples/custom-example-medium.yml")), steps(read("customization-examples/custom-example-large.yml")));
     expect(rowCounts(rows)).toEqual({ same: 0, changed: 6, left: 1, right: 11, moved: 0 });
   });
 });
@@ -670,8 +670,8 @@ steps:
 });
 
 describe("applying whole steps", () => {
-  const medium = read("examples/custom-example-medium.yml");
-  const large = read("examples/custom-example-large.yml");
+  const medium = read("customization-examples/custom-example-medium.yml");
+  const large = read("customization-examples/custom-example-large.yml");
 
   test("Apply all makes a changed left step strictly equal to the right one, in place", () => {
     const rows = alignSteps(steps(medium), steps(large)).filter((r) => r.kind === "changed");
@@ -883,9 +883,9 @@ describe("compareOrder", () => {
     const at = (location: "project" | "personal" | "fuse-flow" | "run", dir: string, file: string) =>
       openWorkflow({ location, dir, file, path: `/${location}/${dir}/${file}`, onDisk: true, text: wf("a"), hash: "" });
     const listed = compareOrder([
-      at("fuse-flow", "examples/superpowers", "superpowers.yml"),
+      at("fuse-flow", "customization-examples/superpowers", "superpowers.yml"),
       at("run", "", "theirs.yml"),
-      at("fuse-flow", "examples", "custom.yml"),
+      at("fuse-flow", "customization-examples", "custom.yml"),
       at("project", "", "zeta.yml"),
       at("personal", "", "mine.yml"),
       at("project", "docs", "alpha.yml"),
@@ -894,8 +894,8 @@ describe("compareOrder", () => {
       "project:docs/alpha.yml",
       "project:zeta.yml",
       "personal:mine.yml",
-      "fuse-flow:examples/custom.yml",
-      "fuse-flow:examples/superpowers/superpowers.yml",
+      "fuse-flow:customization-examples/custom.yml",
+      "fuse-flow:customization-examples/superpowers/superpowers.yml",
     ]);
   });
 });
