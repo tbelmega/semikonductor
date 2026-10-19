@@ -590,24 +590,20 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   width: 12px;
   height: 12px;
 }
-/* The Mode select carries the mode's glyph pill before its word. */
+/* The Mode select carries the mode's glyph pill before it, outside the
+   select, since a native select does not reliably honour its padding. */
 .mode-field {
-  position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .mode-field > .step-mode {
-  position: absolute;
-  top: 50%;
-  left: 9px;
-  transform: translateY(-50%);
   margin: 0;
-  pointer-events: none;
 }
 .mode-field > select {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
-.mode-field.has-glyphs-1 > select { padding-left: 44px; }
-.mode-field.has-glyphs-2 > select { padding-left: 68px; }
 .step-condition {
   display: flex;
   align-items: center;
@@ -868,6 +864,10 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   box-shadow: var(--shadow-lg);
   padding: 10px 12px;
   font: 400 12px/1.5 "IBM Plex Sans", sans-serif;
+  /* The tooltip sits inside the field label; it does not take the label's
+     capitals and letter spacing. */
+  text-transform: none;
+  letter-spacing: normal;
 }
 .info-tooltip-key {
   font: 600 12px "JetBrains Mono", monospace;
@@ -881,8 +881,16 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   opacity: 0.75;
   margin-top: 6px;
 }
-.info-tooltip-desc {
-  white-space: pre-line;
+.info-tooltip-terms {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.info-tooltip-terms li + li {
+  margin-top: 4px;
+}
+.info-tooltip-terms strong {
+  font-weight: 700;
 }
 .field-input {
   font: 400 13.5px "IBM Plex Sans", sans-serif;

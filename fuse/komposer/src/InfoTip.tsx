@@ -26,10 +26,21 @@ export function InfoTip({ doc }: { doc: FieldDoc }) {
       </span>
       {pos && (
         <div className="info-tooltip" style={{ left: pos.left, top: pos.top, bottom: pos.bottom }}>
-          <div className="info-tooltip-key">
-            {doc.yamlKey} <span className="info-tooltip-tag">{doc.required ? "required" : "optional"}</span>
-          </div>
+          {!doc.hideKey && (
+            <div className="info-tooltip-key">
+              {doc.yamlKey} <span className="info-tooltip-tag">{doc.required ? "required" : "optional"}</span>
+            </div>
+          )}
           <div className="info-tooltip-desc">{doc.description}</div>
+          {doc.terms && (
+            <ul className="info-tooltip-terms">
+              {doc.terms.map(({ term, text }) => (
+                <li key={term}>
+                  <strong>{term}:</strong> {text}
+                </li>
+              ))}
+            </ul>
+          )}
           {doc.engineEffect && <div className="info-tooltip-effect">Engine effect: {doc.engineEffect}</div>}
         </div>
       )}

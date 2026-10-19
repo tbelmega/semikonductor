@@ -371,8 +371,8 @@ function StepTab({
             {/* No mode is attended. An explicit "attended" shows as attended and
                 stays as written until the author picks another value; any other
                 value is shown as written, beside its error. A valid mode shows
-                its glyph pill inside the select, before the word. */}
-            <span className={`mode-field${modeSelectValue(step.mode) === INVALID_MODE ? "" : ` has-glyphs-${modeBadge(step.mode).glyphs.length}`}`}>
+                its glyph pill before the select. */}
+            <span className="mode-field">
               {modeSelectValue(step.mode) !== INVALID_MODE && <ModeBadge mode={step.mode} decorative />}
               <select
                 className="field-input"

@@ -13,6 +13,11 @@ export interface FieldDoc {
   required: boolean;
   description: string;
   engineEffect?: string;
+  // A tooltip that leaves out the YAML key line, for a field whose label
+  // already names it.
+  hideKey?: boolean;
+  // Terms explained one per line below the description, each term in bold.
+  terms?: { term: string; text: string }[];
 }
 
 function split(description: string): { description: string; engineEffect?: string } {
@@ -51,11 +56,17 @@ export const DOCS: Record<string, FieldDoc> = {
   mode: {
     yamlKey: "mode",
     required: false,
-    description:
-      "Sets what the agent expects of the owner's availability for questions and decisions.\n\n" +
-      "Attended: the agent may stop often to ask the owner for input.\n" +
-      "Unattended: the agent tries to finish the step without asking. It makes judgement calls, records them, " +
-      "and presents them for the owner's review and approval later.",
+    hideKey: true,
+    description: "What the agent expects of the owner's availability for questions and decisions.",
+    terms: [
+      { term: "Attended", text: "The agent may stop often to ask the owner for input." },
+      {
+        term: "Unattended",
+        text:
+          "The agent tries to finish the step without asking. It makes judgement calls, records them, " +
+          "and presents them for the owner's review and approval later.",
+      },
+    ],
   },
   instruction: doc("instruction", true, stepShape.instruction),
   condition: doc("condition", false, stepShape.condition),
