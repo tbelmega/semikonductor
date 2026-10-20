@@ -40,6 +40,10 @@ Fuse-Konductor keeps these guides and turns them into modules, so you can adapt 
 
 You get this by installing one package. No servers to run and no infrastructure to provision: the skills, guides and workflows are files that your existing coding agent reads directly.
 
+### Why not just skills and prompts?
+
+Building custom skills and reusable prompts is a great start to address your recurring needs during software development. Once you find yourself invoking the same three or more skills in sequence, or once your prompt describes multiple phases of work the agent should do, consider fusing it into a workflow. A fuse workflow ensures that the agent follows the intended sequence every time, lets you add verification gates to the phases and gives you a visual model of the steps you are encoding.
+
 ## Quick Start
 
 ### The easy way: let the tutorial guide you
