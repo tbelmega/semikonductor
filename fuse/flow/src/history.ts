@@ -202,12 +202,14 @@ export interface StepSummary {
 }
 
 export interface RunSummary {
-  // The run's state: COMPLETED when every step of the workflow is finished,
-  // otherwise the state of its current step.
-  status: StepStatus;
+  // The run's state: CLOSED when the owner closed it, COMPLETED when every
+  // step of the workflow is finished, otherwise the state of its current step.
+  status: StepStatus | "CLOSED";
   currentStep?: string;
   started?: string;
+  // The last event's time; for a closed run, the time it was closed.
   lastEvent?: string;
+  closed?: { date: string; at: string; reason: string };
   ownerWaitMs: number;
   // Each time the owner sent the work back, once.
   routesBack: { time: string; from: string; to: string }[];
@@ -215,8 +217,10 @@ export interface RunSummary {
 }
 
 // `stepIds` is the workflow's step order; `now` closes the interval of a step
-// that is still in a timed state.
+// that is still in a timed state, and for a closed run the time it was closed
+// does, since no time passes in a closed run.
 export function summarizeRun(ws: Workstream, stepIds: string[], now = new Date()): RunSummary {
+  if (ws.closed && !Number.isNaN(Date.parse(ws.closed.at))) now = new Date(ws.closed.at);
   const events = runEvents(ws);
   const steps: Record<string, StepSummary> = {};
   for (const id of new Set([...stepIds, ...Object.keys(ws.steps)])) {
@@ -252,9 +256,10 @@ export function summarizeRun(ws: Workstream, stepIds: string[], now = new Date()
   const current = stepIds.find((id) => !finished(steps[id].status));
   const timed = events.filter((e) => e.time);
   return {
-    status: current ? steps[current].status : "COMPLETED",
+    status: ws.closed ? "CLOSED" : current ? steps[current].status : "COMPLETED",
     ...(current ? { currentStep: current } : {}),
-    ...(timed.length ? { started: timed[0].time, lastEvent: timed[timed.length - 1].time } : {}),
+    ...(timed.length ? { started: timed[0].time, lastEvent: ws.closed ? ws.closed.at : timed[timed.length - 1].time } : {}),
+    ...(ws.closed ? { closed: ws.closed } : {}),
     ownerWaitMs: Object.values(steps).reduce((sum, s) => sum + s.ownerWaitMs, 0),
     routesBack: [...routes.values()],
     steps,

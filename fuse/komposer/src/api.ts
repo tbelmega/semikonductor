@@ -178,6 +178,8 @@ export interface WorkstreamSummary {
     lastEvent?: string;
     ownerWaitMs: number;
     routesBack: { time: string; from: string; to: string }[];
+    // Set when the owner closed the workstream with `fuse-flow close`.
+    closed?: { date: string; at: string; reason: string };
     steps: Record<
       string,
       { status: string; activeMs: number; ownerWaitMs: number; visits: number; skipReason?: string }

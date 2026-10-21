@@ -194,7 +194,7 @@ steps:
       - ui-test-results
     gates:
       - script: >-
-          f=".konductor/$FUSE_FLOW_SLUG/test-run-parameters.md"; test -f "$f" && { ! grep -qx
+          f=".konductor/$FUSE_FLOW_PATH_SLUG/test-run-parameters.md"; test -f "$f" && { ! grep -qx
           'agent_created_credentials_file=true' "$f" || test ! -e "$(sed -n 's/^credentials_file=//p' "$f")"; }
         description: >-
           A credentials file this run created must be gone, so the plaintext password does not stay

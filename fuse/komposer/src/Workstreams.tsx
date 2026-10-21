@@ -221,6 +221,12 @@ function Detail({
             The workflow is {projectName(workstream.project)}'s own file; it opens read-only.
           </span>
         )}
+        {workstream.summary?.closed && (
+          <span className="ws-detail-note">
+            Closed by the owner on {workstream.summary.closed.date}: {workstream.summary.closed.reason}. <code>fuse-flow start</code> and{" "}
+            <code>continue</code> refuse it; it stays for the record.
+          </span>
+        )}
         {problem && <span className="ws-detail-error">{problem}</span>}
         {!problem && heldStep(workstream) && (
           <span className="ws-detail-note">
@@ -492,7 +498,7 @@ function EventRow({
 // Without its workflow the diagram has no steps, so nothing is resolved.
 const notListed = (): WorkflowLink => ({ ok: false, reason: "the workstream's workflow is not listed" });
 
-const STATE_ORDER: RunState[] = ["PENDING", "IN_PROGRESS", "AWAITING_OWNER", "BLOCKED", "COMPLETED", "SKIPPED"];
+const STATE_ORDER: RunState[] = ["PENDING", "IN_PROGRESS", "AWAITING_OWNER", "BLOCKED", "COMPLETED", "SKIPPED", "CLOSED"];
 
 // The workflow as read-only cards in the workstream's state, below the
 // workflow's inputs and the path each was given, and above the workflows it

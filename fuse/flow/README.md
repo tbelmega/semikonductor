@@ -177,10 +177,13 @@ The step fields have these effects:
   not change that sequence.
 - `check: <kind>` names a lower-case check kind that policy binds to a command. `script: <command>`
   is a literal shell command. Both run from the repository root through `sh -c` and must exit 0.
-  fuse-flow sets two variables for the command, which it may rely on: `FUSE_FLOW_SLUG`, the
-  workstream's slug, and `FUSE_FLOW_STEP`, the step's id. The step block prints the command with
-  both set, as `FUSE_FLOW_SLUG=<slug> FUSE_FLOW_STEP=<step> sh -c '<command>'`, so a run by hand
-  is the run fuse-flow makes on `continue`.
+  fuse-flow sets three variables for the command, which it may rely on: `FUSE_FLOW_SLUG`, the
+  workstream's slug; `FUSE_FLOW_PATH_SLUG`, what `{slug}` stands for in its artifact paths, which
+  is the slug before its first rename for a renamed workstream and else the slug; and
+  `FUSE_FLOW_STEP`, the step's id. A check that builds a path from the slug uses
+  `FUSE_FLOW_PATH_SLUG`. The step block prints the command with all three set, as
+  `FUSE_FLOW_SLUG=<slug> FUSE_FLOW_PATH_SLUG=<slug> FUSE_FLOW_STEP=<step> sh -c '<command>'`, so a
+  run by hand is the run fuse-flow makes on `continue`.
 - `agent: <review>` tells the maker to obtain an independent review. `continue` is refused until
   the reviewer has written a findings file for at least one round of the step's current pass, as
   the step block names it; fuse-flow does not read the findings, since the maker classifies them.
@@ -542,10 +545,16 @@ review:
     gpt-6.1-sol: { model: claude-opus-5.5, effort: high }
 rulings:
   - In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill.
+checkout: refuse                   # or warn, the default
 artifacts:
   spec:
     path: docs/specs/{date}-{slug}.md
 ```
+
+`checkout` says what `start` does when it mints a workstream in a checkout with uncommitted
+changes outside `.konductor/`, or on the branch a remote's HEAD points to, such as `main`: `warn`,
+the default, prints a warning the agent passes on to the owner, and `refuse` refuses to start. The
+most specific file wins, so a team that refuses can still be relaxed in one checkout's local file.
 
 `launch` says how the agent starts a reviewer: `subagent`, a fresh subagent in its own harness,
 or a shell command such as another harness on the terminal. When no policy file sets it, the agent
@@ -620,6 +629,50 @@ commit made before the workstream started, else the first commit of the history,
 outside a git repository there is no base, and nothing is refused.
 Only fuse-flow writes it. The directory is gitignored.
 
+### Moving a workstream
+
+A workstream started in the wrong checkout, such as on `main` or in a checkout with someone else's
+uncommitted work, can move to another checkout of the same repository, such as a new worktree.
+
+1. Copy these from the old checkout's `.konductor/` to the new one's, keeping their paths:
+   - `workstreams/<slug>.yml`, the state;
+   - `reviews/<slug>/`, the findings files;
+   - `decisions/<slug>.md`, the decision log;
+   - `debug/<slug>.md`, the debug-mode log, when there is one.
+
+   Copy the same four for each workstream it is linked to by delegation: its children, which its
+   state names under each delegating step's `children`, their children in turn, and its parent,
+   which its state names under `parent`. A parent finds its child by slug in the same checkout, so
+   a parent copied without its child creates a new, empty child under that slug, and a child copied
+   without its parent can no longer return its work.
+2. Bring the workstream's documents and code across with git, such as by committing them and
+   checking out the commit in the new checkout. A workflow file inside the repository is recorded
+   by its path relative to the repository root, so it is found in the new checkout too.
+3. In the new checkout, check that `fuse-flow status <slug>` shows each copied workstream at the
+   step where it stood, with its documents, and that a parent shows its child where the child
+   stood.
+4. Only then remove the copied files from the old checkout. `fuse-flow start <slug>` in the new
+   checkout resumes the workstream.
+
+### Renaming and closing a workstream
+
+`fuse-flow rename <old slug> <new slug>` moves the state file, the reviews folder, the decision log
+and the debug log to the new slug, and updates the workstreams that name it: one started after
+it, its parent, and its children. Its documents keep their paths: `{slug}` in its artifact paths
+keeps standing for the slug it had before its first rename, recorded as `paths_slug`. The rename is
+refused when any of the files it would move already exists under the new slug. It runs while no
+other fuse-flow command can touch the workstreams involved, and one that fails, such as on a stale
+lock file of a workstream that names it, is undone, so it changes nothing.
+
+`fuse-flow close <slug> --note "<reason>"` records that the owner gave the workstream up, with the
+date and the reason. The workstream stays on disk for the record; `list` and `status` show it as
+closed, also when its workflow is gone, and `start` and `continue` refuse it. A command already
+running when it is closed records nothing more. A parent step waiting for a closed child that did
+not finish cannot complete; its block names the owner's ways on, skipping the step or sending the
+work back to it for a new child, and skipping keeps the closed child for the record. A child of a
+closed parent is told that the parent no longer waits for it. Closing is the owner's decision, as
+a jump is. To take the work up again, start a new workstream under another slug.
+
 ## Rules
 
 - **Order.** Steps run one at a time in file order; the engine runs nothing in parallel. The
@@ -651,7 +704,15 @@ Only fuse-flow writes it. The directory is gitignored.
   decisions. After a jump, the agent restores missing consumed artifacts in the owner's interest
   and reports what it did.
 - **Concurrency.** Mechanical commands run outside the state-file lock. If two commands try to
-  advance the same workstream, only the first successful state update records the step.
+  advance the same workstream, only the first successful state update records the step. A
+  workstream closed meanwhile records nothing more and runs no further check or condition.
+  Commands that change several linked workstreams hold each state file's lock only for their own
+  writes, so they are not coordinated with commands on the linked workstreams at the same time:
+  a `rename` with a `start --after` the old slug, a parent creating its child, or a resume that
+  waits while the slug is renamed and taken again; a parent's skip or jump with a `close` of the
+  parent, which can still remove its untouched child; and a parent creating its child with a
+  `close` of the parent, which can leave the new child behind. A process killed partway through a
+  rename can leave it unfinished. Run such commands one at a time.
 
 ## What fuse-flow does not try to do
 
@@ -660,7 +721,7 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
 - `continue` acts on the current step and has no step identifier. Run it once per step. The history
   makes replays visible.
 - Commands in `script` gates and policy-bound checks run like Makefile targets from the repository
-  root with the caller's environment, plus `FUSE_FLOW_SLUG` and `FUSE_FLOW_STEP`. Use only trusted workflows and policy files.
+  root with the caller's environment, plus `FUSE_FLOW_SLUG`, `FUSE_FLOW_PATH_SLUG` and `FUSE_FLOW_STEP`. Use only trusted workflows and policy files.
 - Owner-decision flags record the owner's word. They do not authenticate who typed it, so the agent
   runs them only after the owner decides.
 - The engine does not create templates, infer check commands, count review rounds, compare file

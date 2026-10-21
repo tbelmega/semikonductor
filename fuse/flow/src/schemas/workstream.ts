@@ -272,6 +272,20 @@ export const WorkstreamSchema = z
           "declaration and does not verify it. Absent when nothing was declared: a complete workstream then reads as " +
           "succeeded. A hand-out or a send-back deletes it, since new work makes the declaration stale.",
       }),
+    paths_slug: z.string().optional().meta({
+      description:
+        "For a renamed workstream: the slug it had before its first rename, which `{slug}` in artifact paths " +
+        "keeps standing for, so its documents keep their paths. Absent for a workstream never renamed.",
+    }),
+    closed: z
+      .object({ date: z.string(), at: z.string(), reason: z.string() })
+      .strict()
+      .optional()
+      .meta({
+        description:
+          "Set when the owner closed the workstream with `close`: the local date, the time (ISO 8601) and the owner's reason. A closed " +
+          "workstream is not resumed or continued; its state stays for the record.",
+      }),
     steps: z.object({}).catchall(StepStateSchema).meta({ description: "The state of each step, by step id." }),
   })
   .strict()

@@ -10,16 +10,17 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
-import { currentBase, resolveBase } from "./base.ts";
+import { checkoutProblems, currentBase, resolveBase } from "./base.ts";
 import { FlowError } from "./errors.ts";
 import { EVENT, ownerNotes, runEvents, SKIP_REASON, stamp } from "./history.ts";
 import { has, own } from "./own.ts";
 import {
   artifactPath,
   checkBinding,
+  checkoutSetting,
   display,
   libraryEntry,
   loadProject,
@@ -37,7 +38,7 @@ import {
   reviewGuideSource,
   rulings,
 } from "./policy.ts";
-import { decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
+import { debugLog, decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
 import { type Artifact, type Condition, describeGate, type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
 import {
   childGate,
@@ -59,7 +60,10 @@ import {
   workflowFile,
 } from "./links.ts";
 import {
+  closedError,
+  listWorkstreams,
   localDate,
+  lockOf,
   readWorkstream,
   startedOn,
   type StepState,
@@ -68,8 +72,10 @@ import {
   updateWorkstream,
   type Workstream,
   workstreamExists,
+  writeState,
   type Written,
 } from "./workstream.ts";
+import { withLock } from "./lock.ts";
 
 // How the follow-up commands fuse-flow prints start. The fuse-flow script
 // sets FUSE_FLOW_COMMAND to its own absolute path, so a printed command works
@@ -95,6 +101,7 @@ interface Ctx {
   wf: Workflow;
   p: Project;
   date: string; // the day the workstream started, for {date} in artifact paths
+  pathSlug: string; // what {slug} in artifact paths stands for: the slug before any rename
 }
 
 // A review guide that cannot be followed is refused for the steps still to
@@ -104,7 +111,7 @@ interface Ctx {
 function context(root: string, slug: string, ws: Workstream, readOnly = false, from: (wf: Workflow) => number = () => 0): Ctx {
   const file = findWorkflow(root, ws.workflow);
   if (gone(ws.workflow)) throw new FlowError(goneWorkflow(slug, ws.workflow));
-  const c = { root, slug, wf: loadWorkflow(file), p: loadProject(root), date: startedOn(ws) };
+  const c = { root, slug, wf: loadWorkflow(file), p: loadProject(root), date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
   if (!readOnly) {
     const first = from(c.wf);
     refuseBadReviewGuides(c.p, c.wf, file, (step) => c.wf.steps.indexOf(step) >= first && unfinishedIn(ws)(step));
@@ -263,7 +270,7 @@ interface Placed {
   path: string; // relative to the repository root, {slug} and {date} replaced
 }
 
-const place = (c: Ctx, artifacts: Artifact[]): Placed[] => artifacts.map((artifact) => ({ artifact, path: artifactPath(c.p, artifact, c.slug, c.date) }));
+const place = (c: Ctx, artifacts: Artifact[]): Placed[] => artifacts.map((artifact) => ({ artifact, path: artifactPath(c.p, artifact, c.pathSlug, c.date) }));
 const onDisk = (c: Ctx, path: string) => existsSync(resolve(c.root, path));
 
 // Whether `file` lies at or below `path`. Both are as display() shows them:
@@ -347,11 +354,11 @@ function bindInstruction(c: Ctx, check: string): string {
 // when it runs the command, and through sh -c as fuse-flow does, so that a
 // command that reads them in its own text sees them too.
 function byHand(c: Ctx, step: Step, command: string): string {
-  return `FUSE_FLOW_SLUG=${shellQuote(c.slug)} FUSE_FLOW_STEP=${shellQuote(step.id)} sh -c ${shellQuote(command)}`;
+  return `FUSE_FLOW_SLUG=${shellQuote(c.slug)} FUSE_FLOW_PATH_SLUG=${shellQuote(c.pathSlug)} FUSE_FLOW_STEP=${shellQuote(step.id)} sh -c ${shellQuote(command)}`;
 }
 
 // Runs from the repository root with the caller's environment, like a
-// Makefile target, plus FUSE_FLOW_SLUG and FUSE_FLOW_STEP. Keeps only the end
+// Makefile target, plus FUSE_FLOW_SLUG, FUSE_FLOW_PATH_SLUG and FUSE_FLOW_STEP. Keeps only the end
 // of the output: enough to see why it failed without flooding the agent's
 // context. The output goes to a file rather than into memory, so a check that
 // prints any amount still finishes and reports its own exit code.
@@ -365,7 +372,7 @@ function runCommand(c: Ctx, command: string, stepId: string) {
     try {
       const proc = spawnSync("sh", ["-c", command], {
         cwd: c.root,
-        env: { ...process.env, FUSE_FLOW_SLUG: c.slug, FUSE_FLOW_STEP: stepId },
+        env: { ...process.env, FUSE_FLOW_SLUG: c.slug, FUSE_FLOW_PATH_SLUG: c.pathSlug, FUSE_FLOW_STEP: stepId },
         stdio: ["ignore", fd, fd],
       });
       if (proc.error) throw proc.error;
@@ -400,6 +407,8 @@ function outputTail(fd: number): string {
 function handOut(c: Ctx): void {
   for (;;) {
     const ws = readWorkstream(c.root, c.slug);
+    // The owner may have closed it while this command ran.
+    if (ws.closed) throw closedError(c.slug, ws.closed);
     const step = currentStep(c.wf, ws);
     if (!step || stateOf(ws, step.id).status !== "PENDING") return;
 
@@ -491,6 +500,7 @@ function baseSentence(c: Ctx, ws: Workstream): string {
 function present(c: Ctx): string[] {
   handOut(c);
   const ws = readWorkstream(c.root, c.slug);
+  if (ws.closed) throw closedError(c.slug, ws.closed);
   const step = currentStep(c.wf, ws);
   if (!step) return handOver(c, ws, undefined);
   const state = stateOf(ws, step.id);
@@ -510,6 +520,9 @@ function present(c: Ctx): string[] {
         ensureChild(c, step);
       } catch (e) {
         if (!(e instanceof FlowError)) throw e;
+        // The refusal may be the parent's own closure, made meanwhile.
+        const now = readWorkstream(c.root, c.slug);
+        if (now.closed) throw closedError(c.slug, now.closed);
         const gate = childGate(step)!;
         const recorded = (state.children ?? []).filter((ch) => ch.pass === (state.pass ?? 1));
         const exists =
@@ -524,6 +537,7 @@ function present(c: Ctx): string[] {
         ];
       }
       const fresh = readWorkstream(c.root, c.slug);
+      if (fresh.closed) throw closedError(c.slug, fresh.closed);
       return stepBlock(c, fresh, step, stateOf(fresh, step.id));
     }
     default:
@@ -666,6 +680,15 @@ function checkChild(c: Ctx, step: Step, gate: Gate, { slug, item }: Child): void
     throw new FlowError(
       `step ${step.id} waits for a child workstream ${slug}${item !== undefined ? ` for item ${item}` : ""}, but workstream ${slug} exists and was created ` +
         `${child.parent.item !== undefined ? `for item ${child.parent.item}` : "for the step as a whole"}. Rename that workstream's state file, or give the gate a slug of its own`,
+    );
+  }
+  // A closed child that did not finish never will.
+  if (child.closed && !isComplete(c.root, slug)) {
+    throw new FlowError(
+      `step ${step.id} waits for workstream ${slug}, which the owner closed on ${child.closed.date} before it finished: ` +
+        `${child.closed.reason}. It cannot satisfy the step. The owner decides: skip this step with ` +
+        `\`${FUSE_FLOW} continue ${c.slug} --skip "<the owner's reason>"\`, or send the work back to it for a new child with ` +
+        `\`${FUSE_FLOW} continue ${c.slug} --back-to ${step.id} --note "<the owner's reason>"\``,
     );
   }
   // The child's step blocks print the review guides of the steps it has not
@@ -1105,13 +1128,21 @@ function dropUntouchedChild(c: Ctx, step: Step, locked?: Workstream): string[] {
       lines.push(`Dropped the record of child workstream ${ch.slug}, which does not exist.`);
       continue;
     }
-    if (!untouched(readWorkstream(c.root, ch.slug))) {
-      lines.push(`The child workstream ${ch.slug} stays as it is, because work was done in it.`);
-      continue;
-    }
-    rmSync(workstreamFile(c.root, ch.slug), { force: true });
-    dropped.add(ch.slug);
-    lines.push(`Removed the child workstream ${ch.slug}, in which nothing had happened.`);
+    // Decided and removed under the child's lock, so a close or a start of the
+    // child that another command makes meanwhile is never deleted.
+    let line = "";
+    withLock(lockOf(c.root, ch.slug), () => {
+      if (!workstreamExists(c.root, ch.slug)) return;
+      const childWs = readWorkstream(c.root, ch.slug);
+      if (childWs.closed) line = `The child workstream ${ch.slug} stays as it is, closed by the owner, for the record.`;
+      else if (!untouched(childWs)) line = `The child workstream ${ch.slug} stays as it is, because work was done in it.`;
+      else {
+        rmSync(workstreamFile(c.root, ch.slug), { force: true });
+        dropped.add(ch.slug);
+        line = `Removed the child workstream ${ch.slug}, in which nothing had happened.`;
+      }
+    });
+    if (line) lines.push(line);
   }
   if (dropped.size) {
     const forget = (ws2: Workstream) => {
@@ -1261,7 +1292,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
       continue;
     }
     const artifact = [...source.produces, ...source.optional_produces, ...source.updates].find((a) => a.artifact === id)!;
-    const path = artifactPath(c.p, artifact, c.slug, c.date);
+    const path = artifactPath(c.p, artifact, c.pathSlug, c.date);
     const sourceState = stateOf(ws, source.id);
     // The files the step recorded inside a folder artifact, which may be
     // shared with other work, also when an edit of the workflow has since
@@ -2216,6 +2247,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
     // While the recorded workflow file is gone, --workflow names its new
     // place, and the workstream follows that file from now on.
     const recorded = readWorkstream(root, slug).workflow;
+    refuseClosed(root, slug);
     if (gone(recorded) && ref === undefined) throw new FlowError(goneWorkflow(slug, recorded));
     if (ref !== undefined && ref !== recorded && !gone(recorded)) {
       throw new FlowError(`workstream ${slug} follows workflow ${recorded}, not ${ref}`);
@@ -2237,10 +2269,18 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   // A new workstream started --from a later step skips the steps before it.
   refuseBadReviewGuides(p, wf, path, resumed ? unfinishedIn(readWorkstream(root, slug)) : (step) => wf.steps.indexOf(step) >= fromIndex);
   let inputs: Record<string, string> = {};
+  let checkout: string[] = [];
   if (!resumed) {
     const { errors } = crossCheck(root, path, wf, (step) => wf.steps.indexOf(step) >= fromIndex);
     if (errors.length) throw new FlowError([`workflow ${wf.name} cannot start:`, ...errors.map((e) => `  ${e}`)].join("\n"));
     inputs = bindInputs(root, p, wf, slug, given);
+    checkout = checkoutProblems(root);
+    if (checkout.length && checkoutSetting(p) === "refuse") {
+      throw new FlowError(
+        `workstream ${slug} does not start in this checkout: ${checkout.join("; ")}. The project's policy sets checkout: refuse. ` +
+          "Commit or stash the changes, or start the workstream on a branch of its own, such as in a new worktree",
+      );
+    }
   }
   updateWorkstream(
     root,
@@ -2250,6 +2290,11 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
       // missing, perhaps with another workflow; resuming happens only above.
       if (!resumed && workstreamExists(root, slug)) {
         throw new FlowError(`workstream ${slug} was started by another fuse-flow command meanwhile; run fuse-flow start ${slug} to resume it`);
+      }
+      // Or renamed it since it was found, so this resume would mint an empty
+      // workstream under the old slug.
+      if (resumed && !workstreamExists(root, slug)) {
+        throw new FlowError(`workstream ${slug} was renamed or removed by another fuse-flow command meanwhile; run fuse-flow list to find it`);
       }
       ws.workflow = workflow;
       // List every step in the state file, so it reads as a complete checklist.
@@ -2273,7 +2318,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
     },
   );
   const ws = readWorkstream(root, slug);
-  const c: Ctx = { root, slug, wf, p, date: startedOn(ws) };
+  const c: Ctx = { root, slug, wf, p, date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
   convertOldState(c, ws);
   recordOldReviews(c, ws);
   const header = [`${resumed ? "resumed" : "minted"} workstream ${slug}`, `workflow: ${path}`, `state:    ${workstreamFile(root, slug)}`];
@@ -2285,6 +2330,13 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
     header.push(`parent:   step ${ws.parent.step} of workstream ${ws.parent.slug}, which ${gone ? `no longer waits for this one: ${gone}` : "waits for this one"}`);
   }
   if (wf.inputs.length) header.push(`inputs:   ${inputsSummary(c, ws)}`);
+  if (checkout.length) {
+    header.push(
+      `WARNING: this checkout is a poor place for a new workstream: ${checkout.join("; ")}. Its commits and reviews ` +
+        "would mix with that work. Tell the owner before you go on; the owner may go on here, or move the workstream " +
+        "to a branch of its own, such as in a new worktree, as the fuse-flow README describes under \"Moving a workstream\".",
+    );
+  }
   return [...header, "", ...present(c)];
 }
 
@@ -2360,6 +2412,7 @@ export interface Named {
 }
 
 export function continueWorkstream(root: string, slug: string, input: Continue): string[] {
+  refuseClosed(root, slug);
   const initial = readWorkstream(root, slug);
   // The owner's skip, or jump forward, passes over the steps before the one
   // it reaches, so their review guides are never printed and need not exist.
@@ -2687,6 +2740,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
       verification.push(`${m.label}: not configured in this project`);
       continue;
     }
+    refuseClosed(c.root, c.slug);
     const r = runCommand(c, m.command, step.id);
     if (r.exitCode !== 0) {
       const failed = `${m.label} failed (exit ${r.exitCode ?? "none, killed by a signal"})`;
@@ -3287,6 +3341,7 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
   // The steps a failure abandons are never printed, so their review guides need not exist.
   const c = context(root, slug, initial, true);
   const ws = readWorkstream(root, slug);
+  if (ws.closed) throw closedError(slug, ws.closed);
   const parent = ws.parent;
   if (!parent) {
     throw new FlowError(`finish declares a child workstream's outcome for the step that waits for it; workstream ${slug} has no parent`);
@@ -3317,6 +3372,7 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
     if (gone) {
       throw new FlowError(`step ${parent.step} of workstream ${parent.slug} no longer waits for this workstream: ${gone}; its outcome can no longer be declared`);
     }
+    if (locked.closed) throw closedError(slug, locked.closed);
     if (shapeOf(locked) !== snapshot || locked.outcome) throw new FlowError(`workstream ${slug} changed while finish ran; run it again`);
   };
   let dropped: string[] = [];
@@ -3352,6 +3408,165 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
   return [head, ...dropped, "", ...present(c)];
 }
 
+// -------------------------------------------------------------------- close
+// The owner gives a workstream up. It stays on disk for the record, with the
+// reason, and start and continue refuse it, so it no longer shows as work to
+// resume.
+//
+// Close and rename keep these invariants for a run of fuse-flow commands one
+// after another:
+// - a closed workstream records no further state change, runs no further
+//   check or condition, and prints no further step; its closure stays on disk
+//   (a closed child counts as touched, so no skip or jump removes it), and
+//   status and list show it even when its workflow is gone;
+// - a parent waiting for a closed, unfinished child cannot complete and names
+//   the owner's ways on; a child of a closed parent is told the parent no
+//   longer waits;
+// - rename's invariants are listed at rename.
+// Within one workstream they hold against commands running at the same time
+// too, through the state file's lock. Across linked workstreams they do not:
+// a review of this code found that holding them there needs a reservation of
+// slugs, an identity or generation check on every delayed writer, and a
+// journal for a killed rename, shared by every command that creates a link.
+// That invariant family is removed instead, by the owner's standing rule that
+// fuse-flow, a local state machine for one engineer, is not hardened against
+// concurrency beyond the correctness of its next step; the README's
+// Concurrency rule tells the owner to run such commands one at a time. Within
+// that bar, the one place that still printed an open step for a parent closed
+// meanwhile, present's error path after child setup, now reports the closure.
+
+export function close(root: string, slug: string, reason: string): string[] {
+  if (!workstreamExists(root, slug)) throw new FlowError(`no workstream "${slug}" in ${root}`);
+  updateWorkstream(
+    root,
+    slug,
+    (ws) => {
+      if (ws.closed) throw new FlowError(`workstream ${slug} was already closed on ${ws.closed.date}: ${ws.closed.reason}`);
+      const now = new Date();
+      ws.closed = { date: localDate(now), at: now.toISOString(), reason };
+    },
+    undefined,
+    true,
+  );
+  return [
+    `closed workstream ${slug}: ${reason}`,
+    `Its state stays in ${workstreamFile(root, slug)} for the record; \`${FUSE_FLOW} start ${slug}\` and \`${FUSE_FLOW} continue ${slug}\` now refuse it.`,
+  ];
+}
+
+function refuseClosed(root: string, slug: string): void {
+  if (!workstreamExists(root, slug)) return;
+  const closed = readWorkstream(root, slug).closed;
+  if (closed) throw closedError(slug, closed);
+}
+
+// ------------------------------------------------------------------- rename
+// Give a workstream another slug: its state file, its reviews folder, its
+// decisions file and its debug log move to the new name, and the workstreams
+// that name it, as `after`, as a parent or as a child, name it so too. Its
+// documents stay where they are: `{slug}` in its artifact paths keeps standing
+// for the slug it had before its first rename.
+//
+// What holds after a rename that returns, and after one that is refused:
+// - the workstream's state is under exactly one slug; the state file moves in
+//   one rename, so no moment has it under both;
+// - its reviews, decision log and debug log are under the same slug as its
+//   state;
+// - every workstream that named the old slug names the new one, and none
+//   names a slug without a state file because of the rename;
+// - `{slug}` in its artifact paths stands for the same slug as before.
+// A step that fails, such as the write of a referring workstream behind a
+// stale lock file, undoes the steps before it, so a refused rename changes
+// nothing. The locks it holds keep a command on one of these workstreams from
+// writing it halfway through. Beyond that, as everywhere in fuse-flow, the
+// rename is not coordinated with commands that run at the same time on linked
+// workstreams, such as one starting a workstream --after the old slug, nor
+// recovered when the process is killed partway; the README's Concurrency
+// rule says so. Making it so would need a reservation of
+// slugs and a journal of the rename shared by every command that creates a
+// link, which a local engine run by one owner does not need.
+
+export function rename(root: string, from: string, to: string): string[] {
+  if (from === to) throw new FlowError(`workstream ${from} already has that slug`);
+  const p = loadProject(root);
+  const places = (slug: string) => [workstreamFile(root, slug), reviewsDir(root, slug), decisionsFile(root, slug), debugLog(root, slug)];
+  const names = (ws: Workstream) =>
+    ws.after === from || ws.parent?.slug === from || Object.values(ws.steps).some((s) => s.children?.some((ch) => ch.slug === from));
+  const referrers = () =>
+    listWorkstreams(root)
+      .filter((o) => o.workstream && o.slug !== from && o.slug !== to && names(o.workstream))
+      .map((o) => o.slug)
+      .sort();
+  const check = () => {
+    if (!workstreamExists(root, from)) throw new FlowError(`no workstream "${from}" in ${root}`);
+    const taken = places(to).filter((path) => existsSync(path));
+    if (taken.length) throw new FlowError(`the slug ${to} is taken: ${taken.map((path) => display(p, path)).join(", ")} exist${taken.length === 1 ? "s" : ""}`);
+  };
+  check();
+  const referring = referrers();
+  const moved: string[] = [];
+  const locks = [...new Set([from, to, ...referring])].sort().map((slug) => lockOf(root, slug));
+  withLocks(locks, () => {
+    check();
+    if (referrers().join() !== referring.join()) {
+      throw new FlowError(`another fuse-flow command changed which workstreams name ${from} meanwhile; run the rename again`);
+    }
+    const undo: (() => void)[] = [];
+    try {
+      places(from).forEach((src, i) => {
+        if (!existsSync(src)) return;
+        const dst = places(to)[i];
+        renameSync(src, dst);
+        undo.push(() => renameSync(dst, src));
+        moved.push(`${display(p, src)} -> ${display(p, dst)}`);
+      });
+      const ws = readWorkstream(root, to);
+      if (ws.paths_slug === undefined) {
+        ws.paths_slug = from;
+        writeState(root, to, ws);
+      }
+      for (const slug of referring) {
+        const file = workstreamFile(root, slug);
+        const before = readFileSync(file, "utf8");
+        const w = readWorkstream(root, slug);
+        if (w.after === from) w.after = to;
+        if (w.parent?.slug === from) w.parent.slug = to;
+        for (const state of Object.values(w.steps)) for (const ch of state.children ?? []) if (ch.slug === from) ch.slug = to;
+        writeState(root, slug, w);
+        undo.push(() => writeFileSync(file, before));
+      }
+    } catch (e) {
+      const failed: string[] = [];
+      for (const step of undo.reverse()) {
+        try {
+          step();
+        } catch (u) {
+          failed.push((u as Error).message);
+        }
+      }
+      throw new FlowError(
+        `the rename of ${from} to ${to} failed: ${(e as Error).message}. ` +
+          (failed.length
+            ? `Undoing it failed too, so its files are now partly under each slug: ${failed.join("; ")}`
+            : "It was undone, so nothing changed"),
+      );
+    }
+  });
+  const ws = readWorkstream(root, to);
+  return [
+    `renamed workstream ${from} to ${to}`,
+    ...moved.map((m) => `  moved ${m}`),
+    ...(referring.length ? [`  now named ${to} in workstream${referring.length === 1 ? "" : "s"} ${referring.join(", ")}`] : []),
+    `Its documents keep their paths: {slug} in its artifact paths stands for ${ws.paths_slug}. Resume it with \`${FUSE_FLOW} start ${to}\`.`,
+  ];
+}
+
+// Holds every lock in `locks`, in their order, while `fn` runs.
+function withLocks(locks: string[], fn: () => void): void {
+  if (!locks.length) return fn();
+  withLock(locks[0], () => withLocks(locks.slice(1), fn));
+}
+
 // -------------------------------------------------------------------- status
 
 // The steps the state file records that the workflow no longer has, because
@@ -3360,7 +3575,20 @@ const orphans = (c: Ctx, ws: Workstream) => Object.keys(ws.steps).filter((id) =>
 
 export function status(root: string, slug: string): string[] {
   const ws = readWorkstream(root, slug);
-  const c = context(root, slug, ws, true);
+  let c: Ctx;
+  try {
+    c = context(root, slug, ws, true);
+  } catch (e) {
+    // A closed workstream shows its closure without its workflow, which may
+    // be gone by now.
+    if (!(e instanceof FlowError) || !ws.closed) throw e;
+    return [
+      `workstream ${slug} (${ws.workflow})`,
+      `  closed by the owner on ${ws.closed.date}: ${ws.closed.reason}`,
+      `  its workflow cannot be read, so its steps are not shown: ${e.message.split("\n")[0]}`,
+      "workstream closed; start and continue refuse it",
+    ];
+  }
   const width = Math.max(...c.wf.steps.map((s) => s.id.length));
   const current = currentStep(c.wf, ws);
   // Each file shows once, under the latest step that records it; the earlier
@@ -3409,13 +3637,16 @@ export function status(root: string, slug: string): string[] {
   const gone = orphans(c, ws);
   if (gone.length) rows.push(`  recorded steps the workflow no longer has: ${gone.map((id) => `${id} (${ws.steps[id].status})`).join(", ")}`);
   const failedText = outcomeText(ws);
-  const footer = current
-    ? `current step: ${current.id}; ${FUSE_FLOW} start ${slug} prints what to do`
-    : failedText
-      ? `workflow complete; it ${failedText}`
-      : "workflow complete";
+  const footer = ws.closed
+    ? "workstream closed; start and continue refuse it"
+    : current
+      ? `current step: ${current.id}; ${FUSE_FLOW} start ${slug} prints what to do`
+      : failedText
+        ? `workflow complete; it ${failedText}`
+        : "workflow complete";
   const related = links(root, slug, ws);
   const header = [`workstream ${slug} (${c.wf.name})`];
+  if (ws.closed) header.push(`  closed by the owner on ${ws.closed.date}: ${ws.closed.reason}`);
   const base = baseText(root, ws, true);
   if (base) header.push(`  base: ${base}`);
   if (related.after) header.push(`  after: ${related.after}`);
@@ -3446,18 +3677,27 @@ export function list(root: string): string[] {
     : [];
   lines.push(slugs.length ? `WORKSTREAMS in this project; \`${FUSE_FLOW} start <slug>\` resumes one:` : "WORKSTREAMS in this project: none");
   for (const slug of slugs) {
+    let ws: Workstream | undefined;
     try {
-      const ws = readWorkstream(root, slug);
+      ws = readWorkstream(root, slug);
       const c = context(root, slug, ws, true);
       const step = currentStep(c.wf, ws);
-      const where = step ? `step ${step.id}, ${position(c, step)}, ${stateOf(ws, step.id).status}` : "workflow complete";
+      const where = ws.closed
+        ? `closed by the owner on ${ws.closed.date}: ${ws.closed.reason}`
+        : step
+          ? `step ${step.id}, ${position(c, step)}, ${stateOf(ws, step.id).status}`
+          : "workflow complete";
       const from = [ws.after && `after ${ws.after}`, ws.parent && `child of ${ws.parent.slug}, step ${ws.parent.step}`].filter(Boolean).join(", ");
       const gone = orphans(c, ws);
       const note = gone.length ? `; ${gone.length} recorded step${gone.length === 1 ? "" : "s"} the workflow no longer has: ${gone.join(", ")}` : "";
       lines.push(`  ${slug} (${c.wf.name}, started ${c.date}${from ? `, ${from}` : ""}): ${where}${note}`);
     } catch (e) {
       if (!(e instanceof FlowError)) throw e;
-      lines.push(`  ${slug}: cannot be read: ${e.message.replaceAll("\n", "\n    ")}`);
+      lines.push(
+        ws?.closed
+          ? `  ${slug} (${ws.workflow}): closed by the owner on ${ws.closed.date}: ${ws.closed.reason}; its workflow cannot be read: ${e.message.split("\n")[0]}`
+          : `  ${slug}: cannot be read: ${e.message.replaceAll("\n", "\n    ")}`,
+      );
     }
   }
 

@@ -156,6 +156,7 @@ const recorder = (ws: Workstream, stepId: string, status: string) =>
 export function whereIs(root: string, slug: string): string {
   if (!workstreamExists(root, slug)) return "does not exist";
   const ws = readWorkstream(root, slug);
+  if (ws.closed) return `was closed by the owner on ${ws.closed.date}: ${ws.closed.reason}`;
   const wf = workflowOf(root, ws);
   const step = firstUnfinished(wf, ws);
   if (!step) {
@@ -178,8 +179,9 @@ export function whereIs(root: string, slug: string): string {
   }
 }
 
-// Whether nothing has happened in the workstream since it was created.
-export const untouched = (ws: Workstream) => Object.values(ws.steps).every((s) => s.history.length === 0);
+// Whether nothing has happened in the workstream since it was created. A
+// closed one holds the owner's decision and reason, so it counts as touched.
+export const untouched = (ws: Workstream) => !ws.closed && Object.values(ws.steps).every((s) => s.history.length === 0);
 
 // Why the parent step that delegated to workstream `slug` no longer waits for
 // it, or undefined while it does: the owner skipped or completed the step, or
@@ -190,6 +192,7 @@ export function parentGone(root: string, slug: string, parent: { slug: string; s
   let wf: Workflow;
   try {
     ws = readWorkstream(root, parent.slug);
+    if (ws.closed) return `workstream ${parent.slug} was closed by the owner on ${ws.closed.date}: ${ws.closed.reason}`;
     wf = workflowOf(root, ws);
   } catch (e) {
     if (!(e instanceof FlowError)) throw e;
@@ -268,7 +271,7 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
     if (records.length > 1) {
       // A folder recorded file by file stands for the folder.
       const declared = [...step.produces, ...step.optional_produces, ...step.updates].find((a) => a.artifact === id);
-      return recordedFolder(records, declared ? artifactPath(loadProject(root), declared, slug, startedOn(ws)) : records[0].path);
+      return recordedFolder(records, declared ? artifactPath(loadProject(root), declared, ws.paths_slug ?? slug, startedOn(ws)) : records[0].path);
     }
     // A returned id stops the search here: the newest child decides, even
     // when it recorded nothing, so an older document of that id never stands in.

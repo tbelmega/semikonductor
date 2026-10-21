@@ -1166,7 +1166,7 @@ function WorkflowTab({
                     <span className="rail-workstream-main">
                       <span className="mono rail-box-id">{w.slug}</span>
                       <span className="rail-workstream-meta">
-                        {w.summary?.currentStep && w.summary.status !== "COMPLETED" ? `at ${w.summary.currentStep} · ` : ""}
+                        {w.summary?.currentStep && w.summary.status !== "COMPLETED" && w.summary.status !== "CLOSED" ? `at ${w.summary.currentStep} · ` : ""}
                         started {dateTime(w.summary?.started)}
                         {w.project !== root ? ` · ${projectName(w.project)}` : ""}
                       </span>

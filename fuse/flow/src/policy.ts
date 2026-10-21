@@ -156,6 +156,14 @@ export function rulings(p: Project): string[] {
   return [p.user, p.team, p.local].flatMap((l) => l?.policy.rulings ?? []);
 }
 
+// What start does about a checkout that is not a clean branch of its own.
+export function checkoutSetting(p: Project): "warn" | "refuse" {
+  for (const layer of [p.local, p.team, p.user]) {
+    if (layer?.policy.checkout) return layer.policy.checkout;
+  }
+  return "warn";
+}
+
 function policyGuide(layer: Layer | undefined): string | undefined {
   const guide = layer?.policy.review?.guide;
   return guide === undefined ? undefined : isAbsolute(guide) ? guide : resolve(dirname(layer!.file), guide);

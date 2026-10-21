@@ -13,7 +13,7 @@ import { findWorkflow, workflowDirs } from "../../../flow/src/project.ts";
 import { loadWorkflow } from "../../../flow/src/workflow.ts";
 import { movedRefEdits } from "../../src/model/editWorkflow.ts";
 import { resolveWorkflowRef } from "../../src/model/workflowLinks.ts";
-import { workstreamProblem } from "../../src/model/workstreams.ts";
+import { isActive, runDuration, stateOf, workstreamProblem } from "../../src/model/workstreams.ts";
 import { applyEdit } from "../../src/model/yamlEdit.ts";
 import { type KomposerServer, startServer } from "../app.ts";
 
@@ -388,6 +388,21 @@ describe("workflows", () => {
     expect(workstreams.find((w: any) => w.slug === "ws4").workflowPath).toBe(listedPath);
     await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path: realPath, baseHash: hash(mine), text: ONE_STEP }) });
     expect(readFileSync(realPath, "utf8")).toBe(ONE_STEP);
+  });
+
+  test("a blocked run the owner closed is listed as closed with its reason, not active, and its time stops at the closure", async () => {
+    const path = write(join(root, ".konductor", "workflows", "closing.yml"), ONE_STEP.replace("one-step", "closing"));
+    flow("start", "given-up", "--workflow", path);
+    flow("continue", "given-up", "--blocked", "the API is gone");
+    flow("close", "given-up", "--note", "the customer cancelled it");
+    const { workstreams } = await json("/api/workstreams");
+    const w = workstreams.find((x: any) => x.slug === "given-up");
+    expect(w.summary.status).toBe("CLOSED");
+    expect(w.summary.closed).toMatchObject({ reason: "the customer cancelled it" });
+    expect(w.summary.lastEvent).toBe(w.summary.closed.at);
+    expect(stateOf(w)).toBe("CLOSED");
+    expect(isActive(w)).toBe(false);
+    expect(runDuration(w, Date.parse(w.summary.closed.at) + 3_600_000)).toBe(runDuration(w, Date.parse(w.summary.closed.at)));
   });
 
   test("a .yaml workflow, which fuse-flow follows by its path, is listed, linked to and saved", async () => {

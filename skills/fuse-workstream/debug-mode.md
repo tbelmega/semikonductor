@@ -116,3 +116,7 @@ So the diagram goes in a code block, and every labelled line is a list item with
   any move to another step), what the turn used, and any surprise.
 - **Use:** it is how you know what counts as a first use. When you pick up a workstream in a new
   session, read its log before the first report.
+- **After a restart:** when a log for the slug already exists, as after a new session, a restarted
+  harness or a workstream moved from another checkout, keep appending to it. Never start a second
+  log for the same workstream. Mark the restart with one line, such as `--- new session, 14:02
+  UTC ---`, before the turn's line. When a workstream is renamed, fuse-flow moves its log too.

@@ -103,6 +103,16 @@ export const PolicySchema = z
           "specific file's last. Engine effect: printed with every step.",
         examples: [["In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill."]],
       }),
+    checkout: z
+      .enum(["warn", "refuse"])
+      .optional()
+      .meta({
+        description:
+          "What `start` does when a new workstream would start in a checkout with uncommitted changes outside " +
+          ".konductor/, or on the branch a remote's HEAD points to, such as main: `warn` (the default) prints a " +
+          "warning, `refuse` refuses to start. The most specific file wins. Engine effect: the warning or the refusal.",
+        examples: ["refuse"],
+      }),
     artifacts: idRecord(ARTIFACT_ID, z.object({ path: z.string().min(1) }).strict())
       .optional()
       .meta({

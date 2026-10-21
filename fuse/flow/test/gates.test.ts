@@ -102,7 +102,7 @@ test("a script gate closes the step only when its command exits 0", () => {
   approveDesign();
   const failed = repo.refused("continue", "feat");
   expect(failed).toStartWith("REFUSED: script `test -f tests.pass` failed (exit 1)\n\nSTEP build (2 of 3)");
-  expect(failed).toContain("  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'test -f tests.pass'`. Fix the work, or the check if the check is wrong, until it passes.");
+  expect(failed).toContain("  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_PATH_SLUG=feat FUSE_FLOW_STEP=build sh -c 'test -f tests.pass'`. Fix the work, or the check if the check is wrong, until it passes.");
   expect(repo.status("feat", "build")).toBe("IN_PROGRESS");
   expect(repo.state("feat").steps.build.history.at(-1)).toContain("continue refused: script `test -f tests.pass` failed (exit 1)");
 
@@ -182,7 +182,7 @@ test("a check gate runs the command the policy binds, and says where the binding
     r.write(".konductor/policy-overrides.yml", 'checks:\n  default: test -f built\n  lint: "none"\n');
     const bound = r.ok("start", "feat");
     expect(bound).toContain(
-      "  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'test -f built'`, the project's default check (bound in .konductor/policy-overrides.yml). Fix the work",
+      "  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_PATH_SLUG=feat FUSE_FLOW_STEP=build sh -c 'test -f built'`, the project's default check (bound in .konductor/policy-overrides.yml). Fix the work",
     );
     expect(bound).toContain("  2. The lint check is not configured in this project (bound to none in .konductor/policy-overrides.yml); there is nothing to run.");
     expect(r.refused("continue", "feat")).toContain("REFUSED: check default (`test -f built`) failed (exit 1)");
@@ -209,11 +209,11 @@ test("the policy files override each other from the general to the specific", ()
     r.write("home/.konductor/policy-overrides.yml", "checks:\n  default: echo user\n  lint: echo user-lint\n");
     r.write(".konductor/policy-overrides.yml", "checks:\n  default: echo team\n");
     const team = r.start("feat", CHECKED);
-    expect(team).toContain("Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo team'`, the project's default check (bound in .konductor/policy-overrides.yml)");
-    expect(team).toContain(`Run \`FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo user-lint'\`, the project's lint check (bound in home/.konductor/policy-overrides.yml)`);
+    expect(team).toContain("Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_PATH_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo team'`, the project's default check (bound in .konductor/policy-overrides.yml)");
+    expect(team).toContain(`Run \`FUSE_FLOW_SLUG=feat FUSE_FLOW_PATH_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo user-lint'\`, the project's lint check (bound in home/.konductor/policy-overrides.yml)`);
 
     r.write(".konductor/policy-overrides.local.yml", "checks:\n  default: echo mine\n");
-    expect(r.ok("start", "feat")).toContain("Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo mine'`, the project's default check (bound in .konductor/policy-overrides.local.yml)");
+    expect(r.ok("start", "feat")).toContain("Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_PATH_SLUG=feat FUSE_FLOW_STEP=build sh -c 'echo mine'`, the project's default check (bound in .konductor/policy-overrides.local.yml)");
 
     r.write(".konductor/policy-overrides.yml", "checks:\n  default: [not, a, command]\n");
     expect(r.refused("start", "feat")).toContain(".konductor/policy-overrides.yml is not a valid policy file");
@@ -1384,7 +1384,7 @@ steps:
 `,
     );
     const command = /  1\. Run `(.*?)`\. Fix the work/.exec(out)?.[1];
-    expect(command).toBe(`FUSE_FLOW_SLUG=env FUSE_FLOW_STEP=probe sh -c 'test "$FUSE_FLOW_SLUG/$FUSE_FLOW_STEP" = env/probe'`);
+    expect(command).toBe(`FUSE_FLOW_SLUG=env FUSE_FLOW_PATH_SLUG=env FUSE_FLOW_STEP=probe sh -c 'test "$FUSE_FLOW_SLUG/$FUSE_FLOW_STEP" = env/probe'`);
     const env = { ...r.env };
     delete env.FUSE_FLOW_SLUG;
     delete env.FUSE_FLOW_STEP;

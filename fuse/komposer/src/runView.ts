@@ -12,6 +12,7 @@ export const RUN_STATE: Record<RunState, { label: string; className: string }> =
   BLOCKED: { label: "blocked", className: "blocked" },
   COMPLETED: { label: "completed", className: "completed" },
   SKIPPED: { label: "skipped", className: "skipped" },
+  CLOSED: { label: "closed", className: "closed" },
 };
 
 export function dateTime(value?: string): string {

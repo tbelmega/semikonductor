@@ -54,10 +54,10 @@ function contains(path: string, file: string): boolean {
   return file === base || file.startsWith(`${base}/`);
 }
 
-function runGate(slug: string, at: string, stepId: string, label: string, command: string): void {
+function runGate(slug: string, pathSlug: string, at: string, stepId: string, label: string, command: string): void {
   const result = Bun.spawnSync(["sh", "-c", command], {
     cwd: project,
-    env: { ...(process.env as Record<string, string>), FUSE_FLOW_SLUG: slug, FUSE_FLOW_STEP: stepId },
+    env: { ...(process.env as Record<string, string>), FUSE_FLOW_SLUG: slug, FUSE_FLOW_PATH_SLUG: pathSlug, FUSE_FLOW_STEP: stepId },
     stdout: "ignore",
     stderr: "ignore",
   });
@@ -149,6 +149,8 @@ const checked = new Set<string>();
 function checkWorkstream(slug: string, workstream: Workstream, workflow: Workflow, at: string): void {
   checked.add(slug);
   const date = startedOn(workstream);
+  // What {slug} in its artifact paths stands for: the slug before its first rename.
+  const pathSlug = workstream.paths_slug ?? slug;
   for (const step of workflow.steps) {
     const state = stateOf(workstream, step.id);
     const finishedStep = state.status === "COMPLETED" || (state.status === "SKIPPED" && Boolean(state.skip_reason));
@@ -167,13 +169,13 @@ function checkWorkstream(slug: string, workstream: Workstream, workflow: Workflo
     }
 
     for (const artifact of step.produces) {
-      const path = artifactPath(policy, artifact, slug, date);
+      const path = artifactPath(policy, artifact, pathSlug, date);
       if (!(artifact.artifact in (state.not_produced ?? {})) && !existsSync(resolve(project, path))) {
         failures.push(`${at}${step.id}: missing artifact ${path} (${artifact.artifact})`);
       }
     }
     for (const artifact of step.updates) {
-      const path = artifactPath(policy, artifact, slug, date);
+      const path = artifactPath(policy, artifact, pathSlug, date);
       // A file the agent named with --updated in this pass; the whole updates
       // path is recorded from disk anyway, so it is no evidence of a revision.
       // A state file of an earlier fuse-flow has only the bare `updated` list.
@@ -188,14 +190,14 @@ function checkWorkstream(slug: string, workstream: Workstream, workflow: Workflo
 
     for (const gate of step.gates) {
       if (gate.kind === "script") {
-        runGate(slug, at, step.id, "script", gate.text);
+        runGate(slug, pathSlug, at, step.id, "script", gate.text);
         continue;
       }
       if (gate.kind !== "check") continue;
       const binding = checkBinding(policy, gate.text);
       if (!binding) failures.push(`${at}${step.id}: check ${gate.text} is unbound`);
       else if (binding.command === "none") notes.push(`${at}${step.id}: check ${gate.text} is not configured in this project`);
-      else runGate(slug, at, step.id, `check ${gate.text}`, binding.command);
+      else runGate(slug, pathSlug, at, step.id, `check ${gate.text}`, binding.command);
     }
 
     // The children of the step's current pass, as fuse-flow records them: one,

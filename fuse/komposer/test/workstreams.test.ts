@@ -127,6 +127,14 @@ describe("summaries", () => {
     open.summary!.currentStep = "implement";
     expect(rowTiming(open, NOW)).toBe("at implement · 2d 5h");
     expect(rowTiming(ws("/p", "b", { started: 20, status: "COMPLETED" }), NOW)).toBe("took 1h");
+    expect(rowTiming(ws("/p", "c", { started: 20, status: "CLOSED" }), NOW)).toBe("closed · ran 1h");
+    const closed = ws("/p", "d", { started: 20, status: "CLOSED" });
+    closed.summary!.currentStep = "implement";
+    expect(workstreamStats(closed, NOW).slice(0, 2)).toEqual([
+      { label: "at step", value: "closed at implement" },
+      { label: "ran for", value: "1h" },
+    ]);
+    expect(laneCount("/wf/d.yml", [closed])).toEqual({ text: "1 workstream", count: 1 });
   });
 
   test("the stats strip and a step's figures", () => {

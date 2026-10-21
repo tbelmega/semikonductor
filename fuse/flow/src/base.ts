@@ -6,7 +6,8 @@
 // ever refuses; with no git, or no commits, there is simply no base.
 
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Workstream } from "./schemas/workstream.ts";
 
 export interface RecordedBase {
@@ -56,6 +57,67 @@ export function currentBase(root: string): RecordedBase | undefined {
   if (!isRepoTop(root)) return undefined;
   const sha = git(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   return sha ? { sha, subject: subjectOf(root, sha) } : undefined;
+}
+
+// What makes the checkout a poor place to start a workstream in, each as a
+// clause: uncommitted changes outside .konductor/, which the workstream's
+// commits and reviews would mix with, and being on the branch a remote's HEAD
+// points to, such as main, where the work would land unreviewed. A checkout
+// git cannot report on counts too, so `checkout: refuse` never passes an
+// unchecked one. None outside a git repository: a folder git says is not
+// one, such as one whose .git is empty.
+export function checkoutProblems(root: string): string[] {
+  const top = spawnSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  if (top.error) return [`fuse-flow could not run git to check it: ${top.error.message}`];
+  if (top.status !== 0) {
+    const why = top.stderr.trim().split("\n")[0] || `git rev-parse exited with ${top.status}`;
+    // Outside git means no repository metadata here: no .git, or an empty
+    // .git folder. A .git with content that git cannot read, such as a
+    // worktree pointer to a missing folder or a repository without its HEAD,
+    // is a problem.
+    const dotGit = join(root, ".git");
+    const none = !existsSync(dotGit) || (statSync(dotGit).isDirectory() && readdirSync(dotGit).length === 0);
+    return none ? [] : [`fuse-flow could not check it for uncommitted changes: ${why}`];
+  }
+  if (!isRepoTop(root)) return [];
+  const problems: string[] = [];
+  const status = spawnSync("git", ["-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=normal"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  if (status.status !== 0 || status.error) {
+    const why = status.error?.message ?? (status.stderr.trim().split("\n")[0] || `git status exited with ${status.status}`);
+    problems.push(`fuse-flow could not check it for uncommitted changes: ${why}`);
+  } else {
+    const entries = status.stdout.split("\0");
+    const outside = (path: string) => path !== ".konductor/" && !path.startsWith(".konductor/");
+    const changed: string[] = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i];
+      if (entry.length < 4) continue;
+      const paths = [entry.slice(3)];
+      // A rename or a copy, in either column, is followed by the path it
+      // came from, which changed too.
+      if ("RC".includes(entry[0]) || "RC".includes(entry[1])) paths.push(entries[(i += 1)] ?? "");
+      const path = paths.find((p) => p && outside(p));
+      if (path) changed.push(path);
+    }
+    if (changed.length) {
+      const such = changed.slice(0, 3).join(", ");
+      problems.push(`it has uncommitted changes outside .konductor/, in ${changed.length > 3 ? `${changed.length} paths such as ${such}` : such}`);
+    }
+  }
+  const branch = git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (branch) {
+    const heads = (git(root, ["for-each-ref", "--format=%(refname)%00%(symref)", "refs/remotes/"]) ?? "").split("\n");
+    for (const line of heads) {
+      const [ref, target] = line.split("\0");
+      const m = /^refs\/remotes\/(.+)\/HEAD$/.exec(ref ?? "");
+      if (!m || !target?.startsWith(`refs/remotes/${m[1]}/`)) continue;
+      if (target.slice(`refs/remotes/${m[1]}/`.length) === branch) {
+        problems.push(`it is on branch ${branch}, which ${m[1]}/HEAD points to`);
+        break;
+      }
+    }
+  }
+  return problems;
 }
 
 // The base to review from. In order: the recorded commit, when it is still in

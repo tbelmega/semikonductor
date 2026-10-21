@@ -233,7 +233,7 @@ steps:
         description: The owner signs off.
 `,
   );
-  expect(out).toContain("  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_STEP=only sh -c true`.");
+  expect(out).toContain("  1. Run `FUSE_FLOW_SLUG=feat FUSE_FLOW_PATH_SLUG=feat FUSE_FLOW_STEP=only sh -c true`.");
   expect(out).toContain("After 3 such rounds");
   expect(out).not.toContain("Why this step exists");
   expect(out).not.toContain("The suite must stay green");

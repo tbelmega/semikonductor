@@ -107,6 +107,12 @@ export function workstreamFile(root: string, slug: string): string {
   return join(workstreamsDir(root), `${slug}.yml`);
 }
 
+// The fuse debug-mode log of one workstream, which the fuse-workstream skill
+// writes while debug mode is on; fuse-flow only renames it with the workstream.
+export function debugLog(root: string, slug: string): string {
+  return join(root, ".konductor", "debug", `${slug}.md`);
+}
+
 export function checkSlug(slug: string): void {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
     throw new UsageError(`slug "${slug}" must be lowercase letters, digits and hyphens`);

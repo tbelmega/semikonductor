@@ -29,7 +29,12 @@ script installs plain skills and an always-on instruction block that every suppo
     `PENDING` to `COMPLETED` or `SKIPPED`.
   - Commands: `start` creates or resumes a workstream; `continue` finishes the current step and
     records the agent's artifact reports and the owner's decisions (approve, more review rounds,
-    back to an earlier step, forward, skip); `status`, `list` and `validate`.
+    back to an earlier step, forward, skip); `status`, `list` and `validate`; `rename`, which moves
+    a workstream's files to a new slug while its documents keep their paths; and `close`, with
+    which the owner gives a workstream up, with a reason.
+  - `start` warns when it mints a workstream in a checkout with uncommitted changes outside
+    `.konductor/` or on the branch a remote's HEAD points to; a policy's `checkout: refuse` turns
+    the warning into a refusal. The README describes how to move a workstream to another checkout.
   - The engine refuses to complete a step while a required artifact is missing without a reason
     or a check fails. It hands over to the owner at owner gates and when a review reaches its
     round cap, with the owner's options in plain words.

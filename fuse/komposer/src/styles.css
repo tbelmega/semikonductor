@@ -1751,6 +1751,9 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .run-state-pill.skipped, .ws-dot.skipped, .ws-legend-box.skipped, .state-skipped {
   --st-line: var(--border-strong); --st-bg: var(--surface); --st-fg: var(--text-faint); --st-style: dashed;
 }
+.run-state-pill.closed, .ws-dot.closed, .ws-legend-box.closed, .state-closed {
+  --st-line: var(--text-faint); --st-bg: var(--surface-sunken); --st-fg: var(--text-muted); --st-style: dotted;
+}
 .run-state-pill {
   padding: 1px 8px;
   border: 0;

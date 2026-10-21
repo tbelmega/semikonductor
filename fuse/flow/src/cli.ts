@@ -74,6 +74,13 @@ const USAGE = `usage:
                                                 approved means an owner gate approved it
   fuse-flow list                                list this project's workstreams with their current step, and
                                                 every workflow a workstream can follow, with its description
+  fuse-flow rename <old slug> <new slug>        give a workstream another slug: its state file, reviews
+                                                folder, decisions file and debug log move with it, and the
+                                                workstreams that name it are updated. Its documents keep
+                                                their paths
+  fuse-flow close <slug> --note <the owner's reason>
+                                                the owner gives the workstream up: it stays on disk with the
+                                                reason, and start and continue refuse it
   fuse-flow validate <name, file or directory>...
                                                 check workflows without starting a workstream; a
                                                 directory stands for every .yml and .yaml file below
@@ -207,6 +214,8 @@ function run(argv: string[]): string[] {
     ignoreLocalPolicy(root);
     return commands.list(root);
   }
+  if (command === "rename") return rename(args);
+  if (command === "close") return close(args);
   if (!command || !Object.hasOwn(OPTIONS, command)) throw new UsageError(command ? `unknown command "${command}"` : "no command");
 
   const { slug, values } = parse(command as Command, args);
@@ -329,6 +338,38 @@ function validate(args: string[]): string[] {
   const root = findRepoRoot(process.cwd());
   ignoreLocalPolicy(root);
   return commands.validate(root, refs.map((ref) => (isWorkflowPath(ref) || isDirectory(ref) ? resolve(ref) : ref)));
+}
+
+// `rename <old> <new>`: two slugs, no options.
+function rename(args: string[]): string[] {
+  let positionals: string[];
+  try {
+    positionals = parseArgs({ args, options: {}, allowPositionals: true, strict: true }).positionals;
+  } catch (e) {
+    throw new UsageError((e as Error).message);
+  }
+  if (positionals.length !== 2) throw new UsageError("rename takes <old slug> <new slug>");
+  for (const slug of positionals) checkSlug(slug);
+  const root = findRepoRoot(process.cwd());
+  ignoreLocalPolicy(root);
+  return commands.rename(root, positionals[0], positionals[1]);
+}
+
+// `close <slug> --note <the owner's reason>`.
+function close(args: string[]): string[] {
+  let parsed;
+  try {
+    parsed = parseArgs({ args, options: { note: { type: "string" } }, allowPositionals: true, strict: true });
+  } catch (e) {
+    throw new UsageError((e as Error).message);
+  }
+  if (parsed.positionals.length !== 1) throw new UsageError("close takes <slug>");
+  checkSlug(parsed.positionals[0]);
+  const note = parsed.values.note?.trim();
+  if (!note) throw new UsageError('close needs the owner\'s reason, --note "<reason>"');
+  const root = findRepoRoot(process.cwd());
+  ignoreLocalPolicy(root);
+  return commands.close(root, parsed.positionals[0], note);
 }
 
 function main(argv: string[]): number {

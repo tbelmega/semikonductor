@@ -144,6 +144,15 @@ test("a missing produces artifact fails at its policy-overridden slug path", () 
   expect(result.code).toBe(1);
 });
 
+test("a renamed workstream's artifacts are checked at the paths of the slug before its rename", () => {
+  const { root, workflow, env } = project();
+  runToEnd(root, workflow, env);
+  flow(root, env, "rename", "hello", "hi");
+  const result = check(root, workflow, env);
+  expect(result.out).toContain("MECHANICAL: PASS");
+  expect(result.code).toBe(0);
+});
+
 test("a produces artifact recorded as not produced needs no file", () => {
   const { root, workflow, env } = project();
   runToEnd(root, workflow, env);

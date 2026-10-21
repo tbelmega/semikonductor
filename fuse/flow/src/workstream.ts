@@ -78,21 +78,24 @@ function recordedWorkflow(root: string, workflow: string): string {
 // the read and the write one step, so two fuse-flow processes working on the
 // same workstream never overwrite each other's change. `initial` is the
 // workstream to start from when the file does not exist yet.
+//
+// A closed workstream is refused, read under the lock, so a command that was
+// already running when the owner closed it records nothing more and hands out
+// no further work. Only `close` and `rename`, which keep the record, pass
+// `evenClosed`.
 export function updateWorkstream(
   root: string,
   slug: string,
   change: (ws: Workstream) => void,
   initial?: Workstream,
+  evenClosed = false,
 ): void {
   prepareWorkstreamsDir(root);
-  withLock(`${workstreamFile(root, slug)}.lock`, () => {
+  withLock(lockOf(root, slug), () => {
     const ws = initial && !workstreamExists(root, slug) ? initial : readWorkstream(root, slug);
+    if (ws.closed && !evenClosed) throw closedError(slug, ws.closed);
     change(ws);
-    // Write a temporary file and rename it over the old one, so an
-    // interrupted write never leaves a half-written state file.
-    const path = workstreamFile(root, slug);
-    writeFileSync(`${path}.tmp`, YAML.stringify(WorkstreamSchema.parse({ ...ws, workflow: recordedWorkflow(root, ws.workflow) })));
-    renameSync(`${path}.tmp`, path);
+    writeState(root, slug, ws);
   });
   // Komposer finds the project's runs through this list. Recording it is not
   // part of the workstream's state, so a failure is reported, not fatal.
@@ -101,6 +104,23 @@ export function updateWorkstream(
   } catch (e) {
     process.stderr.write(`fuse-flow: could not add ${root} to ${projectsFile()}: ${(e as Error).message}\n`);
   }
+}
+
+export const lockOf = (root: string, slug: string) => `${workstreamFile(root, slug)}.lock`;
+
+// Writes the state file. Callers hold its lock. A temporary file is renamed
+// over the old one, so an interrupted write never leaves a half-written state
+// file.
+export function writeState(root: string, slug: string, ws: Workstream): void {
+  const path = workstreamFile(root, slug);
+  writeFileSync(`${path}.tmp`, YAML.stringify(WorkstreamSchema.parse({ ...ws, workflow: recordedWorkflow(root, ws.workflow) })));
+  renameSync(`${path}.tmp`, path);
+}
+
+export function closedError(slug: string, closed: { date: string; reason: string }): FlowError {
+  return new FlowError(
+    `workstream ${slug} was closed by the owner on ${closed.date}: ${closed.reason}. To work on it again, start a new workstream under another slug`,
+  );
 }
 
 // Workstream state, the reviewers' findings files and the decisions files are

@@ -32,6 +32,8 @@ export interface WorkstreamSummary {
     ownerWaitMs: number;
     routesBack: { time: string; from: string; to: string }[];
     steps?: Record<string, { status: string }>;
+    // Set when the owner closed the workstream with `fuse-flow close`.
+    closed?: { date: string; at: string; reason: string };
   };
 }
 
@@ -44,8 +46,9 @@ export interface ProjectSummary {
   error?: string;
 }
 
-export type RunState = "PENDING" | "IN_PROGRESS" | "AWAITING_OWNER" | "BLOCKED" | "COMPLETED" | "SKIPPED";
-const STATES: RunState[] = ["PENDING", "IN_PROGRESS", "AWAITING_OWNER", "BLOCKED", "COMPLETED", "SKIPPED"];
+// CLOSED is a run's state only: the owner gave the workstream up.
+export type RunState = "PENDING" | "IN_PROGRESS" | "AWAITING_OWNER" | "BLOCKED" | "COMPLETED" | "SKIPPED" | "CLOSED";
+const STATES: RunState[] = ["PENDING", "IN_PROGRESS", "AWAITING_OWNER", "BLOCKED", "COMPLETED", "SKIPPED", "CLOSED"];
 
 export function runState(value?: string): RunState {
   return STATES.includes(value as RunState) ? (value as RunState) : "PENDING";
@@ -60,11 +63,11 @@ export function duration(ms: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-// From the start to the last event when completed, else to now.
+// From the start to the last event when completed or closed, else to now.
 export function runDuration(run: WorkstreamSummary, now = Date.now()): number {
   const start = Date.parse(run.summary?.started ?? "");
   if (Number.isNaN(start)) return 0;
-  const completed = run.summary?.status === "COMPLETED";
+  const completed = run.summary?.status === "COMPLETED" || run.summary?.status === "CLOSED";
   const end = completed ? Date.parse(run.summary?.lastEvent ?? "") : now;
   return Math.max(0, (Number.isNaN(end) ? now : end) - start);
 }
@@ -159,7 +162,7 @@ export function projectCount(group: ProjectGroup, filtered: boolean): string {
   return filtered ? `${group.rows.length} of ${plural(group.total, "workstream")}` : plural(group.total, "workstream");
 }
 
-export const isActive = (w: WorkstreamSummary) => w.summary?.status !== "COMPLETED";
+export const isActive = (w: WorkstreamSummary) => w.summary?.status !== "COMPLETED" && w.summary?.status !== "CLOSED";
 
 // A workflow's row in the left lane on the Workstreams page.
 export function laneCount(workflow: WorkflowIdentity, workstreams: WorkstreamSummary[]): { text: string; count: number } {
@@ -234,6 +237,7 @@ export function eventDetail(event: { kind: string; backFrom?: string; backTo?: s
 export function rowTiming(w: WorkstreamSummary, now = Date.now()): string {
   const time = duration(runDuration(w, now));
   if (stateOf(w) === "COMPLETED") return `took ${time}`;
+  if (stateOf(w) === "CLOSED") return `closed · ran ${time}`;
   return w.summary?.currentStep ? `at ${w.summary.currentStep} · ${time}` : time;
 }
 
@@ -272,10 +276,11 @@ export function workstreamLinkDir(w: Pick<WorkstreamSummary, "project">, project
 export function workstreamStats(w: WorkstreamSummary, now = Date.now()): { label: string; value: string }[] {
   const s = w.summary;
   const done = stateOf(w) === "COMPLETED";
+  const closed = stateOf(w) === "CLOSED";
   const back = s?.routesBack ?? [];
   return [
-    { label: "at step", value: done ? "done" : (s?.currentStep ?? "not started") },
-    { label: done ? "took" : "running for", value: duration(runDuration(w, now)) },
+    { label: "at step", value: done ? "done" : closed ? `closed${s?.currentStep ? ` at ${s.currentStep}` : ""}` : (s?.currentStep ?? "not started") },
+    { label: done ? "took" : closed ? "ran for" : "running for", value: duration(runDuration(w, now)) },
     { label: "waited for owner", value: duration(s?.ownerWaitMs ?? 0) },
     { label: "sent back", value: back.length ? back.map((b) => `${b.from} → ${b.to}`).join(", ") : "never" },
   ];
