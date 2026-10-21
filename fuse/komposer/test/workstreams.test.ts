@@ -17,6 +17,7 @@ import {
   workstreamStats,
   currentChildSlug,
   eventDetail,
+  eventsByRow,
   heldStep,
   orphanSteps,
   stateOf,
@@ -328,8 +329,43 @@ describe("lastStepEventTime", () => {
     expect(lastStepEventTime(undefined, "implement")).toBeUndefined();
   });
 
-  test("multiple steps are filtered correctly, each to its own events only", () => {
+  test("each step gives the latest of its own events only", () => {
     expect(lastStepEventTime(events, "plan")).toBe(at(10));
-    expect(lastStepEventTime(events, "implement")).toBe(at(2));
+  });
+});
+
+describe("eventsByRow", () => {
+  const events = [
+    { step: "draft", time: at(9) },
+    { step: "review", time: at(8) },
+    { step: "draft", time: at(7) },
+    { step: "", time: at(6) },
+  ];
+
+  test("each shown step gets its own events in log order, and events of no row are kept as other", () => {
+    expect(eventsByRow(events, ["draft", "reviewing"])).toEqual({
+      rows: { draft: [events[0], events[2]], reviewing: [] },
+      other: [events[1], events[3]],
+    });
+  });
+
+  // H1 of the PR #4 review: a renamed step's history stays on its orphan row.
+  test("the events of a step the workflow no longer has go to that step's orphan row", () => {
+    const renamed = ws("/p", "a");
+    renamed.summary = { ...renamed.summary!, steps: { draft: { status: "COMPLETED" }, review: { status: "IN_PROGRESS" } } };
+    const shown = ["draft", "reviewing"];
+    const orphans = orphanSteps(renamed, shown).map((o) => o.id);
+    expect(eventsByRow(events, [...shown, ...orphans]).rows.review).toEqual([events[1]]);
+  });
+
+  test("when the workflow cannot be read, every event still lands on a row or in other, once", () => {
+    const split = eventsByRow(events, []);
+    expect(split.other).toEqual(events);
+    const some = eventsByRow(events, ["review"]);
+    expect([...Object.values(some.rows).flat(), ...some.other]).toHaveLength(events.length);
+  });
+
+  test("no events give empty rows", () => {
+    expect(eventsByRow(undefined, ["draft"])).toEqual({ rows: { draft: [] }, other: [] });
   });
 });

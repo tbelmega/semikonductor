@@ -9,6 +9,7 @@ import { dateTime, duration, projectName, RUN_STATE, runDuration, runState, type
 import {
   currentChildSlug,
   eventDetail,
+  eventsByRow,
   followsWorkflow,
   groupByProject,
   heldStep,
@@ -267,6 +268,12 @@ function Summary({
   const inputs = Object.entries(workstream.inputs ?? {});
   const folders = useFolderState("komposer-ws-events");
   const key = workstreamKey(workstream);
+  const orphans = orphanSteps(workstream, steps.map((step) => step.id), readable);
+  const byRow = eventsByRow(events, [...steps.map((step) => step.id), ...orphans.map((orphan) => orphan.id)]);
+  const eventsToggle = (name: string, openByDefault = false) => {
+    const folder = `events:${key}:${name}`;
+    return { open: folders.isOpen(folder, name, openByDefault), onToggle: () => folders.toggle(folder, name, openByDefault) };
+  };
   return (
     <>
       {s && (
@@ -297,65 +304,131 @@ function Summary({
         {steps.map((step, i) => {
           const figures = s?.steps[step.id];
           const state = runState(figures?.status);
-          const current = s?.currentStep === step.id && workstream.summary?.status !== "COMPLETED";
-          const bits = stepTiming(figures);
           const lastUpdated = lastStepEventTime(events, step.id);
-          const stale = state === "IN_PROGRESS" && isStale(lastUpdated);
-          const stepEvents = events.filter((e) => e.step === step.id);
-          const eventsKey = `events:${key}:${step.id}`;
-          const open = folders.isOpen(eventsKey, step.id, false);
           return (
-            <div key={step.id} className={`ws-step-block${stale ? " is-stale" : ""}`}>
-              <div className={`ws-step-row${current ? ` is-current state-${RUN_STATE[state].className}` : ""}`}>
-                <span className="ws-step-num">{i + 1}</span>
-                <span className="ws-step-main">
-                  <span className="ws-step-title">{step.title || step.id}</span>
-                  {bits && <span className="ws-step-bits">{bits}</span>}
-                </span>
-                <span className="ws-step-updated" data-tip={lastUpdated ? dateTime(lastUpdated) : undefined}>
-                  {lastUpdated ? dateTime(lastUpdated) : "—"}
-                  {stale && (
-                    <span className="ws-stale-flag" data-tip={`No new event in over ${duration(STALE_AFTER_MS)}; may be stuck`}>
-                      stuck?
-                    </span>
-                  )}
-                </span>
-                <StatePill state={state} />
-                <button
-                  type="button"
-                  className="ws-step-events-toggle lane-toggle"
-                  aria-expanded={open}
-                  disabled={stepEvents.length === 0}
-                  onClick={() => folders.toggle(eventsKey, step.id, false)}
-                  data-tip={stepEvents.length ? `${open ? "Hide" : "Show"} this step's events` : "No events for this step"}
-                >
-                  <Chevron open={open} />
-                  {plural(stepEvents.length, "event")}
-                </button>
-              </div>
-              {open && stepEvents.length > 0 && (
-                <div className="ws-step-events">
-                  {[...stepEvents].reverse().map((event, k) => (
-                    <EventRow key={`${event.time}-${event.step}-${k}`} event={event} found={found} onOpenLinked={onOpenLinked} />
-                  ))}
-                </div>
-              )}
-            </div>
+            <StepRow
+              key={step.id}
+              num={String(i + 1)}
+              title={step.title || step.id}
+              bits={stepTiming(figures)}
+              state={state}
+              current={s?.currentStep === step.id && workstream.summary?.status !== "COMPLETED"}
+              lastUpdated={lastUpdated}
+              stale={state === "IN_PROGRESS" && isStale(lastUpdated)}
+              events={byRow.rows[step.id]}
+              {...eventsToggle(step.id)}
+              found={found}
+              onOpenLinked={onOpenLinked}
+            />
           );
         })}
         {steps.length === 0 && <div className="ws-empty">The workflow's steps cannot be shown.</div>}
-        {orphanSteps(workstream, steps.map((step) => step.id), readable).map((orphan) => (
-          <div key={`gone-${orphan.id}`} className="ws-step-row is-gone">
-            <span className="ws-step-num">–</span>
-            <span className="ws-step-main">
-              <span className="ws-step-title">{orphan.id}</span>
-              <span className="ws-step-bits">{orphan.note}</span>
-            </span>
-            <StatePill state={orphan.status} />
-          </div>
+        {orphans.map((orphan) => (
+          <StepRow
+            key={`gone-${orphan.id}`}
+            num="–"
+            title={orphan.id}
+            bits={orphan.note}
+            state={orphan.status}
+            gone
+            lastUpdated={lastStepEventTime(events, orphan.id)}
+            events={byRow.rows[orphan.id]}
+            {...eventsToggle(orphan.id)}
+            found={found}
+            onOpenLinked={onOpenLinked}
+          />
         ))}
+        {byRow.other.length > 0 && (
+          <StepRow
+            num="–"
+            title="Other events"
+            bits="events of a step not listed above"
+            lastUpdated={byRow.other.map((e) => e.time).sort().pop()}
+            events={byRow.other}
+            {...eventsToggle(OTHER_EVENTS, steps.length === 0)}
+            found={found}
+            onOpenLinked={onOpenLinked}
+          />
+        )}
       </section>
     </>
+  );
+}
+
+// The folder-state name of the Summary's row of events that belong to no row.
+// Step ids are kebab-case words, so this cannot collide with one.
+const OTHER_EVENTS = " other";
+
+// A row of the Summary's Steps card and, when opened, its events, newest
+// first. A row without a state is the row of events that belong to no step.
+function StepRow({
+  num,
+  title,
+  bits,
+  state,
+  current = false,
+  gone = false,
+  lastUpdated,
+  stale = false,
+  events,
+  open,
+  onToggle,
+  found,
+  onOpenLinked,
+}: {
+  num: string;
+  title: string;
+  bits?: string;
+  state?: RunState;
+  current?: boolean;
+  // A step the state records that the workflow no longer has.
+  gone?: boolean;
+  lastUpdated?: string;
+  stale?: boolean;
+  events: RunEvent[];
+  open: boolean;
+  onToggle: () => void;
+  found: (slug: string) => boolean;
+  onOpenLinked: (slug: string) => void;
+}) {
+  const rowClass = `ws-step-row${gone ? " is-gone" : ""}${current && state ? ` is-current state-${RUN_STATE[state].className}` : ""}`;
+  return (
+    <div className={`ws-step-block${stale ? " is-stale" : ""}`}>
+      <div className={rowClass}>
+        <span className="ws-step-num">{num}</span>
+        <span className="ws-step-main">
+          <span className="ws-step-title">{title}</span>
+          {bits && <span className="ws-step-bits">{bits}</span>}
+        </span>
+        <span className="ws-step-updated" data-tip={lastUpdated ? dateTime(lastUpdated) : undefined}>
+          {lastUpdated ? dateTime(lastUpdated) : "—"}
+          {stale && (
+            <span className="ws-stale-flag" data-tip={`No new event in over ${duration(STALE_AFTER_MS)}; may be stuck`}>
+              stuck?
+            </span>
+          )}
+        </span>
+        {state ? <StatePill state={state} /> : <span />}
+        <button
+          type="button"
+          className="ws-step-events-toggle lane-toggle"
+          aria-expanded={open}
+          disabled={events.length === 0}
+          onClick={onToggle}
+          data-tip={events.length ? `${open ? "Hide" : "Show"} ${state ? "this step's" : "these"} events` : "No events for this step"}
+        >
+          <Chevron open={open} />
+          {plural(events.length, "event")}
+        </button>
+      </div>
+      {open && events.length > 0 && (
+        <div className="ws-step-events">
+          {[...events].reverse().map((event, k) => (
+            <EventRow key={`${event.time}-${event.step}-${k}`} event={event} found={found} onOpenLinked={onOpenLinked} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

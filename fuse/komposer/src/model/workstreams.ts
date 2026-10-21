@@ -309,6 +309,18 @@ export function lastStepEventTime(events: { step: string; time: string }[] | und
     .pop();
 }
 
+// The events split by the Summary row that lists them, in log order: each
+// row id (a shown step or a step only the state records) gets the events of
+// that step, and `other` gets the events that match no row, as when the
+// workflow cannot be read. Every event lands exactly once, so no history is
+// hidden by a renamed or removed step.
+export function eventsByRow<E extends { step: string }>(events: E[] | undefined, rowIds: string[]): { rows: Record<string, E[]>; other: E[] } {
+  const rows: Record<string, E[]> = Object.fromEntries(rowIds.map((id) => [id, []]));
+  const other: E[] = [];
+  for (const event of events ?? []) (Object.hasOwn(rows, event.step) ? rows[event.step] : other).push(event);
+  return { rows, other };
+}
+
 // The steps a step was sent back to from, in the order it happened.
 export function sentBackFrom(w: WorkstreamSummary, stepId: string): string[] {
   return [...new Set((w.summary?.routesBack ?? []).filter((b) => b.from === stepId).map((b) => b.to))];
