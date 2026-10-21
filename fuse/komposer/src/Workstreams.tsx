@@ -12,6 +12,7 @@ import {
   followsWorkflow,
   groupByProject,
   heldStep,
+  lastStepEventTime,
   orphanSteps,
   sentBackFrom,
   stateOf,
@@ -37,6 +38,13 @@ import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { ProjectList, workflowStem } from "./ProjectList.tsx";
 import { WorkflowLinkButton, WorkstreamLinkButton } from "./Links.tsx";
 import { childSlug, delegationTip, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { useFolderState } from "./folders.ts";
+import { Chevron } from "./WorkflowList.tsx";
+
+// How long a step may sit IN_PROGRESS with no new event before the Steps
+// table flags it as stale. Placeholder: fuse-flow has no notion yet of a
+// step actually being stuck, so this is a guess at a sensible threshold.
+const STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 
 export type WorkstreamView = "summary" | "diagram";
 
@@ -173,8 +181,8 @@ function Detail({
           <div className="segmented ws-view-toggle" role="tablist">
             {(
               [
-                ["summary", "Summary"],
                 ["diagram", "Diagram"],
+                ["summary", "Summary"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -255,8 +263,10 @@ function Summary({
   onOpenLinked: (slug: string) => void;
 }) {
   const s = workstream.summary;
-  const events = [...(workstream.events ?? [])].reverse();
+  const events = workstream.events ?? [];
   const inputs = Object.entries(workstream.inputs ?? {});
+  const folders = useFolderState("komposer-ws-events");
+  const key = workstreamKey(workstream);
   return (
     <>
       {s && (
@@ -289,14 +299,47 @@ function Summary({
           const state = runState(figures?.status);
           const current = s?.currentStep === step.id && workstream.summary?.status !== "COMPLETED";
           const bits = stepTiming(figures);
+          const lastUpdated = lastStepEventTime(events, step.id);
+          const stale = state === "IN_PROGRESS" && isStale(lastUpdated);
+          const stepEvents = events.filter((e) => e.step === step.id);
+          const eventsKey = `events:${key}:${step.id}`;
+          const open = folders.isOpen(eventsKey, step.id, false);
           return (
-            <div key={step.id} className={`ws-step-row${current ? ` is-current state-${RUN_STATE[state].className}` : ""}`}>
-              <span className="ws-step-num">{i + 1}</span>
-              <span className="ws-step-main">
-                <span className="ws-step-title">{step.title || step.id}</span>
-                {bits && <span className="ws-step-bits">{bits}</span>}
-              </span>
-              <StatePill state={state} />
+            <div key={step.id} className={`ws-step-block${stale ? " is-stale" : ""}`}>
+              <div className={`ws-step-row${current ? ` is-current state-${RUN_STATE[state].className}` : ""}`}>
+                <span className="ws-step-num">{i + 1}</span>
+                <span className="ws-step-main">
+                  <span className="ws-step-title">{step.title || step.id}</span>
+                  {bits && <span className="ws-step-bits">{bits}</span>}
+                </span>
+                <span className="ws-step-updated" data-tip={lastUpdated ? dateTime(lastUpdated) : undefined}>
+                  {lastUpdated ? dateTime(lastUpdated) : "—"}
+                  {stale && (
+                    <span className="ws-stale-flag" data-tip={`No new event in over ${duration(STALE_AFTER_MS)}; may be stuck`}>
+                      stuck?
+                    </span>
+                  )}
+                </span>
+                <StatePill state={state} />
+                <button
+                  type="button"
+                  className="ws-step-events-toggle lane-toggle"
+                  aria-expanded={open}
+                  disabled={stepEvents.length === 0}
+                  onClick={() => folders.toggle(eventsKey, step.id, false)}
+                  data-tip={stepEvents.length ? `${open ? "Hide" : "Show"} this step's events` : "No events for this step"}
+                >
+                  <Chevron open={open} />
+                  {plural(stepEvents.length, "event")}
+                </button>
+              </div>
+              {open && stepEvents.length > 0 && (
+                <div className="ws-step-events">
+                  {[...stepEvents].reverse().map((event, k) => (
+                    <EventRow key={`${event.time}-${event.step}-${k}`} event={event} found={found} onOpenLinked={onOpenLinked} />
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
@@ -312,15 +355,18 @@ function Summary({
           </div>
         ))}
       </section>
-      <section className="ws-card">
-        <div className="ws-card-head ws-kicker">Events · newest first</div>
-        {events.map((event, i) => (
-          <EventRow key={`${event.time}-${event.step}-${i}`} event={event} found={found} onOpenLinked={onOpenLinked} />
-        ))}
-        {events.length === 0 && <div className="ws-empty">No events.</div>}
-      </section>
     </>
   );
+}
+
+// "1 event", "2 events".
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// Whether a step's last event is old enough to flag as possibly stuck.
+function isStale(lastUpdated: string | undefined, now = Date.now()): boolean {
+  if (!lastUpdated) return false;
+  const t = Date.parse(lastUpdated);
+  return !Number.isNaN(t) && now - t > STALE_AFTER_MS;
 }
 
 // An event; the detail of a created child links to that child workstream.

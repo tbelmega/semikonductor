@@ -298,6 +298,17 @@ export function stepTiming(
     .join(" · ");
 }
 
+// The time of a step's last recorded event, or undefined when it has none.
+// StepSummary carries no timestamp of its own, so "last updated" is derived
+// from the event log: the latest event whose `.step` is this one.
+export function lastStepEventTime(events: { step: string; time: string }[] | undefined, stepId: string): string | undefined {
+  return (events ?? [])
+    .filter((e) => e.step === stepId)
+    .map((e) => e.time)
+    .sort()
+    .pop();
+}
+
 // The steps a step was sent back to from, in the order it happened.
 export function sentBackFrom(w: WorkstreamSummary, stepId: string): string[] {
   return [...new Set((w.summary?.routesBack ?? []).filter((b) => b.from === stepId).map((b) => b.to))];
