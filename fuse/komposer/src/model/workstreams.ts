@@ -309,6 +309,22 @@ export function lastStepEventTime(events: { step: string; time: string }[] | und
     .pop();
 }
 
+// How long a step may sit IN_PROGRESS with no new event of its own before
+// the Summary flags it as possibly stuck. Placeholder: fuse-flow has no
+// notion yet of a step actually being stuck, so this is a guess.
+export const STALE_AFTER_MS = 4 * 60 * 60 * 1000;
+
+// Whether the Summary flags a step as possibly stuck: it is IN_PROGRESS and
+// its own last event is older than STALE_AFTER_MS. A step with a workflow
+// gate (`delegates`) is never flagged: it stays IN_PROGRESS while its child
+// workstream does the work, and the child's events are the child's, so its
+// own silence says nothing. The child's row flags the child if it stalls.
+export function stepStale(step: { status?: string; lastUpdated?: string; delegates: boolean }, now = Date.now()): boolean {
+  if (step.delegates || step.status !== "IN_PROGRESS" || !step.lastUpdated) return false;
+  const t = Date.parse(step.lastUpdated);
+  return !Number.isNaN(t) && now - t > STALE_AFTER_MS;
+}
+
 // The events split by the Summary row that lists them, in log order: each
 // row id (a shown step or a step only the state records) gets the events of
 // that step, and `other` gets the events that match no row, as when the

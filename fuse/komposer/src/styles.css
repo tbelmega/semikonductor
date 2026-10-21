@@ -1940,7 +1940,6 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .ws-card-head { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 11px; }
 .ws-step-block { border-bottom: 1px solid var(--border); }
 .ws-step-block:last-child { border-bottom: 0; }
-.ws-step-block.is-stale .ws-step-row { box-shadow: inset 3px 0 0 var(--sem-amber-line); background: var(--sem-amber-bg); }
 .ws-step-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
@@ -1964,11 +1963,14 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   color: var(--text-muted);
   white-space: nowrap;
 }
+/* Possibly stuck: a neutral dashed chip, not a state colour, so it does not
+   read as waiting for the owner and leaves the current-step line alone. */
 .ws-stale-flag {
-  padding: 1px 7px;
+  padding: 0 6px;
+  border: 1px dashed var(--text-muted);
   border-radius: 999px;
-  background: var(--sem-amber-bg);
-  color: var(--sem-amber-text);
+  background: var(--surface);
+  color: var(--text-strong);
   font: 600 10px "JetBrains Mono", monospace;
   text-transform: uppercase;
   letter-spacing: 0.04em;

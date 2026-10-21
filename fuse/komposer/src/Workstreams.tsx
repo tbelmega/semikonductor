@@ -4,6 +4,7 @@
 // and the selected workstream in the middle, as a summary or as its
 // workflow's diagram in the workstream's state.
 
+import { useEffect, useState } from "react";
 import type { ProjectSummary, RunEvent, WorkstreamSummary } from "./api.ts";
 import { dateTime, duration, projectName, RUN_STATE, runDuration, runState, type RunState } from "./runView.ts";
 import {
@@ -16,8 +17,10 @@ import {
   lastStepEventTime,
   orphanSteps,
   sentBackFrom,
+  STALE_AFTER_MS,
   stateOf,
   stepChildren,
+  stepStale,
   stepTiming,
   workstreamKey,
   workstreamLinks,
@@ -41,11 +44,6 @@ import { WorkflowLinkButton, WorkstreamLinkButton } from "./Links.tsx";
 import { childSlug, delegationTip, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
 import { useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
-
-// How long a step may sit IN_PROGRESS with no new event before the Steps
-// table flags it as stale. Placeholder: fuse-flow has no notion yet of a
-// step actually being stuck, so this is a guess at a sensible threshold.
-const STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 
 export type WorkstreamView = "summary" | "diagram";
 
@@ -267,6 +265,8 @@ function Summary({
   const events = workstream.events ?? [];
   const inputs = Object.entries(workstream.inputs ?? {});
   const folders = useFolderState("komposer-ws-events");
+  // A minute is fine enough for a threshold of hours.
+  const now = useNow(60_000);
   const key = workstreamKey(workstream);
   const orphans = orphanSteps(workstream, steps.map((step) => step.id), readable);
   const byRow = eventsByRow(events, [...steps.map((step) => step.id), ...orphans.map((orphan) => orphan.id)]);
@@ -314,7 +314,7 @@ function Summary({
               state={state}
               current={s?.currentStep === step.id && workstream.summary?.status !== "COMPLETED"}
               lastUpdated={lastUpdated}
-              stale={state === "IN_PROGRESS" && isStale(lastUpdated)}
+              stale={stepStale({ status: state, lastUpdated, delegates: step.gates.some((g) => g.kind === "workflow") }, now)}
               events={byRow.rows[step.id]}
               {...eventsToggle(step.id)}
               found={found}
@@ -393,7 +393,7 @@ function StepRow({
 }) {
   const rowClass = `ws-step-row${gone ? " is-gone" : ""}${current && state ? ` is-current state-${RUN_STATE[state].className}` : ""}`;
   return (
-    <div className={`ws-step-block${stale ? " is-stale" : ""}`}>
+    <div className="ws-step-block">
       <div className={rowClass}>
         <span className="ws-step-num">{num}</span>
         <span className="ws-step-main">
@@ -435,11 +435,15 @@ function StepRow({
 // "1 event", "2 events".
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-// Whether a step's last event is old enough to flag as possibly stuck.
-function isStale(lastUpdated: string | undefined, now = Date.now()): boolean {
-  if (!lastUpdated) return false;
-  const t = Date.parse(lastUpdated);
-  return !Number.isNaN(t) && now - t > STALE_AFTER_MS;
+// The time now, renewed every `everyMs`, so a check against the clock
+// changes while the page stays open.
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), everyMs);
+    return () => window.clearInterval(timer);
+  }, [everyMs]);
+  return now;
 }
 
 // An event; the detail of a created child links to that child workstream.

@@ -10,7 +10,9 @@ import {
   projectCount,
   rowTiming,
   sentBackFrom,
+  STALE_AFTER_MS,
   stepChildren,
+  stepStale,
   stepTiming,
   workstreamLinkDir,
   workstreamLinks,
@@ -331,6 +333,38 @@ describe("lastStepEventTime", () => {
 
   test("each step gives the latest of its own events only", () => {
     expect(lastStepEventTime(events, "plan")).toBe(at(10));
+  });
+});
+
+describe("stepStale", () => {
+  const step = (hoursAgo: number | undefined, fields: { status?: string; delegates?: boolean } = {}) => ({
+    status: "IN_PROGRESS",
+    delegates: false,
+    lastUpdated: hoursAgo === undefined ? undefined : at(hoursAgo),
+    ...fields,
+  });
+
+  test("an in-progress step is flagged only once its last event is over the threshold old", () => {
+    expect(STALE_AFTER_MS).toBe(4 * HOUR);
+    expect(stepStale(step(3.9), NOW)).toBe(false);
+    expect(stepStale(step(4.1), NOW)).toBe(true);
+  });
+
+  test("the check is against the given now, so a later now flags the same step with no new event", () => {
+    const s = step(3.5);
+    expect(stepStale(s, NOW)).toBe(false);
+    expect(stepStale(s, NOW + HOUR)).toBe(true);
+  });
+
+  // M1 of the PR #4 review: a delegating step waits on its child, whose events are the child's.
+  test("a step with a workflow gate is never flagged, however long its child runs", () => {
+    expect(stepStale(step(48, { delegates: true }), NOW)).toBe(false);
+  });
+
+  test("a step that is not in progress, or has no event, is never flagged", () => {
+    for (const status of ["PENDING", "AWAITING_OWNER", "BLOCKED", "COMPLETED", "SKIPPED"]) expect(stepStale(step(48, { status }), NOW)).toBe(false);
+    expect(stepStale(step(undefined), NOW)).toBe(false);
+    expect(stepStale({ ...step(48), lastUpdated: "not a time" }, NOW)).toBe(false);
   });
 });
 
