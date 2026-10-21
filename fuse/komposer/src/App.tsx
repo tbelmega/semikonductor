@@ -127,7 +127,7 @@ export function App() {
   // the selected workstream by runKey, and how it is shown.
   const [allWorkstreams, setAllWorkstreams] = useState(false);
   const [workstreamKeySelected, setWorkstreamKeySelected] = useState<string | null>(null);
-  const [workstreamView, setWorkstreamView] = useState<WorkstreamView>("summary");
+  const [workstreamView, setWorkstreamView] = useState<WorkstreamView>("diagram");
   // The Compare page: its right workflow by key (the left one is the
   // selected workflow), and its two toggles.
   const [compareRight, setCompareRight] = useState<string | null>(null);

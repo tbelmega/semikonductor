@@ -1938,23 +1938,56 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 }
 .ws-card { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
 .ws-card-head { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.ws-step-block { border-bottom: 1px solid var(--border); }
+.ws-step-block:last-child { border-bottom: 0; }
+.ws-step-block.is-stale .ws-step-row { box-shadow: inset 3px 0 0 var(--sem-amber-line); background: var(--sem-amber-bg); }
 .ws-step-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
 }
-.ws-step-row:last-child, .ws-event:last-child { border-bottom: 0; }
 .ws-step-row.is-current { box-shadow: inset 3px 0 0 var(--st-line); }
 /* A step the workstream recorded that the workflow no longer has. */
-.ws-step-row.is-gone { background: var(--surface-sunken); box-shadow: inset 3px 0 0 var(--sem-error); }
+.ws-step-row.is-gone { background: var(--surface-sunken); box-shadow: inset 3px 0 0 var(--sem-error); border-bottom: 1px solid var(--border); }
 .ws-step-row.is-gone .ws-step-title { color: var(--text-muted); text-decoration: line-through; }
 .ws-step-num { font: 600 12px "JetBrains Mono", monospace; color: var(--text-faint); }
 .ws-step-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ws-step-title { font: 600 13px "IBM Plex Sans", sans-serif; color: var(--text-strong); }
 .ws-step-bits { font: 400 11px "JetBrains Mono", monospace; color: var(--text-muted); }
+.ws-step-updated {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 11px "JetBrains Mono", monospace;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ws-stale-flag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sem-amber-bg);
+  color: var(--sem-amber-text);
+  font: 600 10px "JetBrains Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ws-step-events-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font: 500 11px "JetBrains Mono", monospace;
+  white-space: nowrap;
+}
+.ws-step-events-toggle:disabled { opacity: 0.45; cursor: default; }
+.ws-step-events-toggle:not(:disabled):hover { border-color: var(--accent); color: var(--accent-text); }
+.ws-step-events { border-top: 1px solid var(--border); background: var(--surface-subtle); }
+.ws-step-events .ws-event:last-child { border-bottom: 0; }
 .ws-event { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .ws-event-time { font: 400 11.5px "JetBrains Mono", monospace; color: var(--text-muted); }
 .ws-event-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

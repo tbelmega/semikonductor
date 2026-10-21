@@ -5,6 +5,7 @@ import {
   followsWorkflow,
   groupByProject,
   laneCount,
+  lastStepEventTime,
   orderWorkstreams,
   projectCount,
   rowTiming,
@@ -308,5 +309,27 @@ describe("a workstream as fuse-flow reads it", () => {
     expect(orphanSteps(w, [], false)).toEqual([
       { id: "original", status: "IN_PROGRESS", note: "recorded; the workflow cannot be read, so its steps are unknown" },
     ]);
+  });
+});
+
+describe("lastStepEventTime", () => {
+  const events = [
+    { step: "plan", time: at(10) },
+    { step: "implement", time: at(5) },
+    { step: "implement", time: at(2) },
+  ];
+
+  test("a step with events gives the latest of them", () => {
+    expect(lastStepEventTime(events, "implement")).toBe(at(2));
+  });
+
+  test("a step with no events gives undefined", () => {
+    expect(lastStepEventTime(events, "review")).toBeUndefined();
+    expect(lastStepEventTime(undefined, "implement")).toBeUndefined();
+  });
+
+  test("multiple steps are filtered correctly, each to its own events only", () => {
+    expect(lastStepEventTime(events, "plan")).toBe(at(10));
+    expect(lastStepEventTime(events, "implement")).toBe(at(2));
   });
 });
