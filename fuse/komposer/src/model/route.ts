@@ -6,12 +6,16 @@
 //   /<page>/<location>/<folder>/<file>    a workflow of the three locations
 //   /<page>/run/<absolute path>           another project's workflow file
 //
-// Each segment is URI-encoded. A path that names no page shows the Edit page.
+// Each segment is URI-encoded. A path that names no page shows the first
+// page, Present.
 
 import type { WorkflowFile } from "../workflowView.ts";
 
-export const PAGE_IDS = ["edit", "compare", "present", "workstreams"] as const;
+// The pages in the order the page switcher shows them, which is also the
+// order of keys 1 to 4. The first is the page Komposer opens on.
+export const PAGE_IDS = ["present", "compare", "edit", "workstreams"] as const;
 export type Page = (typeof PAGE_IDS)[number];
+export const DEFAULT_PAGE: Page = PAGE_IDS[0];
 
 const isPage = (s: string | undefined): s is Page => (PAGE_IDS as readonly string[]).includes(s ?? "");
 
@@ -32,7 +36,7 @@ export function routePath(page: Page, workflow: Pick<WorkflowFile, "location" | 
 // workflow is null when the path names none, or cannot be decoded.
 export function parseRoute(pathname: string): { page: Page; workflow: string | null } {
   const [first, ...rest] = pathname.split("/").filter(Boolean);
-  const page = isPage(first) ? first : "edit";
+  const page = isPage(first) ? first : DEFAULT_PAGE;
   const raw = isPage(first) ? rest : [];
   try {
     const decoded = raw.map(decodeURIComponent);

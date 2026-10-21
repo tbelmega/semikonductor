@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { entryIndex, entryProject, entryState, parseRoute, routePath, routedWorkflow, workflowRoute } from "../src/model/route.ts";
+import { DEFAULT_PAGE, entryIndex, entryProject, entryState, PAGE_IDS, parseRoute, routePath, routedWorkflow, workflowRoute } from "../src/model/route.ts";
 import type { WorkflowFile } from "../src/workflowView.ts";
 
 type Listed = Pick<WorkflowFile, "location" | "dir" | "file" | "path">;
@@ -32,10 +32,15 @@ describe("routes", () => {
       }
   });
 
-  test("a path without a workflow names only the page; one without a page shows Edit", () => {
+  test("the switcher shows Present, Compare, Edit, Workstreams, and Komposer opens on Present", () => {
+    expect(PAGE_IDS).toEqual(["present", "compare", "edit", "workstreams"]);
+    expect(DEFAULT_PAGE).toBe("present");
+  });
+
+  test("a path without a workflow names only the page; one without a page shows Present", () => {
     expect(parseRoute("/workstreams")).toEqual({ page: "workstreams", workflow: null });
-    expect(parseRoute("/")).toEqual({ page: "edit", workflow: null });
-    expect(parseRoute("/nonsense/project/build.yml")).toEqual({ page: "edit", workflow: null });
+    expect(parseRoute("/")).toEqual({ page: "present", workflow: null });
+    expect(parseRoute("/nonsense/project/build.yml")).toEqual({ page: "present", workflow: null });
   });
 
   test("a workflow that is not listed, or a path that does not decode, selects none", () => {

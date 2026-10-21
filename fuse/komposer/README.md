@@ -8,8 +8,8 @@ the project and in your other projects. It reads and writes the workflow files o
 - your own `~/.konductor/workflows/`;
 - the workflows that ship with fuse-flow, in `fuse/flow/workflows/`.
 
-The bar at the top switches between the pages: **Edit** (key 1), **Compare** (key 2),
-**Present** (key 3) and **Workstreams** (key 4). Edit is the page Komposer opens on. The workflow
+The bar at the top switches between the pages: **Present** (key 1), **Compare** (key 2),
+**Edit** (key 3) and **Workstreams** (key 4). Present is the page Komposer opens on. The workflow
 selected in the list on the left is the same on every page; on Compare it is the left side.
 
 On the Edit page, the strip at the far right opens a panel with three tabs, in scope order:
@@ -26,7 +26,8 @@ project, and shows the selected one as a summary (where it is, its steps and its
 its workflow's diagram in the workstream's state.
 
 The Compare page shows the selected workflow on the left and another workflow of the three
-locations on the right, their steps aligned row by row. Each row is marked as the same, changed,
+locations on the right, each with its description below its picker so you can read what both are
+for, and their steps aligned row by row. Each row is marked as the same, changed,
 only on the left, only on the right, or moved, and a changed row lists the fields that differ.
 Instructions are compared as fuse-flow reads them, trimmed, with their line breaks and indentation.
 The pickers above the two sides choose them; in the list on the left, a row picks the left

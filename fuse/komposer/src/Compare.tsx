@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Compare page: the selected workflow on the left and any other one on
-// the right, their steps aligned row by row (model/compare.ts), each pair
+// the right, each side's description below its picker, and their steps
+// aligned row by row (model/compare.ts), each pair
 // marked element by element. The left is the editable working copy: a click
 // on a left card selects that step for the right rail, and the right cards
 // carry the actions that apply a difference, a whole step, an addition, a
@@ -30,7 +31,7 @@ import {
 } from "./model/compare.ts";
 import type { Edit } from "./model/yamlEdit.ts";
 import { LOCATION_ROOT } from "./WorkflowList.tsx";
-import { stem, stepViews, workflowKey, type OpenWorkflow, type StepView } from "./workflowView.ts";
+import { stem, stepViews, workflowDescription, workflowKey, type OpenWorkflow, type StepView } from "./workflowView.ts";
 
 const LOCATION_LABEL: Record<OpenWorkflow["location"], string> = {
   project: "Project",
@@ -134,6 +135,9 @@ export function Compare(props: CompareProps) {
           Swap
         </button>
         <Picker side="right" workflows={props.workflows} value={right} onPick={(key) => props.onPick("right", key)} />
+        <Description workflow={left} />
+        <span />
+        <Description workflow={right} />
       </div>
       <div className="compare-summary">
         {(Object.keys(ROW) as RowKind[]).map((kind) => (
@@ -194,6 +198,14 @@ export function Compare(props: CompareProps) {
       </div>
     </div>
   );
+}
+
+// What a side's workflow is for, below its picker, so the two can be read
+// side by side. Text only: descriptions are not compared or applied.
+function Description({ workflow }: { workflow: OpenWorkflow | null }) {
+  if (!workflow) return <span />;
+  const text = workflowDescription(workflow);
+  return <p className={`compare-description${text ? "" : " is-empty"}`}>{text ?? "No description."}</p>;
 }
 
 function Picker({

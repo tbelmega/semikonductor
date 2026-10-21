@@ -3,16 +3,13 @@
 // on, the page switcher, and the theme button.
 
 import { ThemeToggle } from "./ThemeToggle.tsx";
-import type { Page } from "./model/route.ts";
+import { PAGE_IDS, type Page } from "./model/route.ts";
 
 export type { Page };
 
-export const PAGES: { id: Page; label: string; built: boolean }[] = [
-  { id: "edit", label: "Edit", built: true },
-  { id: "compare", label: "Compare", built: true },
-  { id: "present", label: "Present", built: true },
-  { id: "workstreams", label: "Workstreams", built: true },
-];
+const LABEL: Record<Page, string> = { present: "Present", compare: "Compare", edit: "Edit", workstreams: "Workstreams" };
+
+export const PAGES: { id: Page; label: string; built: boolean }[] = PAGE_IDS.map((id) => ({ id, label: LABEL[id], built: true }));
 
 export function TopBar({ project, page, onPage }: { project: string; page: Page; onPage: (page: Page) => void }) {
   return (

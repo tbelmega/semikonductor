@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { editedWorkflow } from "../src/model/editWorkflow.ts";
-import { openWorkflow, savedVersion, stepViews, structureChanges } from "../src/workflowView.ts";
+import { openWorkflow, savedVersion, stepViews, structureChanges, workflowDescription } from "../src/workflowView.ts";
 
 const SAVED = `version: 1
 name: x
@@ -60,5 +60,19 @@ describe("structureChanges", () => {
     expect(structureChanges(deleted)).toEqual(["deleted a"]);
     const moved = editedWorkflow(open(SAVED), [{ op: "moveStep", from: 1, to: 0 }]);
     expect(structureChanges(moved)).toEqual(["moved a 1 → 2", "moved b 2 → 1"]);
+  });
+});
+
+describe("workflowDescription", () => {
+  test("is the description, trimmed, and undefined when there is none or only whitespace", () => {
+    expect(workflowDescription(open(SAVED.replace("name: x\n", "name: x\ndescription: |\n  Builds a thing.\n")))).toBe("Builds a thing.");
+    expect(workflowDescription(open(SAVED))).toBeUndefined();
+    expect(workflowDescription(open(SAVED.replace("name: x\n", 'name: x\ndescription: "  "\n')))).toBeUndefined();
+  });
+
+  test("is read from the raw YAML when the workflow fails validation", () => {
+    const broken = open("version: 1\nname: x\ndescription: Still readable.\nsteps: []\n");
+    expect(broken.parsed).toBeNull();
+    expect(workflowDescription(broken)).toBe("Still readable.");
   });
 });

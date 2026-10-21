@@ -2079,6 +2079,8 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .compare-picker-field svg { flex: none; fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .compare-picker-field select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font: inherit; }
 .compare-picker-path { min-height: 14px; font: 400 11px "JetBrains Mono", monospace; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compare-description { align-self: start; margin: 0; min-width: 0; max-height: 7.5em; overflow-y: auto; font: 400 13px/1.5 "IBM Plex Sans", sans-serif; color: var(--text-muted); }
+.compare-description.is-empty { font-style: italic; color: var(--text-faint); }
 .compare-swap { align-self: center; height: 34px; padding: 0 12px 0 9px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-body); font: 500 12.5px "IBM Plex Sans", sans-serif; cursor: pointer; }
 .compare-swap:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
 .compare-swap:disabled { opacity: .5; cursor: not-allowed; }

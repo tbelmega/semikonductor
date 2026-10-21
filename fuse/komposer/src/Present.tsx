@@ -14,6 +14,7 @@ import { ALL_SHOWN, SHOW_TOGGLES, STEPS_ONLY, drawerOpen, releasesFocus, type Fl
 import {
   stem,
   stepViews,
+  workflowDescription,
   workflowHandOffs,
   workflowInputs,
   workflowKey,
@@ -85,7 +86,6 @@ function DrawerStrip({
 }
 
 const title = (w: OpenWorkflow) => w.parsed?.name || w.rawWorkflow.name || stem(w.file);
-const description = (w: OpenWorkflow) => w.parsed?.description ?? w.rawWorkflow.description;
 
 export function Present({
   lane,
@@ -139,7 +139,7 @@ export function Present({
   const header = (w: OpenWorkflow) => (
     <>
       <h1 className="present-title">{title(w)}</h1>
-      {show.descriptions && description(w) && <p className="present-description">{description(w)}</p>}
+      {show.descriptions && workflowDescription(w) && <p className="present-description">{workflowDescription(w)}</p>}
     </>
   );
   const diagram = (

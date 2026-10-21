@@ -495,6 +495,11 @@ export function gatesInRunOrder(gates: Gate[]): { gate: Gate; fileIndex: number 
 }
 
 export const stem = (file: string) => file.replace(/\.ya?ml$/, "");
+
+// What the workflow says it is for: its description, read from the raw YAML
+// when the file fails validation. Undefined when it has none.
+export const workflowDescription = (w: Pick<OpenWorkflow, "parsed" | "rawWorkflow">): string | undefined =>
+  (w.parsed ? w.parsed.description : w.rawWorkflow.description)?.trim() || undefined;
 export const gateCount = (steps: StepView[]) => steps.reduce((n, s) => n + s.gates.length, 0);
 export const routeBackCount = (steps: StepView[]) =>
   steps.reduce((n, s) => n + s.gates.reduce((m, g) => m + g.route_back_to.length, 0), 0);
