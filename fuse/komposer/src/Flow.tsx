@@ -13,7 +13,7 @@ import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts"
 import type { LibraryEntry } from "./api.ts";
 import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
 import { gatesInRunOrder, modeBadge, type ArtifactRole, type ModeGlyph, type StepView, type WorkflowLink } from "./workflowView.ts";
-import { layoutEdges } from "./layout.ts";
+import { drawnBuses, layoutEdges } from "./layout.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
 import { ALL_SHOWN, legendEntries, type FlowShow } from "./model/present.ts";
@@ -135,6 +135,7 @@ export function Flow({
   header,
   legend = true,
   className,
+  consumesOnHover = false,
 }: {
   steps: StepView[];
   selectedIndex: number;
@@ -178,6 +179,9 @@ export function Flow({
   legend?: boolean;
   // An extra class on the diagram's column.
   className?: string;
+  // True draws only the hovered artifact's consumes lines, and none while
+  // nothing is hovered. The edit page sets it; Present draws them all.
+  consumesOnHover?: boolean;
 }) {
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dropProps = (at: number) => ({
@@ -251,6 +255,7 @@ export function Flow({
             selectedIndex={selectedIndex}
             hoveredArtifact={hoveredArtifact}
             show={show}
+            onlyHovered={consumesOnHover}
           />
           {inputs.length > 0 && (
             <div className="flow-card workflow-inputs">
@@ -599,6 +604,7 @@ function Edges({
   selectedIndex,
   hoveredArtifact,
   show,
+  onlyHovered,
 }: {
   steps: StepView[];
   geo: Rect[];
@@ -606,6 +612,7 @@ function Edges({
   selectedIndex: number;
   hoveredArtifact: string | null;
   show: FlowShow;
+  onlyHovered: boolean;
 }) {
   // Marker ids of this diagram, so two diagrams on a page do not share them.
   const id = useId().replace(/:/g, "");
@@ -671,11 +678,7 @@ function Edges({
         );
       })}
       {/* data-flow buses, left gutter */}
-      {show.consumes && layout.buses.map((bus) => {
-        const highlighted =
-          hoveredArtifact === bus.artifact ||
-          bus.producerIndex === selectedIndex ||
-          bus.consumerIndices.includes(selectedIndex);
+      {show.consumes && drawnBuses(layout, { hoveredArtifact, selectedIndex, onlyHovered }).map(({ bus, highlighted }) => {
         const x = left - 14 - bus.lane * 8;
         const y0 = geo[bus.producerIndex].b - 14;
         const ys = bus.consumerIndices.map(

@@ -1231,6 +1231,7 @@ export function App() {
                 showDescriptions={showDescriptions}
                 hoveredArtifact={hoveredArtifact}
                 onHoverArtifact={setHoveredArtifact}
+                consumesOnHover
                 onInsert={(at) => apply({ op: "insertStep", at, step: { id: uniqueStepId(), instruction: "" } })}
                 onAppend={() => apply({ op: "insertStep", at: steps.length, step: { id: uniqueStepId(), instruction: "" } })}
                 onMove={(from, to) => apply({ op: "moveStep", from, to })}

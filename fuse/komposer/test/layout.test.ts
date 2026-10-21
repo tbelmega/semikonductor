@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, test } from "bun:test";
-import { layoutEdges } from "../src/layout.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { drawnBuses, layoutEdges } from "../src/layout.ts";
+import { jsxAttributes } from "./jsxAttributes.ts";
 import { openWorkflow, stepViews } from "../src/workflowView.ts";
 
 const steps = (text: string) =>
@@ -54,5 +57,65 @@ steps:
     consumes: [report]
 `;
     expect(buses(text)).toEqual([["report", 1, [2]]]);
+  });
+});
+
+describe("drawn buses", () => {
+  const text = `version: 1
+name: w
+steps:
+  - id: write
+    instruction: Write.
+    produces:
+      - artifact: note
+        path: note.md
+      - artifact: plan
+        path: plan.md
+  - id: other
+    instruction: Something else.
+  - id: read
+    instruction: Read.
+    consumes: [note, plan]
+`;
+  const drawn = (hoveredArtifact: string | null, selectedIndex: number, onlyHovered: boolean) =>
+    drawnBuses(layoutEdges(steps(text)), { hoveredArtifact, selectedIndex, onlyHovered }).map(({ bus, highlighted }) => [
+      bus.artifact,
+      highlighted,
+    ]);
+
+  test("the edit page draws no consumes line while nothing is hovered, even with a step selected", () => {
+    expect(drawn(null, -1, true)).toEqual([]);
+    expect(drawn(null, 0, true)).toEqual([]);
+    expect(drawn(null, 2, true)).toEqual([]);
+  });
+
+  test("the edit page draws only the hovered artifact's line, highlighted, whatever is selected", () => {
+    expect(drawn("note", -1, true)).toEqual([["note", true]]);
+    expect(drawn("note", 0, true)).toEqual([["note", true]]);
+    expect(drawn("unconsumed", -1, true)).toEqual([]);
+  });
+
+  test("Present draws every line and highlights the hovered artifact's", () => {
+    expect(drawn(null, -1, false)).toEqual([
+      ["note", false],
+      ["plan", false],
+    ]);
+    expect(drawn("plan", -1, false)).toEqual([
+      ["note", false],
+      ["plan", true],
+    ]);
+  });
+});
+
+describe("which pages draw consumes lines only on hover", () => {
+  const flowProps = (file: string) =>
+    jsxAttributes(readFileSync(join(import.meta.dir, "..", "src", file), "utf8"), file)
+      .filter((a) => a.tag === "Flow")
+      .map((a) => a.name);
+
+  test("the edit page's diagram sets consumesOnHover, Present's does not", () => {
+    expect(flowProps("App.tsx")).toContain("consumesOnHover");
+    expect(flowProps("Present.tsx")).toContain("hoveredArtifact");
+    expect(flowProps("Present.tsx")).not.toContain("consumesOnHover");
   });
 });

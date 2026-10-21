@@ -84,6 +84,26 @@ export function layoutEdges(steps: StepView[]): Layout {
   };
 }
 
+// A bus is highlighted while its artifact is hovered, or while its producer
+// or one of its consumers is the selected step.
+export function busHighlighted(bus: Bus, hoveredArtifact: string | null, selectedIndex: number): boolean {
+  return (
+    hoveredArtifact === bus.artifact || bus.producerIndex === selectedIndex || bus.consumerIndices.includes(selectedIndex)
+  );
+}
+
+// The buses the diagram draws, each with whether it is highlighted. With
+// onlyHovered, as on the edit page, only the hovered artifact's buses are
+// drawn, highlighted, and a selection reveals none. Otherwise, as on
+// Present, every bus is drawn and the highlight follows busHighlighted.
+export function drawnBuses(
+  layout: Layout,
+  { hoveredArtifact, selectedIndex, onlyHovered }: { hoveredArtifact: string | null; selectedIndex: number; onlyHovered: boolean },
+): { bus: Bus; highlighted: boolean }[] {
+  if (onlyHovered) return layout.buses.filter((bus) => bus.artifact === hoveredArtifact).map((bus) => ({ bus, highlighted: true }));
+  return layout.buses.map((bus) => ({ bus, highlighted: busHighlighted(bus, hoveredArtifact, selectedIndex) }));
+}
+
 // Sequence edges: between consecutive steps whose predecessor's artifacts
 // are not already drawn as a labeled bus (every step draws a plain
 // sequence arrow from the step before it; this is in addition to buses).
