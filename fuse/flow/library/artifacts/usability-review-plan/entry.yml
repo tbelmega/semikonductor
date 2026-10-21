@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The plan of a usability review: scope, audience profile, core tasks, house rules, quality bar, limits, the inventory of screens and controls, and the blind and informed lenses with their models."

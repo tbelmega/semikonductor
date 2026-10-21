@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The report of a usability review: the outcome, recommended fixes and redesign proposals, findings by task and screen, step counts, and what each lens cost and found."

@@ -158,6 +158,14 @@ script installs plain skills and an always-on instruction block that every suppo
     into one commit per behaviour, ending in a report. When the limits end the run with findings
     open, the report makes the case for a second pass. Its library entries `bug-bash-plan`,
     `bug-bash-findings` and `bug-bash-report` hold the method.
+  - `fuse-usability-review`, a time-boxed review of a frontend's user interaction design for a
+    named audience: intake of the audience profile and core tasks, an optional
+    `fuse-feature-development` child workstream that builds the tooling agents need to run the
+    app, an inventory of every screen and control, blind agents that walk the running app without
+    the code next to informed agents that check the code and the house rules, owner triage by
+    root cause, and a report with step counts, recommended fixes and redesign proposals. It
+    reports and never fixes, and offers no hand-off. Its library entries `usability-review-plan`,
+    `usability-review-findings` and `usability-review-report` hold the method.
   - `fuse-rapid-prototyping`, `fuse-system-development` and `fuse-feature-development` hand off
     to each other: rapid prototyping to system or feature development, and system development to
     one feature workstream per entry of its build order, which receives the product brief,

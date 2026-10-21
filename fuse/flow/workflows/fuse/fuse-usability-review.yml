@@ -1,0 +1,183 @@
+# $schema: ../schemas/workflow.schema.json
+# yaml-language-server: $schema=../schemas/workflow.schema.json
+#
+# A usability review: a time-boxed review of a frontend project's interaction design by many
+# independent agents, for the audience the owner names. It checks the project against its own
+# rules and general practice, but its main purpose is to find elements that do not explain
+# themselves, cryptic references, and tasks that take too many steps or repeat an action.
+#
+# Blind agents see only the running app, the audience profile and a task, so they can still be
+# puzzled by what the code would explain to them; informed agents read the code and the house
+# rules. The workflow reports and never fixes: most findings are design decisions with more than
+# one good answer, and the owner decides them at triage. It ends with the report and offers no
+# hand-off, because whether feature work or a design session should follow is the owner's later
+# call. The only changes it makes to the project are the audience profile, when the owner agrees,
+# and the tooling a child workstream builds, when the owner asks for it.
+#
+# The usability-review-plan guide holds the method: the audience profile, the quality bar, the
+# lens catalogue, the rules that keep blind agents blind, verifying and the limit ruling. For the
+# orchestration of informed agents it points to the bug-bash-plan guide's sections instead of
+# copying them. review.md next to this file is the review guide for the agent gate.
+#
+# Start a workstream with:  fuse-flow start <slug> --workflow fuse-usability-review
+# and, when the owner has written the request down:  --input request=<path>
+version: 1
+name: fuse-usability-review
+description: >
+  A time-boxed review of a frontend's user interaction design for a named audience: intake of the
+  audience and its core tasks, an inventory of every screen and control, blind agents that walk
+  the running app without the code and informed agents that check the code and the house rules,
+  then owner triage and a report of findings, step counts, recommended fixes and redesign
+  proposals. It changes nothing in the app.
+inputs:
+  - artifact: request
+    description: The owner's written request for the review, such as a note or a ticket.
+steps:
+  - id: intake
+    title: Intake
+    phase: Scope
+    instruction: >
+      Agree the review with the owner and write its plan, following the usability-review-plan
+      guide. Read the owner's request when they handed one over, the house rules and the
+      project's documentation before you ask anything; where the documentation holds an audience
+      profile from an earlier review, start from it and ask only what has changed. Ask one
+      question at a time. Settle: the scope, as the app and the routes and screens in and out; the
+      audience profile the guide describes; the core tasks, usually five to ten, each with its
+      start state, success condition, persona, input method and viewport width; the house rules
+      that apply, such as steering documents, the design system and message files; the time and
+      spend limits and the limit ruling, following the guide's section on the end of a review;
+      the reviewer models and harnesses, from the house rules where they name them; whether a live
+      app may be used and whether the tasks may change its data; which documentation the real
+      audience has; whether the owner wants a script for a test with real people in the report;
+      and how the agent reaches the owner during the run, as the guide's owner channel section
+      says. Before you present the plan, check that agents can start the app with realistic
+      seeded data, several instances at once, and drive it in a browser, following the guide's
+      tooling section. When they cannot, recommend in the plan that the owner has that built
+      first; when they agree, the tooling step builds it before the inventory. Choose where the
+      run keeps its records: a folder that git ignores, inside the repository, so they survive a
+      restart of the agent's harness; by default the plan's folder, which you add to
+      .konductor/.gitignore unless the house rules say otherwise. At the gate, offer to write the
+      audience profile into the project's documentation as well, in a place that fits the
+      project, such as a section of its README.md or the document that describes its users;
+      write it there only when the owner agrees, and record where. Present the plan with the
+      decisions the owner must check first. When the owner has delegated the whole run in advance
+      and is not there, settle each point from their standing instructions and the house rules,
+      record each such decision in the decisions file, and record the gate's approval with a note
+      that quotes the instruction it rests on.
+    consumes: [request]
+    produces:
+      - artifact: usability-review-plan
+        path: .konductor/usability-review/{slug}/plan.md
+    gates:
+      - owner-action: approve the plan, and the audience profile wherever it is written
+        route_back_to: intake
+
+  - id: tooling
+    title: Tooling
+    phase: Scope
+    condition:
+      agent: the owner agreed at intake to have the tooling built that agents need to run and drive the app
+    instruction: >
+      Have the tooling the plan names built as a feature of the project, in the child workstream
+      this step starts, and run that workstream to its end; the owner's decisions in it are made
+      there. Hand its intake the plan's tooling section as the owner's request, so it starts from
+      the gaps and the agreed scope. The review runs on a head that has the tooling. When the
+      child ends with the tooling approved for the project's review process rather than landed,
+      follow its hand-off and wait for the owner to land the tooling, unless the owner agrees to
+      run the review on top of the tooling's commits before they land. When the tooling is on the
+      head the review uses, record in the plan what was built, how it runs, which head the
+      inventory and discovery start from, and which gaps remain.
+    consumes: [usability-review-plan]
+    updates:
+      - artifact: usability-review-plan
+        path: .konductor/usability-review/{slug}/plan.md
+    gates:
+      - workflow: fuse-feature-development
+
+  - id: inventory
+    title: Inventory
+    phase: Scope
+    mode: unattended
+    instruction: >
+      Map the app, following the usability-review-plan guide's inventory section. From the code,
+      list every route, screen and state, and every interactive element with its visible label,
+      tooltip and accessible name. In the browser, screenshot each screen in each state the guide
+      names at each target width; set up the states clicking cannot reach from the seeded data, or
+      list them as not reached. Run the cheap automated checks once as a baseline: an
+      accessibility scanner, a lint for hard-coded strings where the project uses message files,
+      and a lint for the design system where one exists. Then choose the lenses from the guide's
+      lens catalogue and assign each its model, persona, tasks or screens, and app instance.
+      Record it all in the plan and the records folder. Change nothing in the project; a gap that
+      stops the inventory goes to the decisions file as the guide's owner channel section says.
+    consumes: [usability-review-plan]
+    updates:
+      - artifact: usability-review-plan
+        path: .konductor/usability-review/{slug}/plan.md
+
+  - id: discovery
+    title: Discovery
+    phase: Find
+    mode: unattended
+    instruction: >
+      Run the lenses the plan sets out as independent agents in parallel, following the
+      usability-review-plan guide's sections on blind and informed agents and on orchestration,
+      and the usability-review-findings guide. Give each agent its own app instance with its own
+      seeded data, unless the plan records the tasks as read-only. Informed agents start from the
+      shared context file and their own clone; a blind agent gets only the brief built from the
+      guide's blind brief template for its lens, in an empty working directory, and never the
+      shared context file, the source, the inventory or another agent's findings. When results
+      arrive, check each file is valid; check each blind agent's brief and transcript, and
+      discard a result whose brief explained the interface or whose agent read the source,
+      recording it in the cost ledger. Join the blind findings to the inventory, group all
+      findings by root cause, mark findings two model families found independently, and take the
+      step counts from
+      the walkthrough records. Verify every P0 and P1 as the guide's verifying section says,
+      without changing the app's data. Record what each lens found, what it cost and how long it
+      took in the cost ledger. Stop the wave when its lenses are done or the plan's limits are
+      reached, and follow the plan's limit ruling then.
+    consumes: [usability-review-plan]
+    produces:
+      - artifact: usability-review-findings
+        path: .konductor/usability-review/{slug}/findings/
+
+  - id: triage
+    title: Triage
+    phase: Find
+    instruction: >
+      Put the root causes to the owner in order of severity, each with its occurrences, its
+      evidence and your recommended disposition: recommend a fix, only for a small, local fix
+      such as a label, a tooltip, an accessible name or one term made consistent; propose a
+      redesign; defer; or reject with the reason. One decision covers every occurrence of a root
+      cause. Mark the P2 findings that reach triage unverified. When the limits ended discovery,
+      say first what the run did not cover. Record the owner's decisions in the findings index.
+    consumes: [usability-review-plan, usability-review-findings]
+    updates:
+      - artifact: usability-review-findings
+        path: .konductor/usability-review/{slug}/findings/
+    gates:
+      - owner-action: decide each root cause
+        route_back_to: discovery
+
+  - id: report
+    title: Report
+    phase: Report
+    instruction: >
+      Write the report following the usability-review-report guide: the outcome first, with what
+      the run did not cover when the limits ended it; then the recommended fixes and redesign
+      proposals the owner chose at triage; the findings by core task and by screen, each with its
+      evidence, a screenshot, a walkthrough line or the code; each core task's step count against
+      its shortest path; what was deferred or rejected and why; and what each lens and model
+      found for its cost, so the next review can choose its lenses. When the plan asks for it, end
+      with the script for a test with real people. The workflow ends with the report: offer no
+      hand-off and start no other workflow;
+      what to start from it is the owner's later decision.
+    consumes: [usability-review-plan, usability-review-findings]
+    produces:
+      - artifact: usability-review-report
+        path: .konductor/usability-review/{slug}/report.md
+    gates:
+      - agent: review the report against the findings index, the walkthrough records and the cost ledger, so that every count, step count and claim in it is true
+        guide: review.md
+        max_rounds: 1
+      - owner-action: accept the report
+        route_back_to: [triage, discovery]
