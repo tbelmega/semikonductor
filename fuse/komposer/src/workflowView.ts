@@ -500,6 +500,28 @@ export const stem = (file: string) => file.replace(/\.ya?ml$/, "");
 // when the file fails validation. Undefined when it has none.
 export const workflowDescription = (w: Pick<OpenWorkflow, "parsed" | "rawWorkflow">): string | undefined =>
   (w.parsed ? w.parsed.description : w.rawWorkflow.description)?.trim() || undefined;
+
+// The question Compare copies for the user to ask their own agent, since
+// Komposer never runs one. It names both files by path, so the agent can
+// read them wherever it runs.
+export function differencePrompt(left: OpenWorkflow, right: OpenWorkflow): string {
+  const name = (w: OpenWorkflow) => w.parsed?.name || w.rawWorkflow.name || stem(w.file);
+  return (
+    `Explain the difference between the fuse-flow workflows ${name(left)} (${left.path}) and ${name(right)} (${right.path}). ` +
+    "When should I use which? What are the most significant trade-offs between the two workflows?"
+  );
+}
+
+// What the agent asked by differencePrompt would read wrongly: a workflow
+// not yet saved has no file to read (the question cannot be asked), and one
+// with unsaved edits is read as saved, so those are named.
+export function differenceCaveats(left: OpenWorkflow, right: OpenWorkflow): { unsaved: string | null; edited: string[] } {
+  const notSaved = [left, right].find((w) => !w.onDisk);
+  return {
+    unsaved: notSaved ? `Save ${notSaved.file} first, so your agent can read it.` : null,
+    edited: [left, right].filter((w) => w.openText !== w.text).map((w) => w.file),
+  };
+}
 export const gateCount = (steps: StepView[]) => steps.reduce((n, s) => n + s.gates.length, 0);
 export const routeBackCount = (steps: StepView[]) =>
   steps.reduce((n, s) => n + s.gates.reduce((m, g) => m + g.route_back_to.length, 0), 0);

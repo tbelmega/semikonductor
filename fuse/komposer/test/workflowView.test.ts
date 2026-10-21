@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { editedWorkflow } from "../src/model/editWorkflow.ts";
-import { openWorkflow, savedVersion, stepViews, structureChanges, workflowDescription } from "../src/workflowView.ts";
+import { differenceCaveats, differencePrompt, openWorkflow, savedVersion, stepViews, structureChanges, workflowDescription } from "../src/workflowView.ts";
 
 const SAVED = `version: 1
 name: x
@@ -74,5 +74,41 @@ describe("workflowDescription", () => {
     const broken = open("version: 1\nname: x\ndescription: Still readable.\nsteps: []\n");
     expect(broken.parsed).toBeNull();
     expect(workflowDescription(broken)).toBe("Still readable.");
+  });
+});
+
+describe("differencePrompt", () => {
+  test("asks about both workflows by name and path, left first", () => {
+    const left = open(SAVED);
+    const right = openWorkflow({ location: "personal", dir: "team", file: "y.yml", path: "/home/u/y.yml", onDisk: true, text: SAVED.replace("name: x", "name: why"), hash: "h" });
+    expect(differencePrompt(left, right)).toBe(
+      "Explain the difference between the fuse-flow workflows x (/p/x.yml) and why (/home/u/y.yml). " +
+        "When should I use which? What are the most significant trade-offs between the two workflows?",
+    );
+  });
+
+  test("names a workflow without a name by its file", () => {
+    const nameless = open("version: 1\nsteps: []\n");
+    expect(differencePrompt(nameless, open(SAVED))).toStartWith("Explain the difference between the fuse-flow workflows x (/p/x.yml) and x (/p/x.yml).");
+  });
+});
+
+describe("differenceCaveats", () => {
+  const other = (text = SAVED, workingCopy?: string, onDisk = true) =>
+    openWorkflow({ location: "project", dir: "", file: "y.yml", path: "/p/y.yml", onDisk, text, hash: "h", workingCopy });
+
+  test("two saved workflows without edits have none", () => {
+    expect(differenceCaveats(open(SAVED), other())).toEqual({ unsaved: null, edited: [] });
+  });
+
+  test("a workflow never saved, on either side, keeps the question from being asked", () => {
+    expect(differenceCaveats(open(SAVED), other("", SAVED, false)).unsaved).toBe("Save y.yml first, so your agent can read it.");
+    expect(differenceCaveats(other("", SAVED, false), open(SAVED)).unsaved).toBe("Save y.yml first, so your agent can read it.");
+  });
+
+  test("names the workflows with unsaved edits, on either side", () => {
+    const edited = SAVED.replace("First.", "Changed.");
+    expect(differenceCaveats(open(SAVED), other(SAVED, edited)).edited).toEqual(["y.yml"]);
+    expect(differenceCaveats(open(SAVED, edited), other(SAVED, edited)).edited).toEqual(["x.yml", "y.yml"]);
   });
 });

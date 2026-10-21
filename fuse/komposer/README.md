@@ -27,7 +27,9 @@ its workflow's diagram in the workstream's state.
 
 The Compare page shows the selected workflow on the left and another workflow of the three
 locations on the right, each with its description below its picker so you can read what both are
-for, and their steps aligned row by row. Each row is marked as the same, changed,
+for, and their steps aligned row by row. Between the two descriptions, **Ask your agent** copies a
+question about when to use which workflow and their trade-offs, naming both files, for you to paste
+into your own agent; Komposer runs no agent itself. Each row is marked as the same, changed,
 only on the left, only on the right, or moved, and a changed row lists the fields that differ.
 Instructions are compared as fuse-flow reads them, trimmed, with their line breaks and indentation.
 The pickers above the two sides choose them; in the list on the left, a row picks the left

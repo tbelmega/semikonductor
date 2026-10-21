@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Compare page: the selected workflow on the left and any other one on
-// the right, each side's description below its picker, and their steps
+// the right, each side's description below its picker with, between them, a
+// question about both to copy for the user's own agent, and their steps
 // aligned row by row (model/compare.ts), each pair
 // marked element by element. The left is the editable working copy: a click
 // on a left card selects that step for the right rail, and the right cards
 // carry the actions that apply a difference, a whole step, an addition, a
 // removal or a move to the left. The right side is read-only.
 
-import { useEffect, useMemo, useRef } from "react";
+import { Copy, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Gate } from "../../flow/src/schemas/gate.ts";
 import { resolveLibrary, type LibraryEntry } from "./api.ts";
 import { wordDiff, type WordRun } from "./diff.ts";
 import { childSlug, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { tabTarget } from "./focusTrap.ts";
 import {
   alignSteps,
   applyProblem,
@@ -31,7 +35,7 @@ import {
 } from "./model/compare.ts";
 import type { Edit } from "./model/yamlEdit.ts";
 import { LOCATION_ROOT } from "./WorkflowList.tsx";
-import { stem, stepViews, workflowDescription, workflowKey, type OpenWorkflow, type StepView } from "./workflowView.ts";
+import { differenceCaveats, differencePrompt, stem, stepViews, workflowDescription, workflowKey, type OpenWorkflow, type StepView } from "./workflowView.ts";
 
 const LOCATION_LABEL: Record<OpenWorkflow["location"], string> = {
   project: "Project",
@@ -136,7 +140,7 @@ export function Compare(props: CompareProps) {
         </button>
         <Picker side="right" workflows={props.workflows} value={right} onPick={(key) => props.onPick("right", key)} />
         <Description workflow={left} />
-        <span />
+        <AskAgent left={left} right={right} />
         <Description workflow={right} />
       </div>
       <div className="compare-summary">
@@ -206,6 +210,127 @@ function Description({ workflow }: { workflow: OpenWorkflow | null }) {
   if (!workflow) return <span />;
   const text = workflowDescription(workflow);
   return <p className={`compare-description${text ? "" : " is-empty"}`}>{text ?? "No description."}</p>;
+}
+
+// Between the two descriptions: Komposer runs no agent, so this copies a
+// question about the two workflows for the user to paste into their own
+// agent, and shows it in a dialog that says so.
+function AskAgent({ left, right }: { left: OpenWorkflow; right: OpenWorkflow | null }) {
+  const [shown, setShown] = useState<{ prompt: string; copied: boolean; edited: string[] } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const caveats = right ? differenceCaveats(left, right) : null;
+  const blocked = !right ? "Pick a workflow on the right first" : caveats!.unsaved;
+  const ask = async () => {
+    if (!right || blocked) return;
+    const prompt = differencePrompt(left, right);
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(prompt);
+      copied = true;
+    } catch {
+      // No clipboard access (an insecure origin, a denied permission): the
+      // dialog shows the question selected, to copy by hand.
+    }
+    setShown({ prompt, copied, edited: caveats!.edited });
+  };
+  return (
+    <div className="compare-ask">
+      <span className="compare-ask-label">What's the difference?</span>
+      <button
+        ref={button}
+        type="button"
+        className="compare-ask-button"
+        disabled={!!blocked}
+        data-tip={blocked ?? "Copy a question about both workflows to ask your agent"}
+        onClick={ask}
+      >
+        <Copy size={13} aria-hidden="true" />
+        Ask your agent
+      </button>
+      {shown && createPortal(<AskDialog {...shown} returnFocus={button.current} onClose={() => setShown(null)} />, document.body)}
+    </div>
+  );
+}
+
+function AskDialog({
+  prompt,
+  copied,
+  edited,
+  returnFocus,
+  onClose,
+}: {
+  prompt: string;
+  copied: boolean;
+  edited: string[];
+  // Where focus goes when the dialog closes: the button that opened it.
+  returnFocus: HTMLElement | null;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDivElement>(null);
+  const text = useRef<HTMLTextAreaElement>(null);
+  const done = useRef<HTMLButtonElement>(null);
+  // A modal dialog: the page behind it (the app root; the dialog is in a
+  // portal outside it) is inert, so clicks and focus cannot reach it, Tab
+  // and Shift+Tab wrap around the dialog's controls, and no key reaches the
+  // page keys. It opens with focus on Done, or on the question selected
+  // when it was not copied; Escape closes it, and focus returns to the
+  // button that opened it. All of it is set up in one effect, so a replayed
+  // effect (StrictMode) sets the opening focus again after its cleanup.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const page = document.getElementById("root");
+    if (page) page.inert = true;
+    if (copied) done.current?.focus();
+    else {
+      text.current?.focus();
+      text.current?.select();
+    }
+    const onKey = (event: KeyboardEvent) => {
+      event.stopPropagation();
+      if (event.key === "Escape") close.current();
+      if (event.key !== "Tab" || !dialog.current) return;
+      const controls = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), textarea")];
+      const target = tabTarget(controls, document.activeElement as HTMLElement | null, event.shiftKey);
+      if (!target) return;
+      event.preventDefault();
+      target.focus();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (page) page.inert = false;
+      returnFocus?.focus();
+    };
+  }, [returnFocus, copied]);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div ref={dialog} className="save-modal" role="dialog" aria-modal="true" aria-labelledby="ask-agent-title" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title-row">
+          <h2 id="ask-agent-title">{copied ? "Question copied" : "Copy this question"}</h2>
+          <button className="icon-mini" data-tip="Close" aria-label="Close" onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        <p className="modal-text">
+          {copied
+            ? "Komposer does not run an agent itself. Paste this question into a chat with your agent; it names both workflow files, so the agent can read them."
+            : "Komposer could not copy to your clipboard. Copy the question below, then paste it into a chat with your agent; it names both workflow files, so the agent can read them."}
+        </p>
+        <textarea ref={text} className="field-textarea compare-ask-prompt" readOnly rows={8} value={prompt} aria-label="Question for your agent" />
+        {edited.length > 0 && (
+          <p className="modal-text">
+            Your agent reads {edited.join(" and ")} as saved, without the unsaved edits shown here.
+          </p>
+        )}
+        <div className="modal-actions">
+          <button ref={done} className="primary-button" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Picker({

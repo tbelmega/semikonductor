@@ -1199,7 +1199,7 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .target-preview { padding: 8px 10px; border-radius: 8px; background: var(--surface-sunken); color: var(--text-muted); font: 400 11.5px "JetBrains Mono",monospace; word-break: break-all; }
 .workstream-warning { padding: 12px; border: 1px solid var(--tint-warn-border); border-radius: 8px; background: var(--tint-warn-bg); color: var(--tint-warn-text-deep); display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.modal-actions > button:first-child { padding: 0 12px; border: 0; background: transparent; cursor: pointer; }
+.modal-actions > button:first-child:not(.primary-button) { padding: 0 12px; border: 0; background: transparent; cursor: pointer; }
 .primary-button:disabled { background: var(--surface-sunken); color: var(--text-faint); cursor: default; }
 .disk-banner { display: flex; align-items: center; gap: 10px; padding: 10px 20px; background: var(--tint-warn-bg); border-bottom: 1px solid var(--tint-warn-border-alt); }
 .disk-banner span { flex: 1; min-width: 0; color: var(--tint-warn-text-deep); font: 500 12.5px "JetBrains Mono",monospace; }
@@ -2081,7 +2081,13 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
 .compare-picker-path { min-height: 14px; font: 400 11px "JetBrains Mono", monospace; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .compare-description { align-self: start; margin: 0; min-width: 0; max-height: 7.5em; overflow-y: auto; font: 400 13px/1.5 "IBM Plex Sans", sans-serif; color: var(--text-muted); }
 .compare-description.is-empty { font-style: italic; color: var(--text-faint); }
-.compare-swap { align-self: center; height: 34px; padding: 0 12px 0 9px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-body); font: 500 12.5px "IBM Plex Sans", sans-serif; cursor: pointer; }
+.compare-ask { align-self: start; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.compare-ask-label { font: 500 11.5px "IBM Plex Sans", sans-serif; color: var(--text-muted); white-space: nowrap; }
+.compare-ask-button { height: 28px; padding: 0 10px 0 8px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-body); font: 500 12px "IBM Plex Sans", sans-serif; white-space: nowrap; cursor: pointer; }
+.compare-ask-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
+.compare-ask-button:disabled { opacity: .5; cursor: not-allowed; }
+.compare-ask-prompt { height: auto; padding: 8px 10px; resize: vertical; font: 400 13px/1.5 "JetBrains Mono", monospace; }
+.compare-swap { align-self: center; justify-self: center; height: 34px; padding: 0 12px 0 9px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text-body); font: 500 12.5px "IBM Plex Sans", sans-serif; cursor: pointer; }
 .compare-swap:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
 .compare-swap:disabled { opacity: .5; cursor: not-allowed; }
 .compare-swap svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
