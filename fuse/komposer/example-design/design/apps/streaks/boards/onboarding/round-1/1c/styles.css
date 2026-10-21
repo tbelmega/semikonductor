@@ -1,0 +1,63 @@
+.one {
+  min-height: 600px;
+  padding: var(--space-8) var(--space-6);
+  background: var(--color-accent-soft);
+}
+.one-hello {
+  max-width: 640px;
+  margin: 0 auto var(--space-8);
+  text-align: center;
+}
+.one-badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-l);
+  background: var(--color-accent);
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 14px;
+}
+.one-title {
+  margin: var(--space-4) 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1.15;
+}
+.one-lead {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.one-answers {
+  max-width: 720px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+.one-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 120px;
+  padding: var(--space-6);
+  border: 0;
+  border-radius: var(--radius-l);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  box-shadow: 0 2px 0 var(--color-border);
+}
+.one-card-name {
+  font-size: 20px;
+  font-weight: 700;
+}
+.one-card-habits {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+.one-later {
+  margin: var(--space-8) 0 0;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}

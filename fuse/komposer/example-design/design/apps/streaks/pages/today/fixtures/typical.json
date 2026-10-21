@@ -1,0 +1,9 @@
+{
+  "firstName": "Alex",
+  "date": "2026-10-21",
+  "habits": [
+    { "id": "water", "name": "Drink a glass of water", "when": "morning", "done": true, "streak": 12 },
+    { "id": "walk", "name": "Walk for 10 minutes", "when": "afternoon", "done": false, "streak": 4 },
+    { "id": "read", "name": "Read 5 pages", "when": "evening", "done": false, "streak": 0 }
+  ]
+}

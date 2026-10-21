@@ -1,0 +1,10 @@
+{
+  "firstName": "Maximiliane-Josefine",
+  "date": "2026-10-21",
+  "habits": [
+    { "id": "water", "name": "Drink a large glass of water right after getting up, before coffee", "when": "morning", "done": true, "streak": 128 },
+    { "id": "walk", "name": "Walk around the block after lunch, even when it rains", "when": "afternoon", "done": true, "streak": 31 },
+    { "id": "read", "name": "Read at least five pages of a paper book", "when": "evening", "done": false, "streak": 7 },
+    { "id": "phone", "name": "Put the phone in another room at ten", "when": "night", "done": false, "streak": 0 }
+  ]
+}

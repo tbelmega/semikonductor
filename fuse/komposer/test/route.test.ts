@@ -32,8 +32,8 @@ describe("routes", () => {
       }
   });
 
-  test("the switcher shows Present, Compare, Edit, Workstreams, and Komposer opens on Present", () => {
-    expect(PAGE_IDS).toEqual(["present", "compare", "edit", "workstreams"]);
+  test("the switcher shows Present, Compare, Edit, Workstreams, Kanvas, and Komposer opens on Present", () => {
+    expect(PAGE_IDS).toEqual(["present", "compare", "edit", "workstreams", "kanvas"]);
     expect(DEFAULT_PAGE).toBe("present");
   });
 

@@ -1,0 +1,9 @@
+# Declared states and widths of the Today page, each state with its fixture data.
+widths: [375, 768, 1280]
+states:
+  - id: typical
+    fixture: fixtures/typical.json
+  - id: empty
+    fixture: fixtures/empty.json
+  - id: long-names
+    fixture: fixtures/long-names.json

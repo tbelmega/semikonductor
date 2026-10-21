@@ -28,12 +28,15 @@ import { display, libraryEntry, listLibrary, loadProject, reviewGuideProblems, r
 import { findRepoRoot, findWorkflow, isDirectory, isWorkflowPath, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
 import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
 import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
+import { createKanvas } from "./kanvas/routes.ts";
 
 export interface ServerOptions {
   root: string;
   port: number;
   // The built app (dist/); not served when absent.
   appDir?: string;
+  // The folder whose design/ folder Kanvas shows; the project by default.
+  kanvasDir?: string;
 }
 
 export interface KomposerServer {
@@ -1117,6 +1120,8 @@ export function startServer(options: ServerOptions): KomposerServer {
       return Response.json({ error: "foreign Host header" }, { status: 403 });
     }
     const url = new URL(req.url);
+    const frame = kanvas.serve(url.pathname);
+    if (frame) return frame;
     if (!url.pathname.startsWith("/api/")) return serveApp(url.pathname);
     // A browser marks every request with where it came from. A page of another
     // origin cannot change these headers, so refusing them keeps other web pages
@@ -1132,6 +1137,8 @@ export function startServer(options: ServerOptions): KomposerServer {
       return Response.json({ error: "JSON body expected" }, { status: 415 });
     }
     const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    const kanvasAnswer = kanvas.api(req.method, url.pathname, body, req.signal);
+    if (kanvasAnswer) return kanvasAnswer;
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
       case "GET /api/session":
@@ -1167,6 +1174,8 @@ export function startServer(options: ServerOptions): KomposerServer {
     }
   };
 
+  const kanvas = createKanvas(options.kanvasDir ?? root);
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: options.port,
@@ -1181,5 +1190,11 @@ export function startServer(options: ServerOptions): KomposerServer {
     },
   });
 
-  return { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+  return {
+    url: `http://127.0.0.1:${server.port}`,
+    stop: () => {
+      kanvas.stop();
+      server.stop(true);
+    },
+  };
 }

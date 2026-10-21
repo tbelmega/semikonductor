@@ -1,0 +1,13 @@
+{
+  "today.greeting": "Good morning, {name}",
+  "today.progress": "{done} of {total} done today",
+  "today.empty.title": "No habits yet",
+  "today.empty.body": "Pick one or two to start your first streak.",
+  "today.empty.action": "Pick habits",
+  "today.streak": "{days}-day streak",
+  "today.when.morning": "Morning",
+  "today.when.afternoon": "Afternoon",
+  "today.when.evening": "Evening",
+  "today.when.night": "Night",
+  "today.add": "Add a habit"
+}

@@ -7,7 +7,13 @@ import { PAGE_IDS, type Page } from "./model/route.ts";
 
 export type { Page };
 
-const LABEL: Record<Page, string> = { present: "Present", compare: "Compare", edit: "Edit", workstreams: "Workstreams" };
+const LABEL: Record<Page, string> = {
+  present: "Present",
+  compare: "Compare",
+  edit: "Edit",
+  workstreams: "Workstreams",
+  kanvas: "Kanvas",
+};
 
 export const PAGES: { id: Page; label: string; built: boolean }[] = PAGE_IDS.map((id) => ({ id, label: LABEL[id], built: true }));
 

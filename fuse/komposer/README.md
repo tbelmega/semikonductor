@@ -9,7 +9,8 @@ the project and in your other projects. It reads and writes the workflow files o
 - the workflows that ship with fuse-flow, in `fuse/flow/workflows/`.
 
 The bar at the top switches between the pages: **Present** (key 1), **Compare** (key 2),
-**Edit** (key 3) and **Workstreams** (key 4). Present is the page Komposer opens on. The workflow
+**Edit** (key 3), **Workstreams** (key 4) and **Kanvas** (key 5, a prototype; see below).
+Present is the page Komposer opens on. The workflow
 selected in the list on the left is the same on every page; on Compare it is the left side.
 
 On the Edit page, the strip at the far right opens a panel with three tabs, in scope order:
@@ -72,6 +73,25 @@ Leave the directory out to use the current one. The command prints the URL, such
 Run the two installs and `bun run build` again after pulling changes. For working on Komposer
 itself, `bun run dev` serves the app with Vite on port 5173 and passes `/api` to the server
 started with `bun run start`.
+
+## Kanvas (prototype)
+
+Kanvas shows the exploration board of a `design/` folder: each option of a round framed side by
+side at a chosen width, with its label and direction. Click an element in an option to select it
+and write a comment; the comment records the element's file, line and column in the design's
+code. Hold Alt to click through to the design itself. Comments are kept in
+`design/.kanvas/comments.json`, where the agent reads them and may mark them addressed with a
+note. When a design file changes, Kanvas rebuilds the options into `design/.cache/build/` and
+reloads the frames that changed.
+
+To try it on the hand-made example design that ships with Komposer:
+
+```bash
+bun run build
+bun run start -- --kanvas example-design --port 4817
+```
+
+`--kanvas` names the folder that holds `design/`; without it, Kanvas uses the project's own.
 
 ## What to know
 

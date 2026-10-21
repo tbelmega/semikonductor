@@ -144,16 +144,16 @@ export type EscapeAction = "blur" | "close-rail" | "clear-selection" | "unpin" |
 // field that applies its value on blur keeps it. On Edit and Compare it
 // closes the rail, and a second Escape clears the step selection. On Present
 // it un-pins the drawers; the rail and the selection, hidden there, stay as
-// they are for Edit.
+// they are for Edit. Workstreams and Kanvas handle Escape themselves.
 export function escapeAction(state: {
-  page: "edit" | "compare" | "present" | "workstreams";
+  page: "edit" | "compare" | "present" | "workstreams" | "kanvas";
   typing: boolean;
   railOpen: boolean;
   selected: number | null;
   // A Present drawer is pinned open.
   pinned: boolean;
 }): EscapeAction {
-  if (state.page === "workstreams") return "none";
+  if (state.page === "workstreams" || state.page === "kanvas") return "none";
   if (state.typing) return "blur";
   if (state.page === "present") return state.pinned ? "unpin" : "none";
   if (state.railOpen) return "close-rail";

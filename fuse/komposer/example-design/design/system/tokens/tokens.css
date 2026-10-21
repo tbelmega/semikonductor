@@ -1,0 +1,60 @@
+/* Hand-made stand-in for the tokens.css that fuse-design generates. */
+:root {
+  --color-bg: #fbfaf7;
+  --color-surface: #ffffff;
+  --color-text: #1d2330;
+  --color-text-muted: #5b6474;
+  --color-border: #e2ded6;
+  --color-primary: #2f6f5e;
+  --color-primary-text: #ffffff;
+  --color-accent: #e8a33d;
+  --color-accent-soft: #fbefd9;
+
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-s: 6px;
+  --radius-m: 12px;
+  --radius-l: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn-primary {
+  border: 0;
+  border-radius: var(--radius-s);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-primary);
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+.btn-quiet {
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  padding: var(--space-3) var(--space-4);
+}

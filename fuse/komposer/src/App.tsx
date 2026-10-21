@@ -49,6 +49,7 @@ import { Flow } from "./Flow.tsx";
 import { RailPanel, RailStrip, type RailTab, type WorkflowView } from "./Inspector.tsx";
 import { TopBar, PAGES, type Page } from "./TopBar.tsx";
 import { Workstreams, type WorkstreamView } from "./Workstreams.tsx";
+import { Kanvas } from "./kanvas/Kanvas.tsx";
 import { Present } from "./Present.tsx";
 import { ALL_SHOWN, escapeAction, secondOptions, shownSecond, type FlowShow } from "./model/present.ts";
 import { projectName } from "./runView.ts";
@@ -339,7 +340,7 @@ export function App() {
   const savedWorkflow = useMemo(() => (workflow ? savedVersion(workflow, disk) : null), [workflow, disk]);
   const selected = selectedIndex !== null && selectedIndex < steps.length ? selectedIndex : null;
 
-  // Keys 1 to 4 switch pages, when focus is not in a field. Escape does what
+  // Keys 1 to 5 switch pages, when focus is not in a field. Escape does what
   // escapeAction says: leave a field, close the rail, clear the selection,
   // or on Present un-pin the drawers.
   const pinned = leftPinned || rightPinned;
@@ -362,7 +363,7 @@ export function App() {
       }
       if (typingIn(event.target)) return;
       const target = PAGES[Number(event.key) - 1];
-      if (/^[1-4]$/.test(event.key) && target?.built) now.goPage(target.id);
+      if (/^[1-5]$/.test(event.key) && target?.built) now.goPage(target.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1128,7 +1129,9 @@ export function App() {
           focus and no input (editorTakesEdits). */}
       <div style={{ display: "contents" }} inert={!editorTakesEdits({ readOnly: false, dialog: modal })}>
       <TopBar project={projectName(session.root)} page={page} onPage={goPage} />
-      {page === "present" ? (
+      {page === "kanvas" ? (
+        <Kanvas onMessage={showToast} />
+      ) : page === "present" ? (
         <Present
           lane={lane}
           workflow={workflow}

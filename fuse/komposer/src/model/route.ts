@@ -12,8 +12,8 @@
 import type { WorkflowFile } from "../workflowView.ts";
 
 // The pages in the order the page switcher shows them, which is also the
-// order of keys 1 to 4. The first is the page Komposer opens on.
-export const PAGE_IDS = ["present", "compare", "edit", "workstreams"] as const;
+// order of keys 1 to 5. The first is the page Komposer opens on.
+export const PAGE_IDS = ["present", "compare", "edit", "workstreams", "kanvas"] as const;
 export type Page = (typeof PAGE_IDS)[number];
 export const DEFAULT_PAGE: Page = PAGE_IDS[0];
 
