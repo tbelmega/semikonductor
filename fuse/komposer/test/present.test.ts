@@ -6,8 +6,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALL_SHOWN,
+  DRAWER_CLOSE_DELAY,
   STEPS_ONLY,
+  createDrawerHover,
   drawerOpen,
+  pointerOnDrawer,
   escapeAction,
   releasesFocus,
   legendEntries,
@@ -83,6 +86,86 @@ describe("drawerOpen", () => {
   });
   test("focus inside keeps it open after the pointer leaves, as while a select is open", () => {
     expect(drawerOpen({ pinned: false, hovered: false, focused: true })).toBe(true);
+  });
+});
+
+// A drawer hover on a fake clock: fire(ms) runs the timers due within ms.
+function hoverOnClock() {
+  let now = 0;
+  let next = 1;
+  const timers = new Map<number, { at: number; run: () => void }>();
+  const states: boolean[] = [];
+  const hover = createDrawerHover({
+    setTimer: (run, ms) => {
+      timers.set(next, { at: now + ms, run });
+      return next++;
+    },
+    clearTimer: (id) => {
+      if (id !== undefined) timers.delete(id);
+    },
+    render: (hovered) => states.push(hovered),
+  });
+  const fire = (ms: number) => {
+    now += ms;
+    for (const [id, t] of [...timers]) if (t.at <= now) {
+      timers.delete(id);
+      t.run();
+    }
+  };
+  return { hover, states, fire };
+}
+
+describe("createDrawerHover", () => {
+  test("opens at once and closes only after the pointer stayed away for the delay", () => {
+    const { hover, states, fire } = hoverOnClock();
+    hover.pointer(true);
+    expect(states).toEqual([true]);
+    hover.pointer(false);
+    fire(DRAWER_CLOSE_DELAY - 1);
+    expect(states).toEqual([true]);
+    fire(1);
+    expect(states).toEqual([true, false]);
+  });
+  test("stays open when the pointer goes briefly out and back in", () => {
+    const { hover, states, fire } = hoverOnClock();
+    hover.pointer(true);
+    hover.pointer(false);
+    fire(DRAWER_CLOSE_DELAY - 500);
+    hover.pointer(true);
+    fire(DRAWER_CLOSE_DELAY);
+    expect(states).toEqual([true]);
+  });
+  test("the delay runs from the moment the pointer left, not from its last move outside", () => {
+    const { hover, states, fire } = hoverOnClock();
+    hover.pointer(true);
+    hover.pointer(false);
+    fire(2000);
+    hover.pointer(false);
+    fire(DRAWER_CLOSE_DELAY - 2000);
+    expect(states).toEqual([true, false]);
+  });
+  test("a release closes at once and keeps it closed until the pointer left and came back", () => {
+    const { hover, states } = hoverOnClock();
+    hover.pointer(true);
+    hover.release();
+    hover.pointer(true);
+    expect(states).toEqual([true, false]);
+    hover.pointer(false);
+    hover.pointer(true);
+    expect(states).toEqual([true, false, true]);
+  });
+});
+
+describe("pointerOnDrawer", () => {
+  test("the tooltip of a row in the drawer counts as the drawer", () => {
+    expect(pointerOnDrawer({ inDrawer: false, onTip: true, tipAnchorInDrawer: true })).toBe(true);
+  });
+  test("another element's tooltip, or the page outside, does not", () => {
+    expect(pointerOnDrawer({ inDrawer: false, onTip: true, tipAnchorInDrawer: false })).toBe(false);
+    expect(pointerOnDrawer({ inDrawer: false, onTip: false, tipAnchorInDrawer: true })).toBe(false);
+  });
+  test("the drawer itself does", () => {
+    expect(pointerOnDrawer({ inDrawer: true, onTip: false, tipAnchorInDrawer: false })).toBe(true);
   });
 });
 

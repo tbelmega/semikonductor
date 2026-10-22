@@ -72,6 +72,65 @@ export function shownSecond(workflows: Listed[], currentKey: string | null, chos
 export const drawerOpen = (drawer: { pinned: boolean; hovered: boolean; focused: boolean }) =>
   drawer.pinned || drawer.hovered || drawer.focused;
 
+// How long a drawer stays open after the pointer left it. Coming back within
+// this time keeps it open, so a pointer that strays out briefly does not
+// close it.
+export const DRAWER_CLOSE_DELAY = 3000;
+
+// Whether the pointer counts as on a drawer: on the drawer itself, or on the
+// tooltip of an element inside it. The tooltip is drawn on the body, outside
+// the drawer, often right under the row the pointer just left.
+export const pointerOnDrawer = (at: { inDrawer: boolean; onTip: boolean; tipAnchorInDrawer: boolean }) =>
+  at.inDrawer || (at.onTip && at.tipAnchorInDrawer);
+
+export interface DrawerHoverEnv {
+  setTimer(run: () => void, ms: number): number;
+  clearTimer(id: number | undefined): void;
+  render(hovered: boolean): void;
+}
+
+// A drawer's hover: on as soon as the pointer is on it, off only when the
+// pointer has stayed away for DRAWER_CLOSE_DELAY. Released at once (after the
+// pin was clicked), it stays off until the pointer has left the drawer and
+// come back, as a mouseenter would.
+export function createDrawerHover(env: DrawerHoverEnv) {
+  let hovered = false;
+  let released = false;
+  let timer: number | undefined;
+  const cancel = () => {
+    env.clearTimer(timer);
+    timer = undefined;
+  };
+  const set = (next: boolean) => {
+    if (next === hovered) return;
+    hovered = next;
+    env.render(next);
+  };
+  return {
+    // The pointer moved: onto the drawer, or elsewhere on the page or out of
+    // the window.
+    pointer(onDrawer: boolean) {
+      if (!onDrawer) released = false;
+      if (onDrawer) {
+        if (released) return;
+        cancel();
+        set(true);
+      } else if (hovered && timer === undefined) {
+        timer = env.setTimer(() => {
+          timer = undefined;
+          set(false);
+        }, DRAWER_CLOSE_DELAY);
+      }
+    },
+    release() {
+      cancel();
+      released = true;
+      set(false);
+    },
+    stop: cancel,
+  };
+}
+
 // Whether the focused element gives up focus when its drawer would close,
 // because the pointer left it or the mouse un-pinned it. A control clicked
 // with the mouse does, so the drawer closes and focus never stays on a

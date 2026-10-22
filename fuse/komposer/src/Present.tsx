@@ -3,14 +3,25 @@
 // name and description, optionally next to a second workflow in the same
 // scroll area. The workflow list and the Show panel are drawers: a 20px
 // strip on each side that slides its panel in over the diagram on hover,
-// stays open while focus is inside it, and pins open with its arrow.
+// stays open while focus is inside it and for a moment after the pointer
+// leaves, and pins open with its arrow.
 
-import { useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import type { LibraryEntry } from "./api.ts";
 import { Flow } from "./Flow.tsx";
 import { pickerLabel } from "./Compare.tsx";
-import { ALL_SHOWN, SHOW_TOGGLES, STEPS_ONLY, drawerOpen, releasesFocus, type FlowShow } from "./model/present.ts";
+import {
+  ALL_SHOWN,
+  SHOW_TOGGLES,
+  STEPS_ONLY,
+  createDrawerHover,
+  drawerOpen,
+  pointerOnDrawer,
+  releasesFocus,
+  type FlowShow,
+} from "./model/present.ts";
+import { onTip, useTooltip } from "./Tooltip.tsx";
 import {
   stem,
   stepViews,
@@ -33,23 +44,63 @@ function releaseFocus(drawer: Element) {
 }
 
 // A drawer is open while any element inside it has focus, so focus never
-// sits on a hidden control.
+// sits on a hidden control. Hover is followed on the whole page, not with
+// mouseenter and mouseleave, because the pointer on the tooltip of a row in
+// the drawer counts as on the drawer (pointerOnDrawer), and leaving starts a
+// delay instead of closing (createDrawerHover).
 function useDrawer(pinned: boolean) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const hover = useRef<ReturnType<typeof createDrawerHover> | null>(null);
+  const tooltip = useTooltip();
+  useEffect(() => {
+    const h = createDrawerHover({
+      setTimer: (run, ms) => window.setTimeout(run, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+      render: (next) => {
+        setHovered(next);
+        if (!next && ref.current) releaseFocus(ref.current);
+      },
+    });
+    hover.current = h;
+    const over = (event: PointerEvent) => {
+      const drawer = ref.current;
+      const target = event.target instanceof Node ? event.target : null;
+      const anchor = tooltip.anchor();
+      h.pointer(
+        !!drawer &&
+          pointerOnDrawer({
+            inDrawer: !!target && drawer.contains(target),
+            onTip: onTip(target),
+            tipAnchorInDrawer: !!anchor && drawer.contains(anchor),
+          }),
+      );
+    };
+    // Leaving the window: no pointerover follows.
+    const out = (event: PointerEvent) => {
+      if (!event.relatedTarget) h.pointer(false);
+    };
+    document.addEventListener("pointerover", over);
+    document.addEventListener("pointerout", out);
+    return () => {
+      document.removeEventListener("pointerover", over);
+      document.removeEventListener("pointerout", out);
+      h.stop();
+      hover.current = null;
+    };
+  }, [tooltip]);
   return {
+    ref,
     open: drawerOpen({ pinned, hovered, focused }),
-    // After the pin was clicked: the drawer closes unless focus holds it.
-    unhover: (drawer: Element | null) => {
-      setHovered(false);
-      if (drawer) releaseFocus(drawer);
+    // After the pin was clicked: the drawer closes unless focus holds it. The
+    // click focused the pin, so focus is released here every time, not only
+    // when the hover changes.
+    unhover: () => {
+      hover.current?.release();
+      if (ref.current) releaseFocus(ref.current);
     },
     props: {
-      onMouseEnter: () => setHovered(true),
-      onMouseLeave: (event: MouseEvent<HTMLElement>) => {
-        setHovered(false);
-        releaseFocus(event.currentTarget);
-      },
       onFocus: () => setFocused(true),
       onBlur: (event: FocusEvent<HTMLElement>) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
@@ -69,13 +120,13 @@ function DrawerStrip({
   label: string;
   open: boolean;
   tip: string;
-  onPin: (drawer: Element | null) => void;
+  onPin: () => void;
 }) {
   // The arrow points the way the panel moves when it is clicked.
   const rotate = side === "left" ? (open ? 180 : 0) : open ? 0 : 180;
   return (
     <div className={`drawer-strip is-${side}`}>
-      <button type="button" className="drawer-pin" data-tip={tip} aria-label={tip} aria-expanded={open} onClick={(event) => onPin(event.currentTarget.closest(".present-drawer"))}>
+      <button type="button" className="drawer-pin" data-tip={tip} aria-label={tip} aria-expanded={open} onClick={onPin}>
         <ChevronRight size={14} strokeWidth={2} style={{ transform: `rotate(${rotate}deg)` }} />
       </button>
       <span className="drawer-label" aria-hidden="true">
@@ -173,6 +224,7 @@ export function Present({
   return (
     <div className="screen is-present">
       <div
+        ref={left.ref}
         className={`present-drawer is-left${left.open ? " is-open" : ""}`}
         {...left.props}
       >
@@ -182,9 +234,9 @@ export function Present({
           label="Workflows"
           open={left.open}
           tip={leftPinned ? "Collapse workflows" : "Keep workflows open"}
-          onPin={(drawer) => {
+          onPin={() => {
             onLeftPinned(!leftPinned);
-            left.unhover(drawer);
+            left.unhover();
           }}
         />
       </div>
@@ -199,6 +251,7 @@ export function Present({
         )}
       </main>
       <div
+        ref={right.ref}
         className={`present-drawer is-right${right.open ? " is-open" : ""}`}
         {...right.props}
       >
@@ -207,9 +260,9 @@ export function Present({
           label="Show"
           open={right.open}
           tip={rightPinned ? "Collapse" : "Keep open"}
-          onPin={(drawer) => {
+          onPin={() => {
             onRightPinned(!rightPinned);
-            right.unhover(drawer);
+            right.unhover();
           }}
         />
         <div className="show-panel">

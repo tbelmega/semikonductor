@@ -16,7 +16,12 @@ const EDGE = 8;
 const TIP_ID = "komposer-tooltip";
 
 type Shown = TipShown<Element, ReactNode>;
-type Api = { show(anchor: Element, content: ReactNode): void; hide(anchor: Element): void };
+type Api = {
+  show(anchor: Element, content: ReactNode): void;
+  hide(anchor: Element): void;
+  // The element whose tip is shown, or null.
+  anchor(): Element | null;
+};
 
 const TooltipContext = createContext<Api | null>(null);
 
@@ -28,7 +33,8 @@ export function useTooltip(): Api {
 
 const tipOf = (target: EventTarget | null): Element | null =>
   target instanceof Element ? target.closest("[data-tip]") : null;
-const onTip = (target: EventTarget | null) =>
+// Whether the target is on the shown tip.
+export const onTip = (target: EventTarget | null) =>
   target instanceof Node && !!document.getElementById(TIP_ID)?.contains(target);
 
 export function TooltipLayer({ children }: { children: ReactNode }) {
@@ -111,6 +117,7 @@ export function TooltipLayer({ children }: { children: ReactNode }) {
     () => ({
       show: (anchor, content) => tooltip.current?.show(anchor, content),
       hide: (anchor) => tooltip.current?.hide(anchor),
+      anchor: () => tooltip.current?.shown()?.anchor ?? null,
     }),
     [],
   );

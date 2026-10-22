@@ -168,6 +168,7 @@ export function WorkflowList({
                   const key = workflowKey(w);
                   const parts = folderPrefixes(w.dir);
                   const folderRows: React.ReactNode[] = [];
+                  // Folders and rows sit one step in from their section's head.
                   // A row is shown when every folder above it is open.
                   let visible = true;
                   parts.forEach(({ prefix, name }, depth) => {
@@ -180,7 +181,7 @@ export function WorkflowList({
                           key={prefix}
                           className="lane-folder-row lane-toggle"
                           aria-expanded={open}
-                          style={{ paddingLeft: `${8 + depth * 12}px` }}
+                          style={{ paddingLeft: `${20 + depth * 12}px` }}
                           onClick={() => folders.toggle(`${group.loc}:${prefix}`, name)}
                         >
                           <Chevron open={open} />
@@ -210,7 +211,7 @@ export function WorkflowList({
                           className={`lane-row${isLeft ? " is-current" : ""}${isRight ? " is-right" : ""}${asRight ? " has-as-right" : ""}${counted && !counted.count ? " is-faded" : ""}`}
                           onClick={() => onOpen(key)}
                           data-tip={w.path}
-                          style={{ paddingLeft: `${10 + parts.length * 12}px` }}
+                          style={{ paddingLeft: `${22 + parts.length * 12}px` }}
                         >
                           <span className="lane-row-head">
                             <span className="lane-row-name">{stem(w.file)}</span>
