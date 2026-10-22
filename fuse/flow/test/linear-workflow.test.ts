@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { FLOW_DIR, modeLine, Repo } from "./helpers";
+import { AMENDING, FLOW_DIR, modeLine, Repo } from "./helpers";
 
 const LINEAR = `version: 1
 name: linear
@@ -77,7 +77,7 @@ test("work, continue, repeated until the workflow is complete, which prints the 
   expect(repo.state("feat").steps.build.files.filter((f: { kind: string }) => f.kind === "file")).toEqual([
     { path: "src/app.test.ts", kind: "file", pass: "this", status: "done" },
   ]);
-  expect(second).toContain(`STEP summary (3 of 3): Summarize what shipped.\n${modeLine("feat")}\nWHEN THE WORK IS DONE:\n  1. Run \`fuse-flow continue feat\`.\n`);
+  expect(second).toContain(`STEP summary (3 of 3): Summarize what shipped.\n${modeLine("feat")}\n${AMENDING}\nWHEN THE WORK IS DONE:\n  1. Run \`fuse-flow continue feat\`.\n`);
 
   const done = repo.ok("continue", "feat");
   expect(done).toStartWith("summary: COMPLETED\n\nOWNER'S TURN:");

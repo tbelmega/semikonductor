@@ -108,7 +108,9 @@ covers that.
   that matters; the conversation may not.
 - **Jumps and skips are the owner's decisions.** `--from`, `--forward-to`, `--back-to`, and
   `--skip` on a step without a condition run only when the owner asked for them. When one would
-  help, recommend it with a reason and wait.
+  help, recommend it with a reason and wait. After a rebase that only resolved conflicts, for
+  example, recommend `--forward-to` past the steps whose results still hold rather than a
+  send-back through all of them, with a note that names the evidence, such as `git range-diff`.
 - **`fuse-flow status <slug>`** shows every step with its state, when you need the whole picture.
 
 ## 5. House rules

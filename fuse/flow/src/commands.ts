@@ -1164,7 +1164,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   const lines = [`STEP ${step.id} (${position(c, step)}): ${step.instruction}`];
   const owned = rulings(c.p);
   if (owned.length) {
-    lines.push("RULINGS: where this workflow and the house rules overlap, the owner ruled:", ...owned.map((r) => `  - ${r}`));
+    lines.push("RULINGS: the owner's standing rulings, which apply in every step:", ...owned.map((r) => `  - ${r}`));
   }
   // The owner's words with the decisions that led into this pass, so the
   // agent need not carry them over from the conversation.
@@ -1440,6 +1440,16 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   }
 
   const reviewed = place(c, [...step.produces, ...step.optional_produces, ...step.updates]);
+  // A later step may have to change what an earlier one produced, such as
+  // the requirements. That needs the owner, and status shows it.
+  const before = c.wf.steps.slice(0, c.wf.steps.indexOf(step));
+  if (before.some((s) => stateOf(ws, s.id).artifacts.length)) {
+    lines.push(
+      "AMENDING EARLIER WORK: if this step must change a document an earlier step produced that this block does not ask " +
+        "you to produce or update, such as the requirements, change it only with the owner's agreement, report the file " +
+        "with --updated, and name the change in your hand-over. status then shows the document as amended by this step.",
+    );
+  }
   const guides = new Guides();
   for (const a of reviewed) guides.addAuthoring(libraryEntry(c.p, a.artifact.artifact));
   // A step instruction may deliberately depart from a shared guide; say which
@@ -2219,8 +2229,9 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       ? ` An edit of the workflow added or changed gates after the work was recorded, and they have not run on it: ${notRun.join(", ")}. ` +
         "It cannot be approved until they have run."
       : "";
+    const also = inheritedApproval(c, ws, step, "Approving it");
     lines.push(
-      `STATUS: awaiting owner action. The owner is asked to ${asks}.${unrun}${pending ? ` It cannot be approved yet: ${pending.why}.` : ""}`,
+      `STATUS: awaiting owner action. The owner is asked to ${asks}.${also}${unrun}${pending ? ` It cannot be approved yet: ${pending.why}.` : ""}`,
       producedLine(c, step, state),
       verificationLine(c, step, state),
       "NEXT STEP:",
@@ -2290,7 +2301,8 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
   } else {
     const why = state.history.findLast((h) => h.includes("blocked"))?.replace(/^\S+ /, "") ?? "blocked";
     const pending = waitingFor(c, step);
-    lines.push(`STATUS: blocked. ${why}`, producedLine(c, step, state), verificationLine(c, step, state), "NEXT STEP:");
+    const inherited = inheritedApproval(c, ws, step, "Accepting the whole step");
+    lines.push(`STATUS: blocked. ${inherited ? `${why.replace(/\.?$/, ".")}${inherited}` : why}`, producedLine(c, step, state), verificationLine(c, step, state), "NEXT STEP:");
     if (pending) {
       const failed = pending.each.filter((p) => p.kind === "failed");
       if (failed.length) {
@@ -2347,7 +2359,7 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       // With several reviews, rounds go to the review the step is blocked at.
       const at = blockedReview(c, step, state);
       const one = at !== undefined && step.gates.filter((g) => g.kind === "agent").length > 1 ? ` --gate ${at}` : "";
-      lines.push(`  - Allow more review rounds${one ? ` for review ${at}` : ""}, and how many.`);
+      lines.push(`  - Allow more review rounds${one ? ` for review ${at}` : ""}, and how many; answer the review's open questions in your note.`);
       commands.push(`  - The owner grants more review rounds: run \`${ff} --more-rounds <n>${one} --note "<the owner's decision>"\`.`);
     }
     lines.push(`  - ${backOption}`);
@@ -3423,13 +3435,7 @@ function approveStep(c: Ctx, step: Step, note?: string): string[] {
     delete state.blocked_gate;
     delete state.blocked_review;
     for (const a of [...state.artifacts, ...(state.files ?? [])]) a.status = "approved";
-    // The owner's gate also approves the work of the steps before it that
-    // have no owner gate of their own, such as a design that a later step's
-    // gate approves together with the build order.
-    const at = c.wf.steps.indexOf(step);
-    let first = at;
-    while (first > 0 && !ownerGates(c.wf.steps[first - 1]).length) first -= 1;
-    const covered = c.wf.steps.slice(first, at).filter((s) => stateOf(ws, s.id).status === "COMPLETED");
+    const covered = coveredSteps(c, ws, step);
     for (const s of covered) {
       const earlier = stateOf(ws, s.id);
       for (const a of [...earlier.artifacts, ...(earlier.files ?? [])]) if (a.status === "done") a.status = "approved";
@@ -3438,6 +3444,32 @@ function approveStep(c: Ctx, step: Step, note?: string): string[] {
     state.history.push(stamp(EVENT.approved(note)));
   });
   return [`${step.id}: owner approved; COMPLETED`, ...statusReminder(c, records, "approved"), "", ...present(c)];
+}
+
+// The sentence that tells the owner which earlier steps `action` on `step`
+// approves although their owner gate never ran, because an edit of the
+// workflow added it after they had finished; "" when there are none.
+function inheritedApproval(c: Ctx, ws: Workstream, step: Step, action: string): string {
+  const gated = coveredSteps(c, ws, step).filter((s) => ownerGates(s).length);
+  if (!gated.length) return "";
+  const named = gated.map((s) => `step ${s.id}, whose owner gate (${ownerGates(s).map((g) => g.text).join(", and ")})`).join(", and of ");
+  return ` ${action} also approves the work of ${named} an edit of the workflow added after that step had finished, so it never ran.`;
+}
+
+// The finished steps before `step` whose work the owner's approval of `step`
+// also approves: those with no owner gate of their own, such as a design that
+// a later step's gate approves together with its own work, and those whose
+// owner gate an edit added after they finished, so it never ran and their
+// work is still done, not approved.
+function coveredSteps(c: Ctx, ws: Workstream, step: Step): Step[] {
+  const unapproved = (s: Step) => {
+    const state = stateOf(ws, s.id);
+    return state.status === "COMPLETED" && [...state.artifacts, ...(state.files ?? [])].some((a) => a.status === "done");
+  };
+  const at = c.wf.steps.indexOf(step);
+  let first = at;
+  while (first > 0 && (!ownerGates(c.wf.steps[first - 1]).length || unapproved(c.wf.steps[first - 1]))) first -= 1;
+  return c.wf.steps.slice(first, at).filter((s) => stateOf(ws, s.id).status === "COMPLETED");
 }
 
 // The owner accepts the review the agent reported the step blocked at, as it
@@ -3765,13 +3797,53 @@ export function status(root: string, slug: string): string[] {
   for (const step of c.wf.steps) {
     for (const a of stateOf(ws, step.id).artifacts) recordedBy.set(a.path, unique([...(recordedBy.get(a.path) ?? []), step.id]));
   }
+  // A document or folder an earlier step recorded, and a later step reported
+  // a change in without declaring it, shows the steps that amended it. A
+  // later step declares a changed file when one of its own paths is that
+  // file or the earlier record's path, or holds the file under the same
+  // artifact. A file record shows "amended by"; a folder recorded whole only
+  // shows that a later step changed files in it, which may be new ones. A
+  // record of the whole repository, such as code at ".", shows neither.
+  //
+  // Step-back note (review rounds 2 and 3 of batch 3). The rules this keeps:
+  //   1. Only a later step's report can mark an earlier record, and only a
+  //      report of a file it does not declare by path or by artifact.
+  //   2. A file record says "amended by"; a folder recorded whole never does,
+  //      because fuse-flow does not know which files in it are new.
+  //   3. The whole repository is never marked.
+  //   4. The notice informs the owner and decides nothing.
+  // Rounds 2 and 3 found a missing case and a missing test, not a flaw in
+  // these rules, so the decision is to continue with them unchanged.
+  const amendedBy = new Map<string, string[]>();
+  c.wf.steps.forEach((step, i) => {
+    const declared = declaredOf(c, step);
+    const changed = (stateOf(ws, step.id).files ?? []).filter((f) => f.kind === "file").map((f) => tidy(f.path));
+    for (const earlier of c.wf.steps.slice(0, i)) {
+      for (const a of stateOf(ws, earlier.id).artifacts) {
+        const path = tidy(a.path);
+        if (path === "" || path === ".") continue;
+        const own = (f: string) =>
+          declared.some((d) => [path, f].includes(tidy(d.path)) || (d.artifact.artifact === a.artifact && contains(d.path, f)));
+        if (!changed.some((f) => contains(path, f) && !own(f))) continue;
+        amendedBy.set(a.path, unique([...(amendedBy.get(a.path) ?? []), step.id]));
+      }
+    }
+  });
   const rows = c.wf.steps.map((step) => {
     const state = stateOf(ws, step.id);
     const shown = state.artifacts
       .filter((a) => recordedBy.get(a.path)!.at(-1) === step.id)
       .map((a) => {
         const also = recordedBy.get(a.path)!.slice(0, -1);
-        return `${a.path} (${a.status}${also.length ? `; also recorded by ${also.join(", ")}` : ""})`;
+        const amended = amendedBy.get(a.path) ?? [];
+        const notes = [
+          a.status,
+          ...(also.length ? [`also recorded by ${also.join(", ")}`] : []),
+          ...(amended.length
+            ? [isFolder(c, a.path) ? `${amended.join(", ")} changed files in it` : `amended by ${amended.join(", ")}`]
+            : []),
+        ];
+        return `${a.path} (${notes.join("; ")})`;
       });
     const details = [shown.join(", "), state.skip_reason ?? ""].filter(Boolean);
     // A waiting step names the children of its current pass, recorded or not

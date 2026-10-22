@@ -380,6 +380,18 @@ describe("the workflows shipped in fuse/flow/workflows", () => {
     });
   }
 
+  // The owner answers the design's open questions before a build order is written against it.
+  test("fuse-system-development has the owner approve the design before the build order", () => {
+    const wf = Bun.YAML.parse(readFileSync(join(FLOW_DIR, "workflows", "fuse", "fuse-system-development.yml"), "utf8")) as {
+      steps: Array<{ id: string; gates?: Array<Record<string, unknown>> }>;
+    };
+    const ownerGate = (id: string) => wf.steps.find((s) => s.id === id)!.gates!.find((g) => "owner-action" in g)!["owner-action"];
+    expect(ownerGate("system-design")).toBe("approve the design, or answer its open questions");
+    expect(String(ownerGate("feature-splitting")).replace(/\s+/g, " ")).toBe(
+      "approve the build order, then land the requirements, the design and the build order unless they are kept private",
+    );
+  });
+
   // The steps that work alone are marked; every other step is attended by default.
   test("the fuse workflows mark their unattended steps, and record decisions in the decisions file", () => {
     const unattended = (file: string) =>

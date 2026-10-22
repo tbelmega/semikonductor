@@ -160,7 +160,7 @@ test("a step blocked at one review takes rounds for that review, and the hand-ov
   repo.start("feat", TWO_REVIEWS);
   repo.write("build.md");
   const blocked = repo.ok("continue", "feat", "--blocked", "the docs review keeps finding gaps", "--gate", "2");
-  expect(blocked).toContain("  - Allow more review rounds for review 2, and how many.");
+  expect(blocked).toContain("  - Allow more review rounds for review 2, and how many; answer the review's open questions in your note.");
   expect(blocked).toContain('  - The owner grants more review rounds: run `fuse-flow continue feat --more-rounds <n> --gate 2 --note "<the owner\'s decision>"`.');
 
   expect(repo.refused("continue", "feat", "--more-rounds", "1", "--gate", "1")).toContain(
@@ -176,7 +176,7 @@ test("a step with one review names no gate in its grant, and --gate goes with --
   repo.start("feat", ONE_REVIEW);
   repo.write("spec.md");
   const blocked = repo.ok("continue", "feat", "--blocked", "stuck", "--gate", "1");
-  expect(blocked).toContain("  - Allow more review rounds, and how many.");
+  expect(blocked).toContain("  - Allow more review rounds, and how many; answer the review's open questions in your note.");
   expect(blocked).toContain('run `fuse-flow continue feat --more-rounds <n> --note "<the owner\'s decision>"`');
   expect(repo.ok("continue", "feat", "--more-rounds", "1")).toStartWith("spec: owner granted 1 more review round; the step is IN_PROGRESS\n");
   expect(repo.usage("continue", "feat", "--gate", "1")).toContain("--gate goes with --blocked, --owner-approved or --more-rounds");

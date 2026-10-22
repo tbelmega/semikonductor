@@ -26,6 +26,12 @@ export function modeLine(slug: string, mode: "attended" | "unattended" = "attend
         `The owner can leave until the next owner gate. ${PRECEDENCE}`;
 }
 
+// The line every step block prints once an earlier step has recorded a document.
+export const AMENDING =
+  "AMENDING EARLIER WORK: if this step must change a document an earlier step produced that this block does not ask " +
+  "you to produce or update, such as the requirements, change it only with the owner's agreement, report the file " +
+  "with --updated, and name the change in your hand-over. status then shows the document as amended by this step.";
+
 export interface Result {
   code: number;
   out: string;

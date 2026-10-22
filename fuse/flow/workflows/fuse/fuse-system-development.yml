@@ -115,13 +115,21 @@ steps:
       including ones found by researching how others solve the problem, weigh them against the
       requirements, and give the reason for your choice. State the assumptions the design rests
       on and how each was checked, citing the research notes from the prototypes where there are
-      any; when an assumption needs an experiment nobody has run, propose it to the owner rather
-      than guess. Check every claim about existing code or services against the source. Leave
-      the build order to the feature split: the design has no implementation plan or task list.
+      any. When an assumption needs an experiment nobody has run, propose it to the owner rather
+      than guess. If the owner agrees and the experiment is small, run it here as a throwaway
+      prototype, as the prototypes step does, and record its result and evidence in a research
+      note; a larger one is the owner's call to send back to the prototypes step. Check every claim
+      about existing code or services against the source. Leave the build order to the feature
+      split: the design has no implementation plan or task list. Put the design's open questions
+      and the trade-offs only the owner can decide first in the hand-over, with your
+      recommendation for each.
     consumes: [requirements, research-note]
     produces:
       - artifact: design
         path: docs/specs/{date}-{slug}/design.md
+    optional_produces:
+      - artifact: research-note
+        path: docs/research/
     updates:
       - artifact: requirements
         path: docs/specs/{date}-{slug}/requirements.md
@@ -134,6 +142,8 @@ steps:
         guide: principal-review.md
         max_rounds: 3
         route_back_to: [prototype, requirements]
+      - owner-action: approve the design, or answer its open questions
+        route_back_to: [system-design, prototype, requirements]
 
   - id: feature-splitting
     title: Feature splitting
@@ -164,5 +174,6 @@ steps:
         guide: review.md
         max_rounds: 2
       - owner-action: >-
-          approve the design and the build order, then land them unless they are kept private
+          approve the build order, then land the requirements, the design and the build order
+          unless they are kept private
         route_back_to: [requirements, system-design]

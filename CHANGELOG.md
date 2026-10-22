@@ -71,7 +71,11 @@ script installs plain skills and an always-on instruction block that every suppo
     redo. Review rounds count per pass, with the pass in the findings file names from the second
     pass on. `status` shows each file once, under the latest step that records it. A produced
     folder that existed before the step, such as a shared research folder, is recorded file by
-    file from the files the agent names.
+    file from the files the agent names. After a rebase that only resolved conflicts, the owner
+    can `--forward-to` past the steps whose results still hold, with a note naming the evidence.
+  - A later step may change a document an earlier step produced, such as the requirements, with
+    the owner's agreement. The step block's `AMENDING EARLIER WORK` line says how, and `status`
+    shows the document as amended by that step.
   - Workflows can work together while each workstream stays one flat list of steps. A workflow
     declares the documents it expects from outside as `inputs`, and the workflows that may come
     next as `hands_off_to`. `start --after <slug>` binds the inputs to an earlier workstream's
@@ -107,8 +111,8 @@ script installs plain skills and an always-on instruction block that every suppo
     or a user can override any entry.
   - Policy files (`~/.konductor/policy-overrides.yml`, the project's `.konductor/policy-overrides.yml`
     and `.konductor/policy-overrides.local.yml`) set check commands, artifact paths, the reviewer
-    model for each author model and how the reviewer is launched, and the owner's rulings where
-    fuse-flow and the house rules overlap. Reviewers write findings as JSON to
+    model for each author model and how the reviewer is launched, and the owner's standing
+    rulings, which every step block prints. Reviewers write findings as JSON to
     `.konductor/reviews/`.
   - A step runs attended or unattended, set with `mode` and attended when it is not set. The step
     block's `MODE` line tells the agent to ask the owner often, or to decide on its own judgement,
@@ -137,7 +141,8 @@ script installs plain skills and an always-on instruction block that every suppo
     requirements, optional prototypes, a system design with a principal engineer review
     rehearsal by an agent, and a build order whose features are then built with
     `fuse-feature-development`. The owner approves the prototype findings or sends the work back
-    to the requirements.
+    to the requirements. The owner approves the design, or answers its open questions, before the
+    build order is written; the design step may run a small experiment the owner agrees to.
   - `fuse-dependency-migration`, a migration or refactoring that must keep the behavior: catalogue
     the checks, add missing ones, record a baseline, migrate in increments and compare.
   - `fuse-rapid-prototyping`, a new product idea explored as a runnable prototype: a short

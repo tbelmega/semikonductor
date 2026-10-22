@@ -390,10 +390,15 @@ steps:
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
 | `finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]...` | The agent of a child workstream declares that it failed, while its parent step still waits for it. Accepted at any step except one awaiting the owner, a blocked one included: the files named with `--updated`, such as a verdict, are recorded first, then the current and remaining steps are skipped with the reason. On a complete child it only records the outcome. A second declaration is refused. |
 | `finish <slug> --outcome succeeded` | Declare a complete child workstream succeeded. Refused on a child with a step left, since a success goes through every step; optional, since a complete child reads as succeeded. |
-| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`, or the owner's waiver in this pass, as `[waived by the owner: <reason>]`. Once a reviewer has run, it also shows the review's cost so far over all passes, counted from the findings files, such as `[cap 2; 5 reviewer launches in 4 rounds over 2 passes]`; the step block and the hand-over's `VERIFICATION` line show the same total, also for a review the owner accepted or waived. A file counts for the review whose name it carries as the workflow names the reviews now, also under `-redo`. Files under a name no review has now, as after an edit added or removed a review, are shown with every review as launches that cannot be given to one of them; an edit that renumbers the reviews without changing how many there are moves earlier files to the review now at their number. The count only informs the owner and decides nothing. So that no two steps share findings names, a workflow is refused when one step id is another's followed by `-gate<n>`, `-redo`, `-pass-<n>` or `-round-<n>`, as `build-pass-2` would be next to `build`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
+| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`, or the owner's waiver in this pass, as `[waived by the owner: <reason>]`. Once a reviewer has run, it also shows the review's cost so far over all passes, counted from the findings files, such as `[cap 2; 5 reviewer launches in 4 rounds over 2 passes]`; the step block and the hand-over's `VERIFICATION` line show the same total, also for a review the owner accepted or waived. A file counts for the review whose name it carries as the workflow names the reviews now, also under `-redo`. Files under a name no review has now, as after an edit added or removed a review, are shown with every review as launches that cannot be given to one of them; an edit that renumbers the reviews without changing how many there are moves earlier files to the review now at their number. The count only informs the owner and decides nothing. So that no two steps share findings names, a workflow is refused when one step id is another's followed by `-gate<n>`, `-redo`, `-pass-<n>` or `-round-<n>`, as `build-pass-2` would be next to `build`. Each file shows once, under the latest step that records it. A document an earlier step recorded that a later step reported with `--updated`, without declaring it, shows `amended by <step>`; a folder an earlier step recorded whole shows `<step> changed files in it`, since those may be new files. A step declares a file when one of its paths is that file or the earlier record's path, or holds the file under the same artifact. A record of the whole repository, such as code at `.`, shows neither. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
 | `list` | List the project's workstreams with their workflow and current step, and how many recorded steps the workflow no longer has, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
 | `help`, `--help`, `-h` | Print command usage, lookup paths and state location. |
+
+After a rebase that only resolved conflicts, the owner need not send the work back through every
+step whose results still hold, such as a long live test run. The owner can `--forward-to` past
+them, with a note that names the evidence, such as `git range-diff` showing that no tested code
+changed. `status` then shows those steps as skipped by the owner's jump, with the note.
 
 `--note` is valid only with `--owner-approved`, `--more-rounds`, `--back-to` or `--forward-to`.
 `--gate` is valid only with `--blocked`, `--owner-approved` or `--more-rounds`.
@@ -413,7 +418,7 @@ the tests and this section.
 When it is the agent's turn, the step block uses these labels:
 
 - `STEP` gives the step identifier, position and instruction.
-- `RULINGS` lists the owner's rulings from the policy files, where they set any.
+- `RULINGS` lists the owner's standing rulings from the policy files, where they set any.
 - `OWNER SAID` quotes the owner's note with each decision that led into this pass.
 - `CONDITION` explains why an optional step runs or how to skip it.
 - `MODE` says whether the step is attended or unattended, what that asks of the agent and the
@@ -435,6 +440,9 @@ When it is the agent's turn, the step block uses these labels:
   a file needs `--updated <artifact>=<file>`.
 - `EARLIER PASS` lists what the step wrote before the owner sent the work back, to keep, update or
   redo.
+- `AMENDING EARLIER WORK`, once an earlier step has recorded a document, says that the step may
+  change such a document it does not declare only with the owner's agreement, reports it with
+  `--updated`, and names the change in the hand-over.
 - `GUIDES` says how the step's instruction and the artifact guides rank where they differ.
 - `WHEN THE WORK IS DONE` gives numbered gate and completion instructions.
 - `IF YOU STOP BEFORE THE STEP IS DONE` gives the five hand-back lines below, pre-filled with the
@@ -583,8 +591,9 @@ new number of another review: with a check and two reviews, the old `-gate2` was
 and is now the first. Before resuming such a step, rename each old file from the k-th review's
 old number to the number the step block prints for that review, starting with the highest, so no
 file is overwritten. A row of `reviewers` may carry its own `launch`, for a reviewer model the
-author's harness cannot run. `rulings` are the owner's decisions where fuse-flow and the house rules,
-such as another installed skill or always-on instruction, overlap; fuse-flow prints them with every step.
+author's harness cannot run. `rulings` are the owner's standing rulings, which the agent follows in
+every step, such as which of two review mechanisms runs where fuse-flow and another installed skill
+or always-on instruction overlap; fuse-flow prints them with every step.
 
 The complete override order, from general to specific, is: engine and package defaults, user
 policy, workflow and gates, project policy, project-local policy, workstream state, then the
@@ -696,7 +705,9 @@ a jump is. To take the work up again, start a new workstream under another slug.
   or the work was sent back. A step without an owner gate records them as `done` when it
   completes: its gates passed, but no owner approved them. They are `approved` once the owner
   approves the step, or the next later step with an owner gate, which approves the work of the
-  steps without an owner gate before it too. State files written by earlier fuse-flow versions
+  steps without an owner gate before it too. It also approves the work of an earlier finished
+  step whose owner gate an edit added after it finished, so the gate never ran; the hand-over
+  names that step, also when the owner is asked to accept a blocked step whole. State files written by earlier fuse-flow versions
   record `approved` also for steps without an owner gate, and are read as they are. Sending work
   back makes `done` and `approved` artifacts draft again. `superseded` is available for a later
   artifact replacement process.

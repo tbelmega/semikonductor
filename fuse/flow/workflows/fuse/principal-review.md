@@ -35,7 +35,8 @@ findings, and any decision the reviewer questioned that only the owner can make,
 trade-off between cost and resilience. Put these first in the hand-over, most important first,
 so the owner can see in a minute what a principal engineer is likely to ask.
 
-When the step that runs this review has no owner gate of its own, as the system design step does,
-its hand-over is the one at the next owner gate, where the owner approves the design. Record each
-of these items in the workstream's decisions file when its round settles it, so none is lost
-before that gate, and put them first in that hand-over.
+Record each of these items in the workstream's decisions file when its round settles it, so none
+is lost before the owner gate. The system design step has an owner gate of its own, where the
+owner approves the design or answers its open questions; put these items first in its hand-over.
+When a step that runs this review has no owner gate of its own, its hand-over is the one at the
+next owner gate.
