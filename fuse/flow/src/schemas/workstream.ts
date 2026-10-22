@@ -107,8 +107,16 @@ export const StepStateSchema = z
         }),
         skip_reason: z.string().optional(),
         rounds_granted: z.number().int().min(1).optional().meta({
-          description: "Review rounds the owner granted on top of the agent gates' cap, with --more-rounds.",
+          description: "Review rounds the owner granted on top of every agent gate's cap, with --more-rounds.",
         }),
+        rounds_granted_reviews: z
+          .array(z.object({ review: z.string(), rounds: z.number().int().min(1) }).strict())
+          .optional()
+          .meta({
+            description:
+              "Review rounds the owner granted one review alone in this pass, with --more-rounds --gate, named as in " +
+              "accepted_reviews. A grant holds only while the workflow names the review so.",
+          }),
         blocked_gate: z.number().int().min(1).optional().meta({
           description:
             "While the step is BLOCKED: the review the agent reported it blocked at, with --gate, by its number in " +

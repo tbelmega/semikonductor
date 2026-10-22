@@ -13,7 +13,9 @@ const SCHEMA = join(FLOW_DIR, "workflows", "schemas", "review-findings.schema.js
 const subagent = (findings: string) =>
   "Start the reviewer the way the house rules ask, such as a review command they name, or else as a fresh " +
   "subagent in your own harness, with none of your context. The reviewer writes " +
-  `its findings to ${findings}, where <n> is the round, following ${SCHEMA}; read them from there. `;
+  `its findings to ${findings}, where <n> is the round, following ${SCHEMA}; read them from there. When several ` +
+  "reviewers review the same round, each writes its own file, with a dot and its name after the round, such as " +
+  `${findings.replace("<n>.json", "<n>.<reviewer>.json")}; they are still one round. `;
 
 const GATED = `version: 1
 name: gated
@@ -1411,7 +1413,8 @@ test("status shows each review gate's cap with the rounds granted, and the closi
     const closing = r.ok("continue", "feat");
     expect(closing).toContain(
       "VERIFICATION: implement: review (review the diff against the spec): <rounds used> of 3 (2 plus 1 granted by the owner) rounds, " +
-        "counted from the findings files of the step's last pass, .konductor/reviews/feat/implement-round-<n>.json\n",
+        "counted from the findings files of the step's last pass, .konductor/reviews/feat/implement-round-<n>.json; " +
+        "so far 1 reviewer launch in 1 round\n",
     );
   } finally {
     r.cleanup();
@@ -1601,7 +1604,7 @@ test("the owner can waive the reviews that have not run, and the waiver is recor
     const done = r.ok("continue", "feat", "--waived", "the principal engineer reviewed it in the meeting");
     expect(done).toContain(
       "VERIFICATION: script `test -f design.md`: passed; review (review the design): <rounds used> of 2 rounds, " +
-        "<any required fix still open, and any fix made after the last review, which no reviewer has seen>; " +
+        "<any required fix still open, and any fix made after the last review, which no reviewer has seen>; so far 1 reviewer launch in 1 round; " +
         "review (review the design as a principal engineer): waived by the owner: the principal engineer reviewed it in the meeting\n",
     );
     const state = r.state("feat").steps.design;
@@ -1613,7 +1616,7 @@ test("the owner can waive the reviews that have not run, and the waiver is recor
       'owner waived review 3 "review the design as a principal engineer": the principal engineer reviewed it in the meeting',
     );
     expect(r.ok("status", "feat")).toContain(
-      "agent(review the design) [cap 2], agent(review the design as a principal engineer) " +
+      "agent(review the design) [cap 2; 1 reviewer launch in 1 round], agent(review the design as a principal engineer) " +
         "[waived by the owner: the principal engineer reviewed it in the meeting]",
     );
 

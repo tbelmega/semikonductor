@@ -14,7 +14,10 @@ command when its policy sets one, else the way the house rules ask, such as anot
 command line, else a subagent in your own harness. Give it the artifact, what the artifact must
 satisfy (the owner's request, the approved requirements or spec), read access to the repository,
 and the path of its findings file. It writes its findings there as JSON, following the schema the
-step names, and changes no other file. Do not tell it what you expect it to find. If the harness
+step names, and changes no other file. A launch command must return once the reviewer has written
+its findings file. When more than one reviewer reviews the same round, each writes its own file,
+with a dot and its name after the round, as the step says, and together they are one round. Do not tell it
+what you expect it to find. If the harness
 cannot start another agent and no launch command is set, review the artifact yourself in a
 separate pass and say so in the hand-over.
 
@@ -51,6 +54,11 @@ finding as a false positive with the reason. For a pattern, look for every other
 change and fix them in the same pass. P2 and P3 findings are optional: fix them when the fix
 is cheap; list the rest as deferred in the hand-over. An optional finding never needs another
 round.
+
+A document converges when its fixes stop opening new gaps. A finding that asks for more detail in
+text the previous round's fixes added is a P2, unless the missing detail breaks a requirement or
+makes the next step guess. Without this, every round's fixes add detail the next reviewer finds
+incomplete, and the review never ends.
 
 ## A round
 

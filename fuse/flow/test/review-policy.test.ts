@@ -60,6 +60,11 @@ test("a launch command replaces the subagent, and the findings file stays where 
       "request to, and {findings_file} with the findings file.",
   );
   expect(out).toContain("The reviewer writes its findings to .konductor/reviews/feat/build-round-<n>.json");
+  // The agent waits for the command, so it must return once the findings are written.
+  expect(out).toContain(
+    "A launch command must return once the reviewer has written the findings file; one that has not returned has not finished the round.",
+  );
+  expect(set).not.toContain("A launch command must return");
   // Findings are private to the checkout, like the workstream state.
   expect(repo.read(".konductor/reviews/.gitignore")).toBe("*\n");
 });
@@ -74,16 +79,17 @@ test("a reviewer row can be started its own way, such as a model only another ha
   const out = repo.start("feat", FLOW);
   expect(out).toContain(
     "if you run on claude-opus-5.5, gpt-6.1-sol, started with `opencode run -m {model}`; if you run on gpt-6.1-sol, " +
-      "claude-opus-5.5, started as a fresh subagent in your own harness. If yours is not listed, follow the review guide. Unless its row says otherwise, start the " +
-      "reviewer the way the house rules ask, such as a review command they name, or else as a fresh subagent in " +
-      "your own harness, with none of your context. In a launch command, replace {model}",
+      "claude-opus-5.5, started as a fresh subagent in your own harness. If yours is not listed, follow the review guide. " +
+      "For a row that names no start of its own, and for a model not listed, start the reviewer the way the house rules " +
+      "ask, such as a review command they name, or else as a fresh subagent in your own harness. Start it with none " +
+      "of your context. In a launch command, replace {model}",
   );
 
   // When a policy file sets the same launch for every reviewer, a row's matching launch goes without saying.
   repo.write(".konductor/policy-overrides.yml", "review:\n  launch: subagent\n");
   expect(repo.ok("start", "feat")).toContain(
-    "if you run on gpt-6.1-sol, claude-opus-5.5. If yours is not listed, follow the review guide. Unless its row " +
-      "says otherwise, start the reviewer as a fresh subagent in your own harness,",
+    "if you run on gpt-6.1-sol, claude-opus-5.5. If yours is not listed, follow the review guide. For a row that " +
+      "names no start of its own, and for a model not listed, start the reviewer as a fresh subagent in your own harness.",
   );
 });
 

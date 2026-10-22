@@ -1484,11 +1484,13 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
       }
     } else if (g.kind === "agent") {
       ++n;
+      const cost = launchesText(c, g, step);
+      const so = cost ? ` So far it has had ${cost}.` : "";
       lines.push(
         accepted.includes(n)
-          ? `  ${n}. The owner accepted this review (${g.text}) as it was; do not run it again.`
+          ? `  ${n}. The owner accepted this review (${g.text}) as it was; do not run it again.${so}`
           : passedEarlier.has(reviewId(c, step, n, g))
-            ? `  ${n}. This review (${g.text}) passed earlier in this pass; do not run it again.`
+            ? `  ${n}. This review (${g.text}) passed earlier in this pass; do not run it again.${so}`
             : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)} fuse-flow refuses continue until the ` +
               `reviewer has written a findings file in this pass; if the owner waives the review, add \`--waived "<the owner's reason>"\` to the continue command below.`,
       );
@@ -1680,10 +1682,128 @@ function skippedSteps(c: Ctx, ws: Workstream): string {
   return skips.length ? ` Skipped steps: ${skips.join("; ")}.` : "";
 }
 
-function capOf(c: Ctx, g: Gate, state: StepState): string {
+function capOf(c: Ctx, g: Gate, step: Step, state: StepState): string {
   const cap = maxRounds(c.p, g);
-  const granted = state.rounds_granted ?? 0;
+  const granted = grantedTo(c, g, step, state);
   return granted ? `${cap + granted} (${cap} plus ${granted} granted by the owner)` : `${cap}`;
+}
+
+// The rounds the owner granted review `g` in this pass: those granted to every
+// review of the step, and those granted to this review alone, while the
+// workflow still names it as the grant recorded it.
+function grantedTo(c: Ctx, g: Gate, step: Step, state: StepState): number {
+  const id = reviewId(c, step, gateNumber(step, g), g);
+  return (state.rounds_granted ?? 0) + (state.rounds_granted_reviews?.find((r) => r.review === id)?.rounds ?? 0);
+}
+
+// A findings file's name for step `id`, as findingsName gives it: the
+// family, the step id with the review's number and -redo where they apply;
+// the pass from the second on; the round; and a reviewer's name after a dot
+// when several reviewers review one round. Step ids have no dots.
+const findingsOf = (id: string) => new RegExp(`^(${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-gate[0-9]+)?(?:-redo)?)(?:-pass-([0-9]+))?-round-([0-9]+)(?:\\.[^/]+)?\\.json$`);
+
+// The family of review `g`'s findings files in this pass: its name without
+// the pass and round.
+function familyOf(c: Ctx, g: Gate, step: Step, state: StepState): string {
+  return findingsName(c, g, step, { ...state, pass: undefined }).replace(/-round-<n>\.json$/, "");
+}
+
+// Review cost: what each review's reviewer launches have been, over every
+// pass of its step, counted from the findings files on disk by their names.
+// A file counts for the review whose name it carries as the workflow names
+// the reviews now, with or without -redo. A file under a name no review has
+// now, as after an edit added or removed a review, is shown with every review
+// as a launch of the step that cannot be given to one. fuse-flow records
+// nothing for this, so an edit that renumbers the reviews without changing
+// how many there are can move earlier files to the review now at their
+// number. The count is for the owner to see; it decides nothing.
+//
+// Step-back note (review rounds 2 to 5 of batch 2). Recording which review
+// wrote each file, to survive edits that renumber reviews, kept producing new
+// edge cases in its own fixes. The owner chose to remove that recording
+// rather than keep patching it. The rules the counter keeps:
+//   1. A findings file belongs to one step: no step id in a workflow is
+//      another's followed by -gate<n>, -redo, -pass-<n> or -round-<n> (the
+//      workflow schema).
+//   2. Whether a review ran and what it cost read the same files, through
+//      stepFindings.
+//   3. A file counts for the review whose name it carries now; no file is
+//      dropped, and one no review's name fits is shown apart.
+//   4. A round is a name, pass and round number; several reviewers' files of
+//      one round count as one round and several launches.
+//   5. The cost shows whatever became of the review: passed, accepted, waived.
+// Known and accepted: a renumbering that keeps the number of reviews moves
+// earlier files to the review now at their number. Whether a review ran in
+// the current pass has always been read from the names the same way.
+// Rule 1 holds only among the steps a workflow has now: a finished step that
+// an edit replaced by one whose findings names match lends its old files to
+// the new step, which then counts that review as run. The owner accepted
+// this on 2026-10-22 (docs/known-limitations.md) after review round 6; it
+// already held at the review base. Decision after rounds 5 and 6: continue
+// with name-based counting and fix only defects in it, such as a step id that
+// itself ends in -redo; add no new recording.
+
+// The findings files of `step` on disk, each with its family, pass and round.
+function stepFindings(c: Ctx, step: Step): { family: string; pass: number; round: number }[] {
+  const dir = reviewsDir(c.root, c.slug);
+  if (!isDirectory(dir)) return [];
+  const name = findingsOf(step.id);
+  return readdirSync(dir).flatMap((file) => {
+    const m = name.exec(file);
+    return m ? [{ family: m[1], pass: Number(m[2] ?? 1), round: Number(m[3]) }] : [];
+  });
+}
+
+// The name review `g`'s findings files carry in every pass: the step id, and
+// the review's number when the step has several.
+function costFamily(step: Step, g: Gate): string {
+  return step.gates.filter((x) => x.kind === "agent").length > 1 ? `${step.id}-gate${gateNumber(step, g)}` : step.id;
+}
+
+interface Launches {
+  launches: number;
+  rounds: number;
+  passes: number;
+}
+
+// The launches of review `g` over every pass of its step, and the step's
+// launches that carry no current review's name.
+function launchesOf(g: Gate, step: Step, files: ReturnType<typeof stepFindings>): { own: Launches; unassigned: number } {
+  const family = costFamily(step, g);
+  const current = new Set(step.gates.filter((x) => x.kind === "agent").map((x) => costFamily(step, x)));
+  const rounds = new Set<string>();
+  const passes = new Set<number>();
+  let launches = 0;
+  let unassigned = 0;
+  for (const f of files) {
+    // A step id may itself end in -redo, so a current name wins over the
+    // redo marker.
+    const name = current.has(f.family) ? f.family : f.family.replace(/-redo$/, "");
+    if (name === family) {
+      launches++;
+      passes.add(f.pass);
+      rounds.add(`${f.family} ${f.pass} ${f.round}`);
+    } else if (!current.has(name)) unassigned++;
+  }
+  return { own: { launches, rounds: rounds.size, passes: passes.size }, unassigned };
+}
+
+// What review `g` has cost so far, for the step block, the hand-over and
+// `status`, or nothing before the first launch.
+function launchesText(c: Ctx, g: Gate, step: Step): string {
+  const { own, unassigned } = launchesOf(g, step, stepFindings(c, step));
+  const parts: string[] = [];
+  if (own.launches) {
+    const launched = `${own.launches} reviewer launch${own.launches === 1 ? "" : "es"}`;
+    parts.push(`${launched} in ${own.rounds} round${own.rounds === 1 ? "" : "s"}${own.passes > 1 ? ` over ${own.passes} passes` : ""}`);
+  }
+  if (unassigned) {
+    parts.push(
+      `${unassigned} launch${unassigned === 1 ? "" : "es"} of this step that cannot be given to one of its reviews as the ` +
+        "workflow names them now, since an edit added or removed a review",
+    );
+  }
+  return parts.join(", and ");
 }
 
 // The guides that apply to a step, split by where each was found: in the
@@ -1735,9 +1855,9 @@ function guidePrecedence(c: Ctx, guides: Guides, who: "author" | "reviewer"): st
 }
 
 // The same cap, as the status view shows it.
-function statusCap(c: Ctx, g: Gate, state: StepState): string {
+function statusCap(c: Ctx, g: Gate, step: Step, state: StepState): string {
   const cap = maxRounds(c.p, g);
-  const granted = state.rounds_granted ?? 0;
+  const granted = grantedTo(c, g, step, state);
   return granted ? `${cap + granted}, ${cap} plus ${granted} granted` : `${cap}`;
 }
 
@@ -1759,12 +1879,12 @@ function findingsName(c: Ctx, g: Gate, step: Step, state: StepState): string {
 }
 
 // Whether the reviewer of `g` wrote a findings file for at least one round of
-// this pass. fuse-flow does not read the findings: the agent classifies them.
+// this pass, with or without a reviewer's name after the round and a dot.
+// fuse-flow does not read the findings: the agent classifies them.
 function reviewRan(c: Ctx, g: Gate, step: Step, state: StepState): boolean {
-  const [head, tail] = findingsName(c, g, step, state).split("<n>");
-  const dir = reviewsDir(c.root, c.slug);
-  if (!isDirectory(dir)) return false;
-  return readdirSync(dir).some((f) => f.startsWith(head) && f.endsWith(tail) && /^[0-9]+$/.test(f.slice(head.length, f.length - tail.length)));
+  const family = familyOf(c, g, step, state);
+  const pass = state.pass ?? 1;
+  return stepFindings(c, step).some((f) => f.family === family && f.pass === pass);
 }
 
 // The owner's waiver of review `g` in this pass, while the workflow still
@@ -1831,18 +1951,26 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
     });
     text += ` Pick the reviewer's model by the model you run on: ${rows.join("; ")}. If yours is not listed, follow the review guide.`;
   }
+  // fuse-flow does not know the agent's model, so it prints every row. Each
+  // row that has a launch of its own names it, and the default is said to be
+  // for the other rows only, so exactly one launch applies to each model.
   const rowLaunches = table.flatMap(([, r]) => (ownLaunch(r.launch) ? [r.launch] : []));
-  text += ` ${rowLaunches.length ? "Unless its row says otherwise, start" : "Start"} the reviewer ${defaultStart}, with none of your context.`;
+  text += rowLaunches.length
+    ? ` For a row that names no start of its own, and for a model not listed, start the reviewer ${defaultStart}. Start it with none of your context.`
+    : ` Start the reviewer ${defaultStart}, with none of your context.`;
   if (how !== "subagent" || rowLaunches.some((l) => l !== "subagent")) {
     text +=
       " In a launch command, replace {model} and {effort} with the reviewer's, {prompt_file} with a file you " +
-      "write the review request to, and {findings_file} with the findings file.";
+      "write the review request to, and {findings_file} with the findings file. A launch command must return once " +
+      "the reviewer has written the findings file; one that has not returned has not finished the round.";
   }
   const dir = display(c.p, reviewsDir(c.root, c.slug));
   const findings = findingsFile(c, g, step, state);
   text +=
     ` The reviewer writes its findings to ${findings}, where <n> is the round, following ` +
-    `${display(c.p, FINDINGS_SCHEMA)}; read them from there.`;
+    `${display(c.p, FINDINGS_SCHEMA)}; read them from there. When several reviewers review the same round, each ` +
+    `writes its own file, with a dot and its name after the round, such as ${findings.replace("<n>.json", "<n>.<reviewer>.json")}; ` +
+    "they are still one round.";
   // The three classes of the fuse review guide, so a valid P2 or P3 finding
   // is not taken for a required fix that costs another round.
   const levels =
@@ -1869,9 +1997,12 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
   // The same rule, in the same words, as the fuse review guide's.
   text +=
     " Every round that ends with a required fix counts, whatever the cause. After " +
-    `${capOf(c, g, state)} such rounds, make the last round's fixes anyway, start no further review, and report the ` +
+    `${capOf(c, g, step, state)} such rounds, make the last round's fixes anyway, start no further review, and report the ` +
     `step blocked, naming the fixes no reviewer has seen: run \`${FUSE_FLOW} continue ${c.slug} --blocked ` +
     `"<what is still open, and the fixes no reviewer has seen>" --gate ${n}\`.`;
+  // What the review has cost so far, which a pass's round count leaves out.
+  const so = launchesText(c, g, step);
+  if (so) text += ` So far this review has had ${so}, counted from the findings files in ${dir}/.`;
   return text;
 }
 
@@ -1950,11 +2081,14 @@ function verificationLine(c: Ctx, step: Step, state: StepState): string {
 // A review gate's part of a VERIFICATION line, with `rest` after the rounds.
 function reviewResult(c: Ctx, g: Gate, step: Step, state: StepState, rest: string): string {
   const n = gateNumber(step, g);
-  if (acceptedGates(c, step, state).includes(n)) return `review (${g.text}): accepted by the owner as it was`;
+  // What the review cost, whatever became of it.
+  const cost = launchesText(c, g, step);
+  const so = cost ? `; so far ${cost}` : "";
+  if (acceptedGates(c, step, state).includes(n)) return `review (${g.text}): accepted by the owner as it was${so}`;
   const waived = waiverOf(c, step, state, g);
-  if (waived) return `review (${g.text}): waived by the owner: ${waived.reason}`;
+  if (waived) return `review (${g.text}): waived by the owner: ${waived.reason}${so}`;
   const back = takenBack(c, step, state).some((r) => r.n === n) ? " (the owner's acceptance of this review was taken back, since an edit changed it)" : "";
-  return `review (${g.text}): <rounds used> of ${capOf(c, g, state)} rounds, ${rest}${back}`;
+  return `review (${g.text}): <rounds used> of ${capOf(c, g, step, state)} rounds, ${rest}${back}${so}`;
 }
 
 function stepsWithArtifacts(c: Ctx, step: Step): string {
@@ -2210,8 +2344,11 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       }
     }
     if (step.gates.some((g) => g.kind === "agent")) {
-      lines.push("  - Allow more review rounds, and how many.");
-      commands.push(`  - The owner grants more review rounds: run \`${ff} --more-rounds <n> --note "<the owner's decision>"\`.`);
+      // With several reviews, rounds go to the review the step is blocked at.
+      const at = blockedReview(c, step, state);
+      const one = at !== undefined && step.gates.filter((g) => g.kind === "agent").length > 1 ? ` --gate ${at}` : "";
+      lines.push(`  - Allow more review rounds${one ? ` for review ${at}` : ""}, and how many.`);
+      commands.push(`  - The owner grants more review rounds: run \`${ff} --more-rounds <n>${one} --note "<the owner's decision>"\`.`);
     }
     lines.push(`  - ${backOption}`);
     commands.push(`  - ${backCommand}`);
@@ -2389,7 +2526,7 @@ export interface Continue {
   ownerApproved: boolean;
   note?: string;
   blocked?: string;
-  gate?: number; // with blocked: the review the step is blocked at; with ownerApproved: the review the owner accepts
+  gate?: number; // with blocked: the review the step is blocked at; with ownerApproved: the review the owner accepts; with moreRounds: the review the rounds are for
   skip?: string;
   waived?: string; // the owner waived the step's reviews that have not run, for this reason
   moreRounds?: number;
@@ -2452,7 +2589,7 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
 
   if (input.forwardTo !== undefined) return forwardTo(c, step, input.forwardTo, input.note);
   if (input.skip !== undefined) return skipStep(c, step, input.skip);
-  if (input.moreRounds !== undefined) return grantRounds(c, step, input.moreRounds, input.note);
+  if (input.moreRounds !== undefined) return grantRounds(c, step, input.moreRounds, input.note, input.gate);
   if (input.backTo !== undefined) return sendBack(c, step, input.backTo, input.note, input.updated, input.rerun);
   if (input.ownerApproved && input.gate !== undefined) return acceptReview(c, step, input.gate, input.note);
   if (input.ownerApproved) return approveStep(c, step, input.note);
@@ -3027,10 +3164,17 @@ function skipStep(c: Ctx, step: Step, reason: string): string[] {
 
 // The owner raises the round cap of the step's agent gates by `n`, on a
 // blocked step, which is handed back to the agent, or ahead of time on a step
-// in progress.
-function grantRounds(c: Ctx, step: Step, n: number, note?: string): string[] {
-  if (!step.gates.some((g) => g.kind === "agent")) {
+// in progress. With `gate`, only that review's cap is raised.
+function grantRounds(c: Ctx, step: Step, n: number, note?: string, gate?: number): string[] {
+  const reviews = gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [{ g, n: i + 1 }] : []));
+  if (!reviews.length) {
     throw new FlowError(`step "${step.id}" has no agent gate, so there are no review rounds to grant`);
+  }
+  const target = gate === undefined ? undefined : reviews.find((r) => r.n === gate);
+  if (gate !== undefined && !target) {
+    throw new FlowError(
+      `gate ${gate} of step "${step.id}" is not a review; --more-rounds --gate takes a review's number: ${reviews.map((r) => r.n).join(", ")}`,
+    );
   }
   const now = stateOf(readWorkstream(c.root, c.slug), step.id).status;
   if (now === "AWAITING_OWNER") {
@@ -3043,13 +3187,36 @@ function grantRounds(c: Ctx, step: Step, n: number, note?: string): string[] {
   if (now === "PENDING") throw new FlowError(`step "${step.id}" has not been handed out yet, so there are no review rounds to grant`);
   updateWorkstream(c.root, c.slug, (ws) => {
     const state = expectState(c, ws, step, ["IN_PROGRESS", "BLOCKED"]);
+    // A step blocked at one review stays blocked when only another review
+    // gets the rounds. Checked on the state as it is under the lock, since
+    // the agent may have reported the block since this command read it.
+    const at = state.status === "BLOCKED" ? blockedReview(c, step, state) : undefined;
+    if (target && at !== undefined && target.n !== at) {
+      throw new FlowError(
+        `step "${step.id}" is blocked at review ${at}, so rounds granted to review ${target.n} alone would not unblock it; grant them ` +
+          `with --gate ${at}, or without --gate to every review of the step`,
+      );
+    }
     state.status = "IN_PROGRESS";
-    state.rounds_granted = (state.rounds_granted ?? 0) + n;
+    if (target) {
+      const id = reviewId(c, step, target.n, target.g);
+      const grants = (state.rounds_granted_reviews ?? []).filter((r) => r.review !== id);
+      const earlier = state.rounds_granted_reviews?.find((r) => r.review === id)?.rounds ?? 0;
+      state.rounds_granted_reviews = [...grants, { review: id, rounds: earlier + n }];
+    } else {
+      state.rounds_granted = (state.rounds_granted ?? 0) + n;
+    }
     delete state.blocked_gate;
     delete state.blocked_review;
-    state.history.push(stamp(EVENT.roundsGranted(n, note)));
+    state.history.push(stamp(EVENT.roundsGranted(n, note, target?.n)));
   });
-  return [`${step.id}: owner granted ${n} more review round${n === 1 ? "" : "s"}; the step is IN_PROGRESS`, "", ...present(c)];
+  const rounds = `${n} more review round${n === 1 ? "" : "s"}`;
+  const to = target
+    ? ` to review ${target.n} (${target.g.text})`
+    : reviews.length > 1
+      ? ` to each of its ${reviews.length} reviews; --gate <n> grants them to one review only`
+      : "";
+  return [`${step.id}: owner granted ${rounds}${to}; the step is IN_PROGRESS`, "", ...present(c)];
 }
 
 // Reopen `step` and everything after it: PENDING, its artifacts draft again.
@@ -3066,6 +3233,7 @@ function reopen(state: StepState, line: string): void {
   for (const f of state.files ?? []) f.pass = "earlier";
   for (const key of [
     "rounds_granted",
+    "rounds_granted_reviews",
     "blocked_gate",
     "blocked_review",
     "accepted_gates",
@@ -3627,7 +3795,8 @@ export function status(root: string, slug: string): string[] {
           .map((g) => {
             if (g.kind !== "agent") return describeGate(g);
             const waived = waiverOf(c, step, state, g);
-            return `${describeGate(g)} [${waived ? `waived by the owner: ${waived.reason}` : `cap ${statusCap(c, g, state)}`}]`;
+            const so = launchesText(c, g, step);
+            return `${describeGate(g)} [${waived ? `waived by the owner: ${waived.reason}` : `cap ${statusCap(c, g, step, state)}`}${so ? `; ${so}` : ""}]`;
           })
           .join(", ")
       : "none";

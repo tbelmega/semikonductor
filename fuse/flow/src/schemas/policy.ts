@@ -17,7 +17,8 @@ const LaunchSchema = z.union([
         description:
           "The shell command that runs one review, from the repository root. `{model}`, `{effort}`, " +
           "`{prompt_file}` and `{findings_file}` are replaced: the agent writes the review request to the prompt " +
-          "file, and the reviewer writes its findings to the findings file.",
+          "file, and the reviewer writes its findings to the findings file. The command must return once the findings " +
+          "file is written: the agent waits for it, so a command that keeps running stalls the step.",
       }),
     })
     .strict(),

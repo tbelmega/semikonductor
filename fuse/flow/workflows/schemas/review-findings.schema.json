@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "round": {
-      "description": "The round of the gate this review is for, from 1.",
+      "description": "The round of the gate this review is for, from 1. Several reviewers of one round each write their own file, named with a dot and the reviewer after the round, and give the same round.",
       "type": "integer",
       "minimum": 1
     },

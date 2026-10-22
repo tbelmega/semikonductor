@@ -22,7 +22,8 @@ export const EVENT = {
   // condition, one whose owner-action condition the owner answered no, or one
   // an unbound check condition holds back.
   skippedOnRequest: (reason: string) => `skipped on the owner's request: ${reason}`,
-  roundsGranted: (n: number, note?: string) => `owner granted ${n} more review round${n === 1 ? "" : "s"}${withNote(note)}`,
+  roundsGranted: (n: number, note?: string, review?: number) =>
+    `owner granted ${n} more review round${n === 1 ? "" : "s"}${review === undefined ? "" : ` to review ${review}`}${withNote(note)}`,
   // The owner accepted the review the step was blocked at, and the step went
   // back to the agent for the gates still ahead. The review's text is quoted
   // as a JSON string, so no text can end it early and the note is what
@@ -112,7 +113,7 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
   ],
   [/^skipped: ([\s\S]*)$/, (m) => ({ kind: "skipped", to: "SKIPPED", actor: "agent", detail: m[1] })],
   [
-    /^owner granted \d+ more review rounds?(?:: ([\s\S]*))?$/,
+    /^owner granted \d+ more review rounds?(?: to review \d+)?(?:: ([\s\S]*))?$/,
     (m) => ({ kind: "rounds-granted", to: "IN_PROGRESS", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
   ],
   [

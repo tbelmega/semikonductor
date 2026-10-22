@@ -46,6 +46,14 @@ script installs plain skills and an always-on instruction block that every suppo
     otherwise, a checked P0 or P1 is required and a P2 or P3 optional, fixed when cheap or listed
     as deferred; a round with no required fix passes, and fixing its optional findings starts no
     further round.
+  - Each review's cost stays visible across send-backs: `status`, the step block and the
+    hand-over count its reviewer launches and rounds over every pass from the findings files.
+    Several reviewers of one round each write their own findings file, with the reviewer's name,
+    and count as one round. `continue --more-rounds <n> --gate <n>` grants rounds to one review
+    alone. The review guide treats a finding that asks for more detail in text the previous
+    round's fixes added as a P2, so a document review converges. A launch command must return
+    once the findings are written; `fuse/flow/workflows/schemas/launch-once.sh` is an example
+    wrapper that makes any agent task's command return once its output file is written.
   - A file a step without an owner gate records is `done`, and becomes `approved` only at a
     later owner gate that approves it.
   - When the workflow of a running workstream is edited, an owner's acceptance or block of a

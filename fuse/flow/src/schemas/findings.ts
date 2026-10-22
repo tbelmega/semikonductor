@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // The schema of a review findings file,
 // .konductor/reviews/<slug>/<step>-round-<n>.json: what one reviewer found in
-// one round of an agent gate. The reviewer writes it, however it was started,
-// and the agent that did the work reads it. fuse-flow only names the path.
+// one round of an agent gate. When several reviewers review one round, each
+// writes its own file, <step>-round-<n>.<reviewer>.json, and they are one
+// round. The reviewer writes it, however it was started, and the agent that
+// did the work reads it. fuse-flow only names the path and counts the files.
 // `bun run schema` writes it to review-findings.schema.json.
 
 import { z } from "zod";
@@ -37,7 +39,11 @@ const EarlierSchema = z
 
 export const ReviewFindingsSchema = z
   .object({
-    round: z.number().int().min(1).meta({ description: "The round of the gate this review is for, from 1." }),
+    round: z.number().int().min(1).meta({
+      description:
+        "The round of the gate this review is for, from 1. Several reviewers of one round each write their own file, " +
+        "named with a dot and the reviewer after the round, and give the same round.",
+    }),
     reviewer: z.string().min(1).meta({ description: "The model and harness that reviewed, such as gpt-6.1-sol in OpenCode." }),
     summary: z.string().min(1).meta({ description: "The reviewer's verdict, in a few sentences." }),
     findings: z.array(FindingSchema).meta({ description: "Every finding of this round, most severe first." }),

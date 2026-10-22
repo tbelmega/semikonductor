@@ -49,9 +49,9 @@ const USAGE = `usage:
                                                 With --gate, the owner accepts only the review the step is
                                                 blocked at, and the step goes back to the agent for the gates
                                                 still ahead
-  fuse-flow continue <slug> --more-rounds <n> [--note <text>]
+  fuse-flow continue <slug> --more-rounds <n> [--gate <n>] [--note <text>]
                                                 the owner grants the step's agent gates n more review rounds,
-                                                1 to 100 at a time
+                                                1 to 100 at a time; with --gate, only that review
   fuse-flow continue <slug> --back-to <step> [--rerun <item>[,<item>]...] [--updated [<artifact>=]<file>]... [--note <text>]
                                                 the owner sends the work back from the current step, whatever
                                                 its status, to <step>, it or an earlier one. --updated records
@@ -275,8 +275,8 @@ function run(argv: string[]): string[] {
       const items = rerun?.split(",").map((i) => i.trim());
       if (items && items.some((i) => !i)) throw new UsageError("--rerun takes one or more item names, separated by commas");
       const gate = values.gate as string | undefined;
-      if (gate !== undefined && values.blocked === undefined && !ownerApproved) {
-        throw new UsageError("--gate goes with --blocked or --owner-approved");
+      if (gate !== undefined && values.blocked === undefined && !ownerApproved && moreRounds === undefined) {
+        throw new UsageError("--gate goes with --blocked, --owner-approved or --more-rounds");
       }
       if (gate !== undefined && !/^[1-9][0-9]*$/.test(gate)) throw new UsageError("--gate takes the number of a gate in the step's list, 1 or more");
       if (moreRounds !== undefined && !(/^[1-9][0-9]*$/.test(moreRounds) && Number(moreRounds) <= MAX_MORE_ROUNDS)) {

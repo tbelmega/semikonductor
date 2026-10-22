@@ -10,6 +10,9 @@
 import { z } from "zod";
 import { ARTIFACT_ID, StepSchema } from "./step.ts";
 
+// What follows a step id in a findings file's name.
+const FINDINGS_PART = /^-(?:gate[0-9]+|redo|pass-[0-9]+|round-[0-9]+)(?:-|$)/;
+
 // A document the workflow expects from outside: from the workstream it was
 // started after, from a file the owner names, or from its parent workstream.
 export const WorkflowInputSchema = z
@@ -116,6 +119,19 @@ export const WorkflowSchema = z
     wf.steps.forEach((step, i) => {
       if (earlier.has(step.id)) {
         ctx.addIssue({ code: "custom", path: ["steps", i, "id"], message: `duplicate step id "${step.id}"` });
+      }
+      // A review's findings file is named <step>[-gate<n>][-redo][-pass-<n>]-round-<n>.json,
+      // so a step id that is another's followed by one of those parts would
+      // share its findings files.
+      const other = wf.steps.find((s) => FINDINGS_PART.test(step.id.slice(s.id.length)) && step.id.startsWith(s.id));
+      if (other) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["steps", i, "id"],
+          message:
+            `step id "${step.id}" is "${other.id}" followed by a part of a findings file's name, so the two steps' review ` +
+            "findings would share names; name it differently",
+        });
       }
       list<string>(step.consumes).forEach((id, j) => {
         if (!artifactsSoFar.has(id)) {
