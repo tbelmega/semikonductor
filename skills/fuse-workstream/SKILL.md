@@ -56,8 +56,6 @@ and what the request says. Read the descriptions every time; the set of workflow
   for this project, often by the team; prefer it to a shipped one for the same kind of work. Then the
   user's own, in `~/.konductor/workflows/`. Shipped workflows in `personal/` and `team/` folders of
   the clone are the owner's or a team's own, not general defaults.
-- **Examples are examples.** Workflows in the shipped `customization-examples/` folder show what a workflow can look like.
-  Recommend one only when nothing else fits, and say that it is an example.
 - **The amount of ceremony the work deserves.** A workflow with specs, reviews and owner approvals
   costs the owner attention and the agent tokens. For a change that one short message can describe
   and one review can check, say that no workflow is needed and do the work directly, unless the user

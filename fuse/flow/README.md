@@ -408,7 +408,7 @@ A workflow reference containing a slash or ending in `.yml` or `.yaml` is a path
 is looked up as `<name>.yml`, first in the project's `.konductor/workflows/`, then the user's
 `~/.konductor/workflows/`, then `fuse/flow/workflows/` in the package. Within each location,
 fuse-flow searches every folder at any depth, following symlinks, so a workflow may keep its own
-files in a folder of its own, such as `customization-examples/superpowers/`. The first location with a match
+files in a folder of its own, such as `fuse/`. The first location with a match
 wins; two matches in one location are refused as ambiguous, wherever they sit.
 
 The schemas in `src/schemas/` define the fields. `bun run schema` writes editor schemas to

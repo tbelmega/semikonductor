@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Komposer's local server: the JSON API the app uses to read and write the
 // workflow files and the library of one project, to show the workstreams of
-// that project, of every project in ~/.konductor/projects.yml and of the
-// example runs that ship with Komposer, and the
-// built app itself. Every location rule comes from fuse-flow's own code.
+// that project and every project in ~/.konductor/projects.yml, and the built
+// app itself. Every location rule comes from fuse-flow's own code.
 //
 // The server writes files, so it guards itself: it listens on 127.0.0.1 only,
 // wants the token it was started with on every API request, refuses a foreign
@@ -36,9 +35,6 @@ export interface ServerOptions {
   token: string;
   // The built app (dist/); not served when absent.
   appDir?: string;
-  // A folder of example runs that ships with Komposer, listed after the
-  // other projects so a fresh clone has runs to show; never registered.
-  examplesDir?: string;
 }
 
 export interface KomposerServer {
@@ -181,7 +177,6 @@ function findProjects(dir: string): { found: string[]; truncated: boolean } {
 
 export function startServer(options: ServerOptions): KomposerServer {
   const { root, token } = options;
-  const examples = options.examplesDir && isDirectory(options.examplesDir) ? realpathSync(options.examplesDir) : undefined;
   const [project, personal, pkg] = workflowDirs(root);
   const locations: Location[] = [
     { id: "project", label: "Project", path: project },
@@ -368,24 +363,22 @@ export function startServer(options: ServerOptions): KomposerServer {
   };
 
   // The projects whose runs are shown: this one first, then the registered
-  // ones, then the example runs. A registered path is compared by its real
-  // form, so one written through a symlink is not listed again beside this
-  // project, the examples or another entry; it keeps its own form, which
-  // removing it from the list needs. A broken projects file leaves this
-  // project and the examples, with the reason.
+  // ones. A registered path is compared by its real form, so one written
+  // through a symlink is not listed again beside this project or another
+  // entry; it keeps its own form, which removing it from the list needs. A
+  // broken projects file leaves this project with the reason.
   const projects = (): { paths: string[]; error?: string } => {
-    const last = examples && examples !== root ? [examples] : [];
     try {
-      const seen = new Set([root, ...last]);
+      const seen = new Set([root]);
       const registered = readProjects().filter((p) => {
         const real = realForm(p) ?? resolve(p);
         if (seen.has(real)) return false;
         seen.add(real);
         return true;
       });
-      return { paths: [root, ...registered, ...last] };
+      return { paths: [root, ...registered] };
     } catch (e) {
-      return { paths: [root, ...last], error: (e as Error).message };
+      return { paths: [root], error: (e as Error).message };
     }
   };
 
@@ -1008,7 +1001,6 @@ export function startServer(options: ServerOptions): KomposerServer {
           name: basename(path),
           current: path === root,
           workflowsDir: workflowDirs(path)[0],
-          ...(path === examples ? { example: true } : {}),
           ...(missing ? { missing: true } : listed?.error ? { error: listed.error } : { runs: listed?.runs.length }),
         };
       }),
@@ -1034,7 +1026,7 @@ export function startServer(options: ServerOptions): KomposerServer {
     const dir = folderArg(body.path);
     if (!isDirectory(dir)) throw new HttpError(400, `${dir} is not a folder`);
     const scan = findProjects(dir);
-    const found = scan.found.filter((p) => p !== examples);
+    const found = scan.found;
     if (scan.truncated && !found.length) {
       throw new HttpError(
         422,
@@ -1050,9 +1042,8 @@ export function startServer(options: ServerOptions): KomposerServer {
   const removeProject = (body: any) => {
     if (typeof body.path !== "string" || !body.path) throw new HttpError(400, "path is required");
     if (resolve(body.path) === root) throw new HttpError(400, "Komposer was started on this project; it cannot be removed.");
-    if (resolve(body.path) === examples) throw new HttpError(400, "The example workstreams ship with Komposer; they cannot be removed.");
     const real = realForm(body.path) ?? resolve(body.path);
-    if (real === root || real === examples) return { removed: unregisterProject(body.path) };
+    if (real === root) return { removed: unregisterProject(body.path) };
     const spellings = readProjects().filter((p) => p === body.path || (realForm(p) ?? resolve(p)) === real);
     let removed = false;
     for (const p of new Set([body.path, ...spellings])) removed = unregisterProject(p) || removed;

@@ -154,8 +154,8 @@ describe("workflows", () => {
     expect(project).toMatchObject({ dir: "", file: "two-steps.yml", text: TWO_STEPS, hash: hash(TWO_STEPS) });
     expect(project.path).toBe(join(root, ".konductor", "workflows", "two-steps.yml"));
     expect(workflows.find((w: any) => w.location === "personal")).toMatchObject({ dir: "docs", file: "mine.yml" });
-    const shipped = workflows.find((w: any) => w.location === "fuse-flow" && w.file === "superpowers.yml");
-    expect(shipped).toMatchObject({ dir: "customization-examples/superpowers" });
+    const shipped = workflows.find((w: any) => w.location === "fuse-flow" && w.file === "fuse-feature-development.yml");
+    expect(shipped).toMatchObject({ dir: "fuse" });
   });
 
   test("updates the original when its hash is still the base hash", async () => {
@@ -1449,95 +1449,6 @@ describe("projects", () => {
     expect((await json("/api/projects")).projects.map((p: any) => p.path)).toEqual([root, join(root, "other-alias")]);
     expect(await json("/api/projects", { method: "DELETE", body: JSON.stringify({ path: join(root, "other-alias") }) })).toEqual({ removed: true });
     expect((await json("/api/projects")).projects.map((p: any) => p.path)).toEqual([root]);
-  });
-});
-
-describe("example runs", () => {
-  const EXAMPLES = realpathSync(resolve(import.meta.dir, "..", "..", "example-runs"));
-  const example = (size: string) => join(PACKAGE_WORKFLOWS, "customization-examples", `custom-example-${size}.yml`);
-
-  beforeEach(() => {
-    server.stop();
-    server = startServer({ root, port: 0, token: TOKEN, examplesDir: EXAMPLES });
-  });
-
-  test("the runs that ship with Komposer are listed after this project's, on the custom-example workflows", async () => {
-    write(join(root, ".konductor", "workflows", "one.yml"), "version: 1\nname: one\nsteps:\n  - id: only\n    instruction: Do it.\n");
-    flow("start", "mine", "--workflow", "one");
-    const { workstreams } = await json("/api/workstreams");
-    expect(workstreams.map((w: any) => [w.project, w.slug, w.workflowPath, w.summary.status, w.summary.currentStep])).toEqual([
-      [root, "mine", join(root, ".konductor", "workflows", "one.yml"), "IN_PROGRESS", "only"],
-      [EXAMPLES, "export-to-pdf", example("medium"), "COMPLETED", undefined],
-      [EXAMPLES, "fix-csv-quoting", example("small"), "COMPLETED", undefined],
-      [EXAMPLES, "retry-on-timeout", example("small"), "AWAITING_OWNER", "final-summary"],
-      [EXAMPLES, "saved-filters", example("medium"), "IN_PROGRESS", "implementation"],
-      [EXAMPLES, "team-workspaces", example("large"), "BLOCKED", "security-testing"],
-    ]);
-  });
-
-  // The example files are written by hand, not by fuse-flow, so this holds
-  // them to what fuse-flow would have written.
-  test("each example run is one fuse-flow could have written", async () => {
-    const runs = (await json("/api/workstreams")).workstreams.filter((w: any) => w.project === EXAMPLES);
-    expect(runs).toHaveLength(5);
-    for (const run of runs) {
-      const order = (Bun.YAML.parse(readFileSync(run.workflowPath, "utf8")) as any).steps.map((s: any) => s.id);
-      const recorded = Object.keys(run.steps);
-      // The steps recorded are the workflow's first steps, in its order.
-      expect(recorded).toEqual(order.slice(0, recorded.length));
-      const current = run.summary.currentStep ? order.indexOf(run.summary.currentStep) : order.length;
-      for (const [i, id] of order.entries()) {
-        const status = run.summary.steps[id].status;
-        if (i < current) expect([run.slug, id, ["COMPLETED", "SKIPPED"].includes(status)]).toEqual([run.slug, id, true]);
-        if (i > current) expect([run.slug, id, status]).toEqual([run.slug, id, "PENDING"]);
-        // A step's state is the one its history replays to.
-        const events = run.events.filter((e: any) => e.step === id);
-        if (events.length) expect([run.slug, id, events[events.length - 1].to]).toEqual([run.slug, id, status]);
-      }
-      // Every history line is one fuse-flow writes, with a time.
-      for (const e of run.events) expect([run.slug, e.step, e.kind === "other" || !e.time]).toEqual([run.slug, e.step, false]);
-      // Times only move forward.
-      const times = run.events.map((e: any) => e.time);
-      expect(times).toEqual([...times].sort());
-    }
-  });
-
-  test("the example runs are listed last, marked, cannot be removed and are never registered", async () => {
-    const listed = (await json("/api/projects")).projects;
-    expect(listed.at(-1)).toEqual({ path: EXAMPLES, name: "example-runs", current: false, workflowsDir: join(EXAMPLES, ".konductor", "workflows"), example: true, runs: 5 });
-
-    // A scan of a folder that holds them does not add them.
-    const scanned = await json("/api/projects", { method: "POST", body: JSON.stringify({ path: dirname(EXAMPLES) }) });
-    expect(scanned).toEqual({ found: [], added: [] });
-    expect(existsSync(join(home, ".konductor", "projects.yml"))).toBe(false);
-
-    const remove = await api("/api/projects", { method: "DELETE", body: JSON.stringify({ path: EXAMPLES }) });
-    expect(remove.status).toBe(400);
-  });
-
-  test("a registered path that leads through a symlink to this project or the examples is not listed again", async () => {
-    const links = join(root, "links");
-    mkdirSync(links);
-    symlinkSync(EXAMPLES, join(links, "examples"));
-    symlinkSync(root, join(links, "here"));
-    const other = join(root, "other");
-    mkdirSync(join(other, ".git"), { recursive: true });
-    symlinkSync(other, join(links, "other"));
-    write(
-      join(home, ".konductor", "projects.yml"),
-      `projects:\n  - ${join(links, "examples")}\n  - ${join(links, "here")}\n  - ${join(links, "other")}\n  - ${other}\n`,
-    );
-    const listed = (await json("/api/projects")).projects;
-    expect(listed.map((p: any) => p.path)).toEqual([root, join(links, "other"), EXAMPLES]);
-    // The five example runs, counted once.
-    expect((await json("/api/workstreams")).workstreams.map((w: any) => w.project)).toEqual(Array(5).fill(EXAMPLES));
-  });
-
-  test("a broken projects file still leaves the example runs", async () => {
-    write(join(home, ".konductor", "projects.yml"), "projects: {not: a list}\n");
-    const body = await json("/api/projects");
-    expect(body.projects.map((p: any) => p.path)).toEqual([root, EXAMPLES]);
-    expect(body.error).toContain("must hold a list of project paths");
   });
 });
 

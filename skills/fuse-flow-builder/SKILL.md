@@ -34,9 +34,8 @@ Use this skill in one of three modes. The principles in section 4 apply to all o
   definitions are in `<clone>/fuse/flow/src/schemas/`.
 - **Read the existing examples:** `<clone>/fuse/flow/fuse-flow list` names every workflow with its
   description. The artifact library is in `<clone>/fuse/flow/library/artifacts/`, with a one-line
-  description of each entry in its `entry.yml`. `customization-examples/superpowers/superpowers.yml` is the
-  most complete example of a native workflow, and keeps its own review guide in its folder.
-  `konductor/_k-full-sdlc.yml` shows a long workflow whose guides link to skills shipped in the clone.
+  description of each entry in its `entry.yml`. `konductor/_k-full-sdlc.yml` shows a long workflow
+  whose guides link to skills shipped in the clone.
 - **Komposer,** the local editor that shows a workflow as a diagram, is in `<clone>/fuse/komposer`;
   its `README.md` says how to start it.
 - **Choose where the workflow lives.** fuse-flow looks a name up in these locations, at any depth
@@ -311,20 +310,6 @@ judgment call as a deviation and report it at the end.
   of each step that needs it, reduced to the rules that change the agent's behavior.
 - **Keep a dependency on an installed skill only when the workflow will never leave the machines
   that have it,** and say so in the file's header comment.
-
-### Example
-
-`fuse/flow/workflows/customization-examples/superpowers/superpowers.yml` encodes [obra/superpowers](https://github.com/obra/superpowers):
-
-| Superpowers | superpowers.yml |
-|---|---|
-| brainstorming | `design` step; `design-spec` guide and template; owner approval |
-| bounded change, design approved in chat | `--not-produced design-spec "bounded change"` |
-| writing-plans | `plan` step; `implementation-plan` guide and template; `agent` condition; owner approval |
-| using-git-worktrees | `workspace` step on a branch, because state stays in one checkout (a recorded deviation) |
-| subagent-driven development, executing-plans, test-driven development, debugging, verification | the `implement` instruction |
-| requesting-code-review, final review | `agent` gate with `whole-branch-review.md` as its guide |
-| finishing-a-development-branch | `finish` step with `check: default`, a clean-tree `script` gate and the owner's choice |
 
 ## 3. Building or changing a workflow with the user
 

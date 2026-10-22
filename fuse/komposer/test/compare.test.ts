@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import {
   alignSteps,
   applyProblem,
@@ -55,9 +55,6 @@ const read = (path: string) => readFileSync(`${FLOW}/${path}`, "utf8");
 const FUSE = ["fuse-dependency-migration", "fuse-feature-development", "fuse-rapid-prototyping", "fuse-system-development"].map(
   (n) => `fuse/${n}.yml`,
 );
-const EXAMPLES = readdirSync(`${FLOW}/customization-examples`)
-  .filter((f) => f.endsWith(".yml"))
-  .map((f) => `customization-examples/${f}`);
 
 const LEFT = `version: 1
 name: left
@@ -162,10 +159,6 @@ describe("alignSteps", () => {
       }
   });
 
-  test("custom-example-medium against -large gives the reference screenshot's counts", () => {
-    const rows = alignSteps(steps(read("customization-examples/custom-example-medium.yml")), steps(read("customization-examples/custom-example-large.yml")));
-    expect(rowCounts(rows)).toEqual({ same: 0, changed: 6, left: 1, right: 11, moved: 0 });
-  });
 });
 
 describe("foldedStep", () => {
@@ -635,19 +628,6 @@ steps:
     expect(strictDifferences(steps(text)[0], steps(fixture)[0])).toEqual([]);
   });
 
-  test("every changed pair of the shipped examples applies one by one to the same", () => {
-    const all = EXAMPLES;
-    for (const a of all)
-      for (const b of all) {
-        if (a === b) continue;
-        const rows = alignSteps(steps(read(a)), steps(read(b)));
-        for (const row of rows.filter((r) => r.kind === "changed")) {
-          const { refused } = applyOneByOne(read(a), read(b), row.left!, row.right!);
-          for (const r of refused) expect(r.refused).toMatch(/workflow gate/);
-        }
-      }
-  }, 30_000);
-
   test("a workflow gate with a slug, inputs or returns is refused, not added without them", () => {
     const a = `version: 1\nname: a\nsteps:\n  - id: s\n    instruction: x\n`;
     const b = `version: 1\nname: b\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - workflow: child\n        slug: "{slug}-kid"\n`;
@@ -670,27 +650,6 @@ steps:
 });
 
 describe("applying whole steps", () => {
-  const medium = read("customization-examples/custom-example-medium.yml");
-  const large = read("customization-examples/custom-example-large.yml");
-
-  test("Apply all makes a changed left step strictly equal to the right one, in place", () => {
-    const rows = alignSteps(steps(medium), steps(large)).filter((r) => r.kind === "changed");
-    for (const row of rows) {
-      const out = run(medium, copyStepEdits(steps(large), row.right!, steps(medium)));
-      expect(ids(out)).toEqual(ids(medium));
-      expect(strictDifferences(steps(out)[row.left!], steps(large)[row.right!])).toEqual([]);
-    }
-  });
-
-  test("Add to left inserts an only-right step at its row's position, where it then pairs as the same", () => {
-    for (const row of alignSteps(steps(medium), steps(large)).filter((r) => r.kind === "right")) {
-      const out = run(medium, copyStepEdits(steps(large), row.right!, steps(medium), row.at));
-      expect(steps(out)[row.at].id).toBe(steps(large)[row.right!].id);
-      const paired = alignSteps(steps(out), steps(large)).find((r) => r.right === row.right)!;
-      expect({ id: steps(out)[row.at].id, kind: paired.kind }).toEqual({ id: steps(out)[row.at].id, kind: "same" });
-    }
-  });
-
   test("remove from left deletes an only-left step", () => {
     const row = alignSteps(steps(LEFT), steps(RIGHT)).find((r) => r.kind === "left")!;
     expect(ids(run(LEFT, removeEdits(row)))).toEqual(["intake", "build"]);
@@ -883,9 +842,9 @@ describe("compareOrder", () => {
     const at = (location: "project" | "personal" | "fuse-flow" | "run", dir: string, file: string) =>
       openWorkflow({ location, dir, file, path: `/${location}/${dir}/${file}`, onDisk: true, text: wf("a"), hash: "" });
     const listed = compareOrder([
-      at("fuse-flow", "customization-examples/superpowers", "superpowers.yml"),
+      at("fuse-flow", "konductor", "k-sop-verify.yml"),
       at("run", "", "theirs.yml"),
-      at("fuse-flow", "customization-examples", "custom.yml"),
+      at("fuse-flow", "fuse", "fuse-feature-development.yml"),
       at("project", "", "zeta.yml"),
       at("personal", "", "mine.yml"),
       at("project", "docs", "alpha.yml"),
@@ -894,8 +853,8 @@ describe("compareOrder", () => {
       "project:docs/alpha.yml",
       "project:zeta.yml",
       "personal:mine.yml",
-      "fuse-flow:customization-examples/custom.yml",
-      "fuse-flow:customization-examples/superpowers/superpowers.yml",
+      "fuse-flow:fuse/fuse-feature-development.yml",
+      "fuse-flow:konductor/k-sop-verify.yml",
     ]);
   });
 });

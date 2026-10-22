@@ -125,12 +125,6 @@ started with `bun run start`.
   path is listed as a second, read-only entry beside the editable one, which saves the same file. As
   `fuse-flow status` does, a workstream lists the steps its state records that its workflow no
   longer has, and one whose workflow file is not a valid workflow says that it cannot be read.
-- **Example workstreams.** The last project in the list, `example-runs`, holds five made-up
-  workstreams of the `custom-example-small`, `-medium` and `-large` workflows, in
-  `example-runs/.konductor/workstreams/` in this folder. They come with the clone, so Komposer
-  has workstreams to show before you have any of your own. They show finished, waiting,
-  in-progress and blocked workstreams, with a send-back, a failed check and extra review rounds.
-  Only the workstream files exist; the artifacts they name were never written.
 - **The server is for your machine only.** It listens on 127.0.0.1, requires the token from the
   printed URL, refuses requests that come with another host name, and writes only `.yml` and `.yaml`
   files in the three workflow folders, files in its own working-copy folder, and the projects list.

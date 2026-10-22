@@ -138,8 +138,7 @@ script installs plain skills and an always-on instruction block that every suppo
     `k-sop-code-review-workflow`. Duties
     the SOPs took on for the skills they loaded, such as credentials, the owner's confirmation and
     cleanup around `app-discovery`, are steps and gates of these workflows.
-  - In `workflows/customization-examples/`: four project-specific workflows, and a native
-    workflow after obra/superpowers, as examples of shaping fuse to a project.
+  - Additional sample workflows demonstrated ways to shape fuse to a project.
   - The workflows in `workflows/fuse/` take acceptance tests from the spec, start every bug fix with a
     failing reproduction, and have the reviewer check the tests against the spec, instead of
     forcing test-first on every change. Specs are saved under date-prefixed paths in
@@ -342,8 +341,8 @@ prints:
   the reviewer's file to that name, or, when the owner waives the review, pass over it with
   `continue --waived "<reason>"`.
 - Some shipped workflows were renamed: the Konductor SOP workflows `k-<name>-sop` are now
-  `k-sop-<name>`, `kiro-spec-workflow-sop` is `k-sop-kiro-spec-workflow`, and `workflows/examples/`
-  is `workflows/customization-examples/`. A workstream that follows an old name is refused with
+  `k-sop-<name>`, and `kiro-spec-workflow-sop` is `k-sop-kiro-spec-workflow`. A workstream that
+  follows an old name is refused with
   "no workflow named". Change the `workflow:` line of its `.konductor/workstreams/<slug>.yml` to
   the new name, and update your own workflows that hand off to or wait for an old name or path.
 

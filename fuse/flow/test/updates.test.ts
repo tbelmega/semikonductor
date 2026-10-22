@@ -240,9 +240,8 @@ test("a file named on a block inside a folder recorded whole keeps the updates r
   expect(repo.state("feat").steps.notes.artifacts).toEqual(wholeNotesRecords);
 });
 
-// A document the step produces inside the code it updates, as in
-// custom-example-small: the document lies in both paths, so naming it for both
-// accounts for the code too.
+// A document the step produces inside the code it updates lies in both paths,
+// so naming it for both accounts for the code too.
 const REPORT = `version: 1
 name: build
 steps:

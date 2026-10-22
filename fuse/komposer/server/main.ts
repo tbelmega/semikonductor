@@ -40,7 +40,6 @@ try {
     port,
     token,
     appDir: resolve(import.meta.dir, "..", "dist"),
-    examplesDir: resolve(import.meta.dir, "..", "example-runs"),
   });
   console.log(`Komposer for ${root}`);
   console.log(`open ${server.url}/#token=${token}`);

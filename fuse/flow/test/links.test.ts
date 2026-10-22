@@ -207,7 +207,7 @@ test("a file an earlier fuse-flow recorded, then moved by the owner and rewritte
 });
 
 describe("a document inside a folder the same step updates", () => {
-  // As in custom-example-small: the report lies inside the code the step updates.
+  // The report lies inside the code the step updates.
   const BUILD = `version: 1
 name: build
 steps:

@@ -40,7 +40,7 @@ export function workflowDirs(root: string): string[] {
 
 // The file a workflow reference points at: the path itself, or <name>.yml in
 // the first workflows directory that has it, at any depth below it (such as
-// customization-examples/superpowers/, personal/, or a team/ symlink to another repository).
+// fuse/, personal/, or a team/ symlink to another repository).
 // A name found more than once in that directory is refused rather than guessed.
 export function findWorkflow(root: string, ref: string): string {
   if (isWorkflowPath(ref)) return ref;

@@ -69,6 +69,7 @@ const slugs = existsSync(dir)
   ? readdirSync(dir)
       .filter((file) => file.endsWith(".yml"))
       .map((file) => basename(file, ".yml"))
+      .sort()
   : [];
 if (slugs.length === 0) {
   failures.push(`no workstream in ${dir}`);
