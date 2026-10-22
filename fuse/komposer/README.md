@@ -163,6 +163,19 @@ bun run start -- --kanvas example-design --port 4817
   item. The comment moves when its item moves and is lost when its item is removed. No shipped
   workflow uses that form.
 
+## Audience
+
+Who Komposer is designed for, recorded by the first usability review (2026-10-22). A later
+usability review starts from this profile and asks only what has changed.
+
+- **Who:** developers who use coding agents and have just installed fuse. They know git and YAML,
+  and do not yet know fuse-flow's terms (workstream, gate, library entry, guide).
+- **How often:** mostly first-time users.
+- **Devices and input:** a laptop or desktop browser, at widths from 1280 px, with a mouse and
+  the keyboard for text.
+- **Languages:** English only.
+- **Accessibility:** no stated needs.
+
 ## Tests
 
 ```bash
