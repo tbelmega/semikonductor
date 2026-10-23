@@ -52,12 +52,22 @@ const USAGE = `usage:
   fuse-flow continue <slug> --more-rounds <n> [--note <text>]
                                                 the owner grants the step's agent gates n more review rounds,
                                                 1 to 100 at a time
-  fuse-flow continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]
+  fuse-flow continue <slug> --back-to <step> [--rerun <item>[,<item>]...] [--updated [<artifact>=]<file>]... [--note <text>]
                                                 the owner sends the work back from the current step, whatever
                                                 its status, to <step>, it or an earlier one. --updated records
-                                                the files the current step wrote so far, for its next pass
+                                                the files the current step wrote so far, for its next pass.
+                                                --rerun names the items of a for_each step that get new child
+                                                workstreams; the others' children are carried over
   fuse-flow continue <slug> --forward-to <step> [--note <text>]
                                                 the owner jumps forward; the steps passed over are skipped
+  fuse-flow finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]...
+  fuse-flow finish <slug> --outcome succeeded
+                                                the agent declares how a child workstream ended. failed is
+                                                accepted unless the current step awaits the owner: the
+                                                current and later steps are skipped with the reason, and
+                                                --updated records the files that say why first. succeeded
+                                                is accepted only once every step is finished, and is
+                                                optional: a complete workstream reads as succeeded
   fuse-flow status <slug>                       show every step's state. A file shows once, under the latest
                                                 step that records it.
                                                 done means the step's gates passed and it has no owner gate;
@@ -95,8 +105,10 @@ const OPTIONS = {
     "back-to": { type: "string" },
     "forward-to": { type: "string" },
     note: { type: "string" },
+    rerun: { type: "string" },
   },
   status: {},
+  finish: { outcome: { type: "string" }, reason: { type: "string" }, updated: { type: "string", multiple: true } },
 } as const;
 
 // Remove every `--<name> <artifact> <reason>` from args, and return them by
@@ -249,6 +261,10 @@ function run(argv: string[]): string[] {
       if (values.note !== undefined && decisions.length === 0) {
         throw new UsageError("--note goes with --owner-approved, --more-rounds, --back-to or --forward-to");
       }
+      const rerun = values.rerun as string | undefined;
+      if (rerun !== undefined && backTo === undefined) throw new UsageError("--rerun goes with --back-to: the owner names the items to re-run when sending the work back");
+      const items = rerun?.split(",").map((i) => i.trim());
+      if (items && items.some((i) => !i)) throw new UsageError("--rerun takes one or more item names, separated by commas");
       const gate = values.gate as string | undefined;
       if (gate !== undefined && values.blocked === undefined && !ownerApproved) {
         throw new UsageError("--gate goes with --blocked or --owner-approved");
@@ -266,6 +282,7 @@ function run(argv: string[]): string[] {
         waived: values.waived as string | undefined,
         moreRounds: moreRounds === undefined ? undefined : Number(moreRounds),
         backTo,
+        ...(items ? { rerun: items } : {}),
         forwardTo,
         updated: ((values.updated as string[] | undefined) ?? []).map((value) => {
           // --updated <artifact>=<file> names the artifact the file counts for.
@@ -278,6 +295,23 @@ function run(argv: string[]): string[] {
     }
     case "status":
       return commands.status(root, slug);
+    case "finish": {
+      const outcome = values.outcome as string | undefined;
+      const reason = values.reason as string | undefined;
+      const updated = (values.updated as string[] | undefined) ?? [];
+      if (outcome !== "succeeded" && outcome !== "failed") throw new UsageError("finish takes --outcome succeeded or --outcome failed");
+      if (outcome === "failed" && reason === undefined) throw new UsageError('--outcome failed needs --reason "<why the workstream failed>"');
+      if (outcome === "succeeded" && reason !== undefined) throw new UsageError("--reason goes with --outcome failed only");
+      if (outcome === "succeeded" && updated.length) throw new UsageError("--updated goes with --outcome failed only; a complete workstream's documents are already recorded");
+      return commands.finishWorkstream(root, slug, {
+        outcome,
+        ...(reason !== undefined ? { reason } : {}),
+        updated: updated.map((value) => {
+          const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(value);
+          return m ? namedHere(root, m[2], m[1]) : namedHere(root, value);
+        }),
+      });
+    }
   }
 }
 

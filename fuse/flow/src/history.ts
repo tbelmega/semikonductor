@@ -35,6 +35,12 @@ export const EVENT = {
   approved: (note?: string) => `owner approved${withNote(note)}`,
   childCreated: (slug: string) => `created child workstream ${slug}`,
   childrenRecorded: (children: string[]) => `recorded ${children.length} child workstream${children.length === 1 ? "" : "s"} to create: ${children.join(", ")}`,
+  childrenCarried: (children: string[]) => `carried over ${children.length} child workstream${children.length === 1 ? "" : "s"} from earlier passes: ${children.join(", ")}`,
+  // The agent declared the workstream's outcome with `finish`. Written on the
+  // step it was failed at, or on the last step when it was already complete.
+  finished: (kind: "succeeded" | "failed", reason?: string) => (kind === "failed" ? `finished by the agent as failed: ${reason}` : "finished by the agent as succeeded"),
+  rerunSelected: (items: string[], note?: string) => `owner selected the items to re-run: ${items.join(", ")}${withNote(note)}`,
+  autoRetry: (n: number, max: number, items: string[]) => `automatic retry ${n} of ${max} for items ${items.join(", ")}`,
 };
 
 // The skip reasons the owner's own commands give. They are written as
@@ -42,6 +48,8 @@ export const EVENT = {
 export const SKIP_REASON = {
   startedAt: (step: string) => `started at ${step}`,
   jumpedForward: (target: string, note?: string) => `owner jumped forward to ${target}${withNote(note)}`,
+  // The agent ended the workstream as failed: this step and every later one.
+  endedFailed: (reason: string) => `ended as failed: ${reason}`,
 };
 
 export function stamp(event: string, now = new Date()): string {
@@ -61,6 +69,7 @@ export type EventKind =
   | "sent-back"
   | "approved"
   | "child-created"
+  | "finished"
   | "other";
 
 export interface RunEvent {
@@ -126,6 +135,8 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
   ],
   [/^owner approved(?:: ([\s\S]*))?$/, (m) => ({ kind: "approved", to: "COMPLETED", actor: "owner", detail: m[1] ?? "", note: m[1] })],
   [/^created child workstream (\S+)$/, (m) => ({ kind: "child-created", detail: m[1] })],
+  // The declaration itself moves no step; the skips it writes do.
+  [/^finished by the agent as (succeeded|failed)(?:: ([\s\S]*))?$/, (m) => ({ kind: "finished", actor: "agent", detail: m[2] !== undefined ? `failed: ${m[2]}` : m[1] })],
 ];
 
 function read(text: string): Reading {

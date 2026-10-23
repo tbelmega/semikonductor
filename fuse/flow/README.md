@@ -318,6 +318,38 @@ steps:
   renamed rather than a child adopted or overwritten. Skipping the step removes every child in
   which nothing happened and keeps the others. A gate edited between plain and `for_each` while
   a pass runs is refused with the send-back command, as a changed child workflow is.
+- A child workstream ends as succeeded or failed. Its agent declares a failure with `finish`
+  (see Commands): the current step and the remaining ones are skipped with the reason, and the
+  child counts as finished. The engine records the declaration and does not check it; why the
+  child failed belongs in the documents it returns. A complete child with no declaration reads as
+  succeeded, as every state file written before outcomes existed does. A hand-out of a new step,
+  such as one a workflow edit adds, or a send-back, voids a declaration.
+- `accept: finished | succeeded` on a workflow gate says what passes it. With `finished`, the
+  default, a failed child lets the step complete and later steps' `READ` lines say it failed.
+  With `succeeded`, the step is refused while a child failed: once every child is finished, the
+  agent reports the step blocked and the owner's hand-over lists the failures, grouped by reason,
+  with the send-back that re-runs them.
+- On a `for_each` gate, `rerun: all | failed` says which items get new children when the owner
+  sends the work back to the step. With `all`, the default, every item gets one, as above. With
+  `failed`, only an item whose previous child failed, is missing or cannot be read gets one; every
+  other item keeps its child, recorded again under the new pass with the same slug (carried over),
+  and the `DELEGATE` line says so, with how the child stands. The owner can name the items
+  instead, with `continue --back-to <the step> --rerun <item>,...`, unless the gate sets
+  `rerun_override: false`. A carried child that no longer fits an edited gate is reported
+  unusable, and the message names `--rerun <item>` for a new one.
+- `retries: <n>` on a `for_each` gate with `rerun: failed` lets the engine re-run failed items
+  itself, up to n passes (default 0). When the parent's `continue` finds every child of the pass
+  finished and some failed, it opens the next pass for the failed items, carries the others over,
+  records "automatic retry 1 of n" in the step's history, and refuses that `continue` with the new
+  `DELEGATE` line. This runs whatever `accept` says; once the retries are spent, `accept` decides
+  as above. An owner's send-back starts the count again.
+- A gate's `inputs` value may name one of the gate's own `returns` ids, as in
+  `inputs: { unit-spec: approved-units, previous-verdict: verdicts }` with
+  `returns: { verdicts: verdict }`. A new child is then given, under that input, the document of
+  that id the item's latest earlier child recorded (by the child's own id), whether that attempt
+  failed or succeeded; a first attempt, or one that recorded nothing, leaves the input unbound,
+  so `validate` requires the child to declare it optional. The `DELEGATE` line of such a child
+  names the earlier attempt, how it ended and the bound path.
 - When the owner sends the work back past a delegating step, its next pass gets a fresh child
   with a pass suffix, such as `review-adversarial-2`, and the earlier child stays as history.
   The step's state records which child belongs to which pass. Skipping a delegating step removes
@@ -351,8 +383,10 @@ steps:
 | `continue <slug> --skip <why>` | Skip a conditional step, or skip any step after the owner explicitly asks. Records the reason, as the agent's decision for an agent condition it judged and as the owner's otherwise. |
 | `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. A step that delegates to a child workstream is approved only while the child is complete; otherwise the owner skips it. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. An acceptance, a block at a review and the reviews a step passed before the owner are each bound to the review's identity as recorded then: its number, its text, and each guide it follows with the artifact the guide applies to and a digest of the guide's content. They hold only while the workflow names the review exactly so. When an edit of the workflow, of a guide or of the policy changes an accepted review, the step block prints a `TAKEN BACK` line that names it and asks the agent to tell the owner; the review runs again with its rounds counted afresh, in findings files with `-redo` in the name, and the reviews that passed before it run again once an edit changes one of them. When the edit removed the review or moved it to another number, the line says so, and the hand-over's `VERIFICATION` line names the acceptance that was taken back. A change of the review the step is blocked at refuses `--gate` and leaves the owner the other decisions. A record an earlier fuse-flow wrote without the identity is bound to the reviews as the workflow names them at the first command that reads it; where no review has its number then, or the workflow no longer has the step, it is bound to none, so a review an edit adds at that number later runs, and the step block says the acceptance was taken back. An `AWAITING_OWNER` step whose work a check, script or review that an edit added or changed has not run on cannot be approved: the hand-over names those gates, and the owner sends the work back to the step, which runs them. |
 | `continue <slug> --more-rounds <n> [--note <text>]` | Add one or more review rounds to an agent gate on an `IN_PROGRESS` or `BLOCKED` step. |
-| `continue <slug> --back-to <step> [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes; where it writes an artifact whole at a path an edit has moved, later steps and `--after` read the new file alone, also when an earlier fuse-flow recorded the earlier one, and the earlier one stays in the step's files as history. Its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
+| `continue <slug> --back-to <step> [--rerun <item>[,<item>]...] [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. `--rerun`, for a step with a `for_each` gate as the target, names the items that get new child workstreams; the other items keep their children. It is refused for any other target, under `rerun_override: false`, before the step has recorded children, and for an item the step does not have or one named twice. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes; where it writes an artifact whole at a path an edit has moved, later steps and `--after` read the new file alone, also when an earlier fuse-flow recorded the earlier one, and the earlier one stays in the step's files as history. Its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
+| `finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]...` | The agent of a child workstream declares that it failed, while its parent step still waits for it. Accepted at any step except one awaiting the owner, a blocked one included: the files named with `--updated`, such as a verdict, are recorded first, then the current and remaining steps are skipped with the reason. On a complete child it only records the outcome. A second declaration is refused. |
+| `finish <slug> --outcome succeeded` | Declare a complete child workstream succeeded. Refused on a child with a step left, since a success goes through every step; optional, since a complete child reads as succeeded. |
 | `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`, or the owner's waiver in this pass, as `[waived by the owner: <reason>]`. Each file shows once, under the latest step that records it. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
 | `list` | List the project's workstreams with their workflow and current step, and how many recorded steps the workflow no longer has, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
@@ -382,11 +416,15 @@ When it is the agent's turn, the step block uses these labels:
 - `MODE` says whether the step is attended or unattended, what that asks of the agent and the
   owner, and where the agent records its decisions.
 - `DELEGATE` names the child workstream a step with a workflow gate waits for, and how to run it;
-  with `for_each`, every child with its item, and that they may run side by side.
+  with `for_each`, every child with its item, and that they may run side by side. A carried-over
+  child is named with the pass it comes from and how it stands; a new child whose item had an
+  earlier attempt names it, as "retry 1 of 2 for item b" or "rerun of item b", with how it ended
+  and any document bound from it. The line never says what the gate accepts.
 - `READ` gives each consumed artifact's path and source step, input or returning child workstream;
-  a document a `for_each` step returns gets one line per child, with the item.
+  a document a `for_each` step returns gets one line per child, with the item, and a failed
+  child's line adds "which ended as failed: <reason>".
 - `RETURNS` names a document the step's own child returns, once the child is complete; with
-  `for_each`, one line per child.
+  `for_each`, one line per child; a failed child's line says so, as `READ` does.
 - `PRODUCE` gives a required artifact path, identifier, guide and template information.
 - `PRODUCE (optional)` gives an optional artifact in the same form.
 - `UPDATE` gives an artifact path the step changes and reports when the path is missing.
@@ -410,6 +448,8 @@ owner's last decision:
 - `SUMMARY:` the task, workstream slug and step position.
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or
   `workflow complete`.
+- `OUTCOME:` on `workflow complete` only for a workstream that ended as failed: the step it ended
+  at, when one did, and the reason. `PRODUCED` then includes what that step recorded.
 - `PRODUCED:` new and updated files, or a compact summary for five or more files, plus reasons for
   artifacts reported unchanged or not produced. A folder recorded whole is listed by name and does
   not count as a file.
@@ -566,7 +606,10 @@ workstream to that file, with the steps it has done. It
 also records the workstream it was started after (`after`), its parent workstream and step
 (`parent`, with the item for a child of a `for_each` gate), the inputs bound when it started
 (`inputs`), each delegating step's child per pass, or children with their item and file under a
-`for_each` gate (`children`), and its base (`base`): the commit HEAD was at when it started, with its
+`for_each` gate (`children`; a carried-over child appears again under the new pass with its slug),
+the items the owner or an automatic retry chose to re-run until the next pass records them
+(`rerun`), the automatic retries used (`retries_used`), the declared outcome (`outcome`: `succeeded`,
+or `failed` with the reason and the step it ended at), and its base (`base`): the commit HEAD was at when it started, with its
 subject. An agent gate tells the reviewer that code changes are those since the base. When a
 rebase or squash has rewritten the base, fuse-flow finds it by its subject, written before the
 workstream started and, while git still has the recorded commit, by the same author at the same
@@ -627,6 +670,8 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
   and only documents pass between them. The engine does not schedule or run the children of a
   `for_each` gate, choose their order, or merge what they return; it records the set and waits
   for it.
+- The engine does not check a declared outcome, and does not choose which items to re-run: the
+  gate's `rerun` setting or the owner's `--rerun` does.
 
 ## Code
 

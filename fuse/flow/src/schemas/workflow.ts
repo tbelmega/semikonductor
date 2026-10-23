@@ -160,8 +160,21 @@ export const WorkflowSchema = z
         }
         if (g?.kind !== "workflow") return;
         // The child is created when the step is handed out, so it is given
-        // only what exists before the step, and one document at a time.
+        // only what exists before the step, and one document at a time. A
+        // value that is one of this gate's own returns ids binds the item's
+        // previous attempt's document, so it needs no earlier writer.
+        const ownReturns = new Set(Object.keys(g.returns ?? {}));
         for (const [child, parent] of Object.entries(g.inputs ?? {})) {
+          if (ownReturns.has(parent)) {
+            if (artifactsSoFar.has(parent)) {
+              ctx.addIssue({
+                code: "custom",
+                path: ["steps", i, "gates", j, "inputs", child],
+                message: `"${step.id}" gives its child "${parent}", which is both a document of this workflow and one of the gate's own returns; rename the return, as in returns: { <new id>: ${g.returns![parent]} }`,
+              });
+            }
+            continue;
+          }
           if (!artifactsSoFar.has(parent)) {
             ctx.addIssue({
               code: "custom",
