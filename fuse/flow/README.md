@@ -290,6 +290,34 @@ steps:
   document with the same id. A delegating step that was skipped returns nothing; when the owner
   jumped past it or started the workstream after it, the step block says to restore what the
   child would have returned.
+- `for_each: <id>` on a workflow gate makes the step wait for one child workstream per item of a
+  folder artifact: `for_each: approved-units` with `inputs: { unit-spec: approved-units }`. The
+  items are the folder's direct files, as the step that produced the folder recorded them (the
+  files it named, or the folder's files when it recorded the folder whole or it came in as an
+  input); a subfolder or a dotfile is not an item. Each item's id is the file's name without its
+  extension and must be an id (lowercase letters, digits and hyphens), two files with one stem are
+  refused, and a folder with no file, a file in place of the folder, or a folder that cannot be
+  read is refused at hand-out, with the owner's way out being to skip the step or send the work
+  back. The engine reads no file's content; what goes in the files is between the producing step
+  and the child workflow. `slug` must contain `{item}`; the default is `{slug}-{step}-{item}`.
+  Every input that names the `for_each` id is bound to the item's own file, so each child reads
+  its item as an ordinary input. The set of items is recorded in the step's state when the step
+  is handed out, before any child is created, and stands for the pass: a file added to the folder
+  later is not an item, a child whose state file is gone is recreated for the same file, and two
+  commands racing to hand the step out end with one set. The `DELEGATE` line names every child
+  with its item; the agent may run them side by side, each in its own subagent. `continue` is
+  refused until every child is complete, and the refusal names each child that is not, with where
+  it stands. `returns` then resolves to one document per child: a later step's `READ` lists one
+  line per child, naming the item, or says which child recorded nothing. A per-item id is not one
+  document, so `validate` refuses it as a gate's `inputs` value or another `for_each`, `--after`
+  leaves an input of that id unbound, and an optional later producer of the same id that wrote
+  nothing does not fall back to the set; a later plain step that writes the id makes it ordinary
+  again. A send-back past the step re-reads the folder for the next pass, whose children carry the
+  pass suffix (`{slug}-{step}-{item}-2`); because an item id may itself end in `-<n>`, a next-pass
+  slug that an earlier pass's child already has is refused, naming both items, so the file is
+  renamed rather than a child adopted or overwritten. Skipping the step removes every child in
+  which nothing happened and keeps the others. A gate edited between plain and `for_each` while
+  a pass runs is refused with the send-back command, as a changed child workflow is.
 - When the owner sends the work back past a delegating step, its next pass gets a fresh child
   with a pass suffix, such as `review-adversarial-2`, and the earlier child stays as history.
   The step's state records which child belongs to which pass. Skipping a delegating step removes
@@ -297,15 +325,17 @@ steps:
 - `validate` checks the references against the other workflow files: each hand-off and gate
   target resolves and its review guides can be followed as they apply in this project, a gate's
   `inputs` name inputs the child declares and give every required one, its `returns` name
-  documents the child has, and no chain of workflow gates leads back to the workflow. A hand-off
+  documents the child has, a `for_each` names an artifact from before the step and is given to a
+  child input, and no chain of workflow gates leads back to the workflow. A hand-off
   target that takes none of this workflow's documents is only a warning.
   So is a `name` that differs from the file name; the warning names the reference
   `start --workflow` takes: the file name where a lookup by it finds the file, else the path, as
   for a `.yaml` file, which is never found by name.
   At run time, a child whose chain of parents already follows its workflow is refused.
 - `status` and `list` show the workstream a workstream was started after, its parent, the
-  workstreams started after it, and the child a waiting step waits for. Komposer draws hand-offs
-  and workflow gates as links that open the target workflow.
+  workstreams started after it, and the child a waiting step waits for, or every child of a
+  `for_each` step with its item. Komposer draws hand-offs and workflow gates as links that open
+  the target workflow.
 
 ## Commands
 
@@ -351,9 +381,12 @@ When it is the agent's turn, the step block uses these labels:
 - `CONDITION` explains why an optional step runs or how to skip it.
 - `MODE` says whether the step is attended or unattended, what that asks of the agent and the
   owner, and where the agent records its decisions.
-- `DELEGATE` names the child workstream a step with a workflow gate waits for, and how to run it.
-- `READ` gives each consumed artifact's path and source step, input or returning child workstream.
-- `RETURNS` names a document the step's own child returns, once the child is complete.
+- `DELEGATE` names the child workstream a step with a workflow gate waits for, and how to run it;
+  with `for_each`, every child with its item, and that they may run side by side.
+- `READ` gives each consumed artifact's path and source step, input or returning child workstream;
+  a document a `for_each` step returns gets one line per child, with the item.
+- `RETURNS` names a document the step's own child returns, once the child is complete; with
+  `for_each`, one line per child.
 - `PRODUCE` gives a required artifact path, identifier, guide and template information.
 - `PRODUCE (optional)` gives an optional artifact in the same form.
 - `UPDATE` gives an artifact path the step changes and reports when the path is missing.
@@ -531,8 +564,9 @@ timestamped history. A recorded workflow file that is gone, as after a move of t
 rename, is refused, never guessed; `start <slug> --workflow <its new path>` then moves the
 workstream to that file, with the steps it has done. It
 also records the workstream it was started after (`after`), its parent workstream and step
-(`parent`), the inputs bound when it started (`inputs`), each delegating step's child per
-pass (`children`), and its base (`base`): the commit HEAD was at when it started, with its
+(`parent`, with the item for a child of a `for_each` gate), the inputs bound when it started
+(`inputs`), each delegating step's child per pass, or children with their item and file under a
+`for_each` gate (`children`), and its base (`base`): the commit HEAD was at when it started, with its
 subject. An agent gate tells the reviewer that code changes are those since the base. When a
 rebase or squash has rewritten the base, fuse-flow finds it by its subject, written before the
 workstream started and, while git still has the recorded commit, by the same author at the same
@@ -545,7 +579,9 @@ Only fuse-flow writes it. The directory is gitignored.
 
 ## Rules
 
-- **Order.** Steps run one at a time in file order. There is no parallel execution.
+- **Order.** Steps run one at a time in file order; the engine runs nothing in parallel. The
+  children of a `for_each` gate are separate workstreams the agent may run side by side; the
+  parent step waits for all of them.
 - **States.** `PENDING` has not been handed out. `IN_PROGRESS` is with the agent.
   `AWAITING_OWNER` has finished work waiting on an owner action. `BLOCKED` means the planned path
   broke down. `COMPLETED` and `SKIPPED` are terminal; a skipped step records `skip_reason`.
@@ -586,10 +622,11 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
   runs them only after the owner decides.
 - The engine does not create templates, infer check commands, count review rounds, compare file
   contents, or choose jumps.
-- There are no parallel branches, path-choice constructs, workflow parameters, per-item loops or
-  reusable gate library entries. One workflow never runs inside another; workstreams only refer
-  to each other, and only documents pass between them. The engine does not start one workstream
-  per item of a list.
+- There are no parallel branches, path-choice constructs, workflow parameters or reusable gate
+  library entries. One workflow never runs inside another; workstreams only refer to each other,
+  and only documents pass between them. The engine does not schedule or run the children of a
+  `for_each` gate, choose their order, or merge what they return; it records the set and waits
+  for it.
 
 ## Code
 
