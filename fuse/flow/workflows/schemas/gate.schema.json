@@ -178,7 +178,7 @@
       "additionalProperties": false
     },
     {
-      "description": "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `for_each`, `inputs`, `returns`, `description` and `route_back_to`.",
+      "description": "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `for_each`, `inputs`, `returns`, `accept`, `rerun`, `rerun_override`, `retries`, `description` and `route_back_to`.",
       "type": "object",
       "properties": {
         "workflow": {
@@ -217,7 +217,7 @@
           }
         },
         "returns": {
-          "description": "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` resolves each to the newest child's recorded document, or with for_each to one document per child.",
+          "description": "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` resolves each to the newest child's recorded document, or with for_each to one document per child. An `inputs` value that names one of these ids binds the item's previous attempt's document to the new child.",
           "examples": [
             [
               "adversarial-review-report"
@@ -244,6 +244,31 @@
               }
             }
           ]
+        },
+        "accept": {
+          "description": "What a child must reach for the step to complete: `finished` (the default), any child that ended, whatever its outcome; or `succeeded`, every child ended as succeeded. Engine effect: under `succeeded`, `continue` is refused while a child ended as failed, naming each with its reason, and the owner sends the work back or skips the step. The DELEGATE line never mentions this setting.",
+          "type": "string",
+          "enum": [
+            "finished",
+            "succeeded"
+          ]
+        },
+        "rerun": {
+          "description": "With for_each: which items get a new child when the step is sent back to: `all` (the default), every item, as today; or `failed`, only the items whose child ended as failed, is missing or cannot be read. Engine effect: an item not selected keeps its previous child, recorded again in the new pass under the same slug, so its result stays in what later steps read.",
+          "type": "string",
+          "enum": [
+            "all",
+            "failed"
+          ]
+        },
+        "rerun_override": {
+          "description": "With for_each: whether the owner may choose the items to re-run with `continue --back-to <this step> --rerun <items>`; true unless set. Engine effect: when false, `--rerun` on this step is refused.",
+          "type": "boolean"
+        },
+        "retries": {
+          "description": "With for_each and rerun: failed: how many passes the engine opens on its own for the items whose child ended as failed, once every child of the pass has ended; 0 unless set, which keeps today's behavior. Engine effect: within the budget, the parent's `continue` opens the next pass itself, carries the succeeded children over and prints the new children to run; once it is spent, the owner decides. An owner send-back resets the count.",
+          "type": "integer",
+          "minimum": 0
         },
         "description": {
           "description": "What the gate is for, in free text, for the reader. Engine effect: none.",

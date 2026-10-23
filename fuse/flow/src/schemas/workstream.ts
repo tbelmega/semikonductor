@@ -167,6 +167,17 @@ export const StepStateSchema = z
             "Which pass of the step this is, when the owner sent the work back to it or past it; absent for the " +
             "first pass. Review rounds count per pass.",
         }),
+        rerun: z.array(z.string()).optional().meta({
+          description:
+            "With a for_each gate, after a send-back to this step: the items that get a new child in the next pass, " +
+            "chosen by the owner with --rerun or by the engine for an automatic retry; every other item keeps its " +
+            "previous child. Consumed when the pass's set is recorded.",
+        }),
+        retries_used: z.number().int().min(0).optional().meta({
+          description:
+            "With a for_each gate: how many passes the engine opened on its own for items whose child ended as failed, " +
+            "against the gate's retries. Reset by an owner send-back.",
+        }),
         earlier_pass: z.array(z.string()).optional().meta({
           description: "Before `files`: the files the step wrote in its earlier passes. Converted to `files` by the next command.",
         }),
@@ -243,6 +254,24 @@ export const WorkstreamSchema = z
     inputs: z.object({}).catchall(z.string()).optional().meta({
       description: "The workflow's inputs that were bound when the workstream started: input id -> path.",
     }),
+    outcome: z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("succeeded") }).strict(),
+        z
+          .object({
+            kind: z.literal("failed"),
+            reason: z.string().min(1),
+            step: z.string().optional().meta({ description: "The step the workstream was failed at; absent when it was declared on a complete workstream." }),
+          })
+          .strict(),
+      ])
+      .optional()
+      .meta({
+        description:
+          "How the workstream ended, as its agent declared it with `fuse-flow finish`; the engine records the " +
+          "declaration and does not verify it. Absent when nothing was declared: a complete workstream then reads as " +
+          "succeeded. A hand-out or a send-back deletes it, since new work makes the declaration stale.",
+      }),
     steps: z.object({}).catchall(StepStateSchema).meta({ description: "The state of each step, by step id." }),
   })
   .strict()

@@ -101,7 +101,7 @@ function recordsOf(root: string, slug: string, id: string, before?: string, seen
   for (const step of wf.steps.slice(0, end < 0 ? wf.steps.length : end).reverse()) {
     const state = stateOf(ws, step.id);
     const returned = own(childGate(step)?.returns, id);
-    if (state.status !== "COMPLETED" && state.status !== "AWAITING_OWNER") {
+    if (!recorder(ws, step.id, state.status)) {
       if (returned !== undefined) return [];
       continue;
     }
@@ -130,13 +130,38 @@ export function isComplete(root: string, slug: string): boolean {
   return firstUnfinished(workflowOf(root, ws), ws) === undefined;
 }
 
+export type Outcome = "succeeded" | "failed";
+
+// How a complete workstream ended: as its agent declared, else succeeded, so
+// state files written before outcomes existed read as they always did.
+// Undefined while the workstream is not complete.
+export function outcomeOf(root: string, slug: string): Outcome | undefined {
+  if (!isComplete(root, slug)) return undefined;
+  return readWorkstream(root, slug).outcome?.kind ?? "succeeded";
+}
+
+// A failed outcome in words; undefined for any other.
+export function outcomeText(ws: Workstream): string | undefined {
+  const o = ws.outcome;
+  if (o?.kind !== "failed") return undefined;
+  return o.step !== undefined ? `ended as failed at step ${o.step}: ${o.reason}` : `ended as failed: ${o.reason}`;
+}
+
+// Whether a step's records are what it hands on: it finished its work, or it
+// is the step the workstream was failed at, whose verdict the parent reads.
+const recorder = (ws: Workstream, stepId: string, status: string) =>
+  status === "COMPLETED" || status === "AWAITING_OWNER" || (ws.outcome?.kind === "failed" && ws.outcome.step === stepId && status === "SKIPPED");
+
 // Where a workstream stands, in words, for the step that waits for it.
 export function whereIs(root: string, slug: string): string {
   if (!workstreamExists(root, slug)) return "does not exist";
   const ws = readWorkstream(root, slug);
   const wf = workflowOf(root, ws);
   const step = firstUnfinished(wf, ws);
-  if (!step) return "is complete";
+  if (!step) {
+    const failed = outcomeText(ws);
+    return failed ? `is complete, ${failed}` : "is complete";
+  }
   const state = stateOf(ws, step.id);
   const at = `step ${step.id} (${wf.steps.indexOf(step) + 1} of ${wf.steps.length})`;
   switch (state.status) {
@@ -231,7 +256,7 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
   for (const step of wf.steps.slice(0, end < 0 ? wf.steps.length : end).reverse()) {
     const state = stateOf(ws, step.id);
     const returned = own(childGate(step)?.returns, id);
-    if (state.status !== "COMPLETED" && state.status !== "AWAITING_OWNER") {
+    if (!recorder(ws, step.id, state.status)) {
       // A delegating step that was skipped or has not finished has returned
       // nothing, and an older document of that id does not stand in, as the
       // step block says.
@@ -259,12 +284,25 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
 
 // What each child of a for_each step's newest pass returned under the
 // child's id `childId`: the path once the child is complete and recorded
-// it; `complete` says whether it is.
-export function returnedDocuments(root: string, state: StepState, childId: string): { slug: string; item?: string; complete: boolean; path?: string }[] {
+// it; `complete` says whether it is, and `outcome` how it ended.
+export function returnedDocuments(
+  root: string,
+  state: StepState,
+  childId: string,
+): { slug: string; item?: string; complete: boolean; path?: string; outcome?: Outcome; failed?: string }[] {
   return newestChildren(state).map(({ slug, item }) => {
     const complete = isComplete(root, slug);
     const path = complete ? documentOf(root, slug, childId) : undefined;
-    return { slug, ...(item !== undefined ? { item } : {}), complete, ...(path !== undefined ? { path } : {}) };
+    const outcome = complete ? outcomeOf(root, slug) : undefined;
+    const failed = outcome === "failed" ? outcomeText(readWorkstream(root, slug)) : undefined;
+    return {
+      slug,
+      ...(item !== undefined ? { item } : {}),
+      complete,
+      ...(path !== undefined ? { path } : {}),
+      ...(outcome !== undefined ? { outcome } : {}),
+      ...(failed !== undefined ? { failed } : {}),
+    };
   });
 }
 
@@ -364,8 +402,12 @@ export function crossCheck(root: string, file: string, wf: Workflow, only: (step
     }
     if (only(step)) guides(at, target);
     const declared = new Map(target.wf.inputs.map((i) => [i.artifact, i]));
-    for (const id of Object.keys(gate.inputs ?? {})) {
+    for (const [id, source] of Object.entries(gate.inputs ?? {})) {
       if (!declared.has(id)) errors.push(`${at}: inputs names "${id}", which ${target.wf.name} does not declare as an input`);
+      // A first attempt has no previous attempt to read, so the input must be optional.
+      else if (has(gate.returns, source) && declared.get(id)!.required) {
+        errors.push(`${at}: inputs binds "${id}" from the gate's own return "${source}", the item's previous attempt, which a first attempt does not have; ${target.wf.name} must not require that input`);
+      }
     }
     for (const input of target.wf.inputs) {
       if (input.required && !has(gate.inputs, input.artifact)) {

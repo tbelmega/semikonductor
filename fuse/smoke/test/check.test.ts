@@ -532,3 +532,33 @@ test("an edited project copy of the workflow fails", () => {
   expect(result.out).toContain("differs from the workflow under test");
   expect(result.code).toBe(1);
 });
+
+test("a child carried over into a for_each step's new pass is checked as that pass's child", () => {
+  const { root, env } = project();
+  const parent = join(root, "per-item.yml");
+  writeFileSync(parent, PER_ITEM.replace("        inputs: { unit: units }\n", "        inputs: { unit: units }\n        rerun: failed\n"));
+  writeFileSync(join(root, "note-kid.yml"), NOTE_KID.replace("steps:", "inputs:\n  - artifact: unit\nsteps:"));
+  flow(root, env, "start", "hello", "--workflow", parent);
+  write(root, "units/a.json");
+  write(root, "units/b.json");
+  flow(root, env, "continue", "hello");
+  const runKid = (kid: string) => {
+    flow(root, env, "start", kid);
+    write(root, `kid/${kid}.md`);
+    write(root, "kid-ok");
+    flow(root, env, "continue", kid);
+  };
+  runKid("hello-delegate-a");
+  flow(root, env, "start", "hello-delegate-b");
+  flow(root, env, "finish", "hello-delegate-b", "--outcome", "failed", "--reason", "no unit spec");
+  flow(root, env, "continue", "hello", "--back-to", "delegate");
+  runKid("hello-delegate-b-2");
+  flow(root, env, "continue", "hello");
+  flow(root, env, "continue", "hello");
+  const passing = check(root, parent, env);
+  expect(passing.out).toContain("workstream hello-delegate-a (child of hello, step delegate) follows");
+  expect(passing.out).toContain("workstream hello-delegate-b-2 (child of hello, step delegate) follows");
+  // The failed first attempt belongs to pass 1, which the new pass replaced.
+  expect(passing.out).toContain("workstream hello-delegate-b (child of hello, step delegate) is not checked");
+  expect(passing.out).toContain("MECHANICAL: PASS");
+});

@@ -16,8 +16,12 @@ export type GateKind = (typeof GATE_KINDS)[number];
 // slug, inputs, returns and for_each are set on workflow gates only: the
 // child's slug template, its inputs (child input id -> parent artifact id),
 // the documents it returns (parent id -> child id), and the folder artifact
-// whose files the step waits for one child each. route_back_to lists the
-// steps to suggest sending the work back to.
+// whose files the step waits for one child each. accept says whether a child
+// that ended as failed passes the gate; rerun, rerun_override and retries say
+// which items of a for_each gate get a new child after a send-back, whether
+// the owner may choose them, and how many passes the engine opens on its own
+// for failed items. route_back_to lists the steps to suggest sending the work
+// back to.
 export type Gate = {
   kind: GateKind;
   text: string;
@@ -28,6 +32,10 @@ export type Gate = {
   inputs?: Record<string, string>;
   returns?: Record<string, string>;
   for_each?: string;
+  accept?: "finished" | "succeeded";
+  rerun?: "all" | "failed";
+  rerun_override?: boolean;
+  retries?: number;
   route_back_to: string[];
 };
 
@@ -84,8 +92,8 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   let text: unknown;
   let extra: Record<string, unknown> = {};
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, ...rest } = v as Record<string, unknown>;
-    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each };
+    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, ...rest } = v as Record<string, unknown>;
+    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries };
     const entries = Object.entries(rest);
     if (entries.length !== 1) return `${HINT}; got ${JSON.stringify(v)}`;
     [kind, text] = entries[0];
@@ -107,11 +115,11 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   if (kind === "check" && !CHECK_KIND.test(trimmed)) {
     return `check names a kind of check, a single lower-case word such as default; for a command use \`script: ${trimmed}\``;
   }
-  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns, for_each: forEach } = extra;
+  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns, for_each: forEach, accept, rerun, rerun_override: rerunOverride, retries } = extra;
   if (description !== undefined && typeof description !== "string") return "description must be text";
   if (asCondition) {
     if (kind === "workflow") return "a condition cannot be a workflow; a workflow gate goes under gates";
-    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns", "for_each"] as const) {
+    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns", "for_each", "accept", "rerun", "rerun_override", "retries"] as const) {
       if (extra[field] !== undefined) return `a condition has no ${field}`;
     }
     return { kind, text: trimmed, ...(description !== undefined ? { description: description as string } : {}), route_back_to: [] };
@@ -124,7 +132,7 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   }
   if (guide !== undefined && kind !== "agent") return "guide goes on an agent gate only";
   if (guide !== undefined && (typeof guide !== "string" || !guide.trim())) return "guide must be a path";
-  for (const field of ["slug", "inputs", "returns", "for_each"] as const) {
+  for (const field of ["slug", "inputs", "returns", "for_each", "accept", "rerun", "rerun_override", "retries"] as const) {
     if (extra[field] !== undefined && kind !== "workflow") return `${field} goes on a workflow gate only`;
   }
   const gate: Gate = { kind, text: trimmed, route_back_to: routes };
@@ -134,6 +142,28 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   if (forEach !== undefined) {
     if (typeof forEach !== "string" || !ID.test(forEach)) return `for_each names an artifact id, lowercase letters, digits and hyphens; got ${JSON.stringify(forEach)}`;
     gate.for_each = forEach;
+  }
+  if (accept !== undefined) {
+    if (accept !== "finished" && accept !== "succeeded") return `accept is finished or succeeded; got ${JSON.stringify(accept)}`;
+    gate.accept = accept;
+  }
+  // rerun, rerun_override and retries decide which items get a new child, so
+  // they mean nothing without items.
+  for (const [field, value] of [["rerun", rerun], ["rerun_override", rerunOverride], ["retries", retries]] as const) {
+    if (value !== undefined && forEach === undefined) return `${field} needs for_each on the gate`;
+  }
+  if (rerun !== undefined) {
+    if (rerun !== "all" && rerun !== "failed") return `rerun is all or failed; got ${JSON.stringify(rerun)}`;
+    gate.rerun = rerun;
+  }
+  if (rerunOverride !== undefined) {
+    if (typeof rerunOverride !== "boolean") return `rerun_override is true or false; got ${JSON.stringify(rerunOverride)}`;
+    gate.rerun_override = rerunOverride;
+  }
+  if (retries !== undefined) {
+    if (!Number.isInteger(retries) || (retries as number) < 0) return `retries is a whole number, 0 or more; got ${JSON.stringify(retries)}`;
+    if ((retries as number) > 0 && rerun !== "failed") return "retries needs rerun: failed; under rerun: all there is nothing to retry";
+    gate.retries = retries as number;
   }
   if (slug !== undefined) {
     // {slug} keeps two parent workstreams from sharing one child; {item}
@@ -273,9 +303,37 @@ const SHAPES = [
           description:
             "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of " +
             "id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` " +
-            "resolves each to the newest child's recorded document, or with for_each to one document per child.",
+            "resolves each to the newest child's recorded document, or with for_each to one document per child. " +
+            "An `inputs` value that names one of these ids binds the item's previous attempt's document to the new child.",
           examples: [["adversarial-review-report"], { "system-design": "design" }],
         }),
+      accept: z.enum(["finished", "succeeded"]).optional().meta({
+        description:
+          "What a child must reach for the step to complete: `finished` (the default), any child that ended, " +
+          "whatever its outcome; or `succeeded`, every child ended as succeeded. Engine effect: under `succeeded`, " +
+          "`continue` is refused while a child ended as failed, naming each with its reason, and the owner sends the " +
+          "work back or skips the step. The DELEGATE line never mentions this setting.",
+      }),
+      rerun: z.enum(["all", "failed"]).optional().meta({
+        description:
+          "With for_each: which items get a new child when the step is sent back to: `all` (the default), every " +
+          "item, as today; or `failed`, only the items whose child ended as failed, is missing or cannot be read. " +
+          "Engine effect: an item not selected keeps its previous child, recorded again in the new pass under the " +
+          "same slug, so its result stays in what later steps read.",
+      }),
+      rerun_override: z.boolean().optional().meta({
+        description:
+          "With for_each: whether the owner may choose the items to re-run with `continue --back-to <this step> " +
+          "--rerun <items>`; true unless set. Engine effect: when false, `--rerun` on this step is refused.",
+      }),
+      retries: z.number().int().min(0).optional().meta({
+        description:
+          "With for_each and rerun: failed: how many passes the engine opens on its own for the items whose child " +
+          "ended as failed, once every child of the pass has ended; 0 unless set, which keeps today's behavior. " +
+          "Engine effect: within the budget, the parent's `continue` opens the next pass itself, carries the " +
+          "succeeded children over and prints the new children to run; once it is spent, the owner decides. An " +
+          "owner send-back resets the count.",
+      }),
       description: DESCRIPTION,
       route_back_to: ROUTE_BACK_TO,
     })
@@ -283,7 +341,7 @@ const SHAPES = [
     .meta({
       description:
         "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `for_each`, `inputs`, `returns`, " +
-        "`description` and `route_back_to`.",
+        "`accept`, `rerun`, `rerun_override`, `retries`, `description` and `route_back_to`.",
     }),
   z.string().meta({
     description: 'As a string: `owner-action("…")`, `check: default`, `script("…")`, `agent: …` or `workflow: <name>`.',

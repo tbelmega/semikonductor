@@ -74,6 +74,11 @@ script installs plain skills and an always-on instruction block that every suppo
     per file in the folder, each given its own file as an input. The `DELEGATE` line names every
     child with its item, `continue` waits until all are complete, and later steps read one
     returned document per child, labelled with its item.
+  - A child workstream ends as succeeded or failed; its agent declares a failure with `finish`.
+    On a `for_each` gate, `rerun: failed` gives new children only to the items that failed when
+    the owner sends the work back, and carries the others over; the owner can name the items with
+    `--rerun`. `retries: <n>` lets fuse-flow re-run failed items itself, handing each new child the
+    previous attempt's document. `accept: succeeded` holds the step while any child failed.
   - A workstream records its base, the commit HEAD was at when it started, with that commit's
     subject. Agent reviews of code cover the changes since the base, so they work on any
     branching strategy, including on the integration branch itself. After a rebase or squash
@@ -163,6 +168,9 @@ script installs plain skills and an always-on instruction block that every suppo
     everywhere.
   - The address names the page and the selected workflow, so back and forward move between them
     and a link opens the same view.
+  - It keeps a workflow gate's `for_each`, `accept`, `rerun`, `rerun_override` and `retries` on
+    edit and in Compare, shows them in the gate's tooltip, and shows a `for_each` run as waiting
+    until every child of the pass is complete.
 - **Skills:**
   - `fuse-workstream`: finds a workstream to resume, recommends a workflow for new work, starts it
     once the user agrees, and runs it, keeping fuse-flow's commands out of what the owner reads.
