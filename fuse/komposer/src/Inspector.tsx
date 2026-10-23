@@ -7,7 +7,7 @@
 import { useEffect, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { shownText } from "./model/editWorkflow.ts";
 import YAML, { Scalar } from "yaml";
-import { BookOpen, Captions, Plus, Settings2, X } from "lucide-react";
+import { BookOpen, Captions, Layers, Plus, Settings2, X } from "lucide-react";
 import type { FileRef, LibraryEntry, ReviewGuides, WorkstreamSummary } from "./api.ts";
 import { dateTime, projectName, RUN_STATE } from "./runView.ts";
 import { followsWorkflow, stateOf } from "./model/workstreams.ts";
@@ -16,7 +16,26 @@ import { entryFileNames, libraryUse, winningEntry } from "./model/artifactInstru
 import { folderPrefixes, useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
 import { CHECK_KIND } from "../../flow/src/schemas/gate.ts";
-import { instructionTakesBlock, type Edit, type GateKind, type OutputMode } from "./model/yamlEdit.ts";
+import { instructionTakesBlock, type Edit, type GateFields, type GateKind, type OutputMode } from "./model/yamlEdit.ts";
+import {
+  addRow,
+  childInputsOf,
+  childSlugFor,
+  defaultChildSlug,
+  delegationView,
+  draftOwner,
+  draftFor,
+  gateArtifacts,
+  isPerItem,
+  oneChildFields,
+  perItemFields,
+  rebindRow,
+  removeRow,
+  renameRow,
+  rerunFields,
+  type DraftChange,
+  type InputsDraft,
+} from "./model/delegation.ts";
 import {
   delegationOf,
   gatesInRunOrder,
@@ -32,7 +51,7 @@ import {
   type WorkflowLink,
 } from "./workflowView.ts";
 import type { WorkflowInput } from "../../flow/src/schemas/workflow.ts";
-import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
+import type { Gate } from "../../flow/src/schemas/gate.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import { ModeBadge } from "./Flow.tsx";
 import type { Problem } from "./validate.ts";
@@ -211,6 +230,7 @@ export function RailPanel({
               inputs={workflowInputs(workflow)}
               linkTo={linkTo}
               onOpenWorkflow={onOpenWorkflow}
+              allWorkflows={allWorkflows}
             />
           ) : (
             <div className="inspector-empty">Select a step in the diagram.</div>
@@ -266,6 +286,7 @@ function StepTab({
   inputs,
   linkTo,
   onOpenWorkflow,
+  allWorkflows,
 }: {
   step?: StepView;
   steps: StepView[];
@@ -282,6 +303,7 @@ function StepTab({
   inputs: WorkflowInput[];
   linkTo: (ref: string) => WorkflowLink;
   onOpenWorkflow: (key: string) => void;
+  allWorkflows: OpenWorkflow[];
 }) {
   const [expand, setExpand] = useState(false);
   const sections = useFolderState("komposer:step-sections");
@@ -839,9 +861,16 @@ function StepTab({
                     <DelegationFields
                       gate={gate}
                       stepId={step.id}
+                      owner={draftOwner(selectedIndex, step.id, fileIndex)}
                       link={linkTo(gate.text)}
                       onSet={(fields) => onEdit({ op: "setGate", step: selectedIndex, index: fileIndex, fields })}
                       onOpenWorkflow={onOpenWorkflow}
+                      options={gateArtifacts(
+                        inputs.map((i) => i.artifact),
+                        steps,
+                        selectedIndex,
+                      )}
+                      allWorkflows={allWorkflows}
                     />
                   )}
                   <label className="mini-field">
@@ -1542,22 +1571,26 @@ function gateTextLabel(kind: string) {
   );
 }
 
-// A workflow gate's own fields: the child workstream's slug and the ids the
-// child returns, which Komposer edits, and the inputs it gives the child,
-// shown as written. Returns written as a mapping of other names are shown as
-// written too; they are changed in the file.
+// Every decision is delegation.ts's, so it can be tested without the DOM.
+// Returns written as a mapping of other names stay read-only: a list cannot hold them.
 function DelegationFields({
   gate,
   stepId,
+  owner,
   link,
   onSet,
   onOpenWorkflow,
+  options,
+  allWorkflows,
 }: {
   gate: Gate;
   stepId: string;
+  owner: string;
   link: WorkflowLink;
-  onSet: (fields: { slug?: string | null; returns?: string[] | null }) => void;
+  onSet: (fields: GateFields) => void;
   onOpenWorkflow: (key: string) => void;
+  options: { forEach: string[]; inputs: string[] };
+  allWorkflows: OpenWorkflow[];
 }) {
   const returns = Object.entries(gate.returns ?? {});
   const listForm = returns.every(([id, from]) => id === from);
@@ -1568,56 +1601,217 @@ function DelegationFields({
     const ids = draft.split(/[\s,]+/).filter(Boolean);
     if (ids.join(", ") !== returnsText) onSet({ returns: ids.length ? ids : null });
   };
-  const inputs = Object.entries(gate.inputs ?? {});
+  const [stored, setStored] = useState<InputsDraft | undefined>(undefined);
+  const inputsDraft = draftFor(gate, stored, owner);
+  const childInputs = childInputsOf(link, allWorkflows);
+  const view = delegationView(gate, inputsDraft, childInputs, options);
+  const apply = (result: DraftChange) => {
+    setStored(result.draft);
+    if (result.fields) onSet(result.fields);
+  };
+  const chooseFolder = (folder: string) => {
+    if (!folder) return;
+    setStored({ ...inputsDraft, pendingPerItem: false });
+    onSet(perItemFields(gate, folder, childInputs).fields);
+  };
+  const suggestionsId = `kp-child-inputs-${stepId}`;
   return (
-    <div className="delegation-grid">
-      <span className="mini-label">
-        child <span className="field-tag is-optional">optional</span>
-        <InfoTip doc={GATE_FIELD_DOCS.slug} />
-      </span>
-      <span className="mini-label">
-        returns <span className="field-tag is-optional">optional</span>
-        <InfoTip doc={GATE_FIELD_DOCS.returns} />
-      </span>
-      <input
-        className="field-input mono-input is-small"
-        value={gate.slug ?? ""}
-        placeholder={DEFAULT_CHILD_SLUG}
-        aria-label="Child workstream slug"
-        data-tip={`for workstream <slug>: ${(gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{step}", stepId)}`}
-        onChange={(e) => onSet({ slug: e.target.value || null })}
-      />
-      {listForm ? (
+    <div className="delegation-fields">
+      <div className="mini-field">
+        <span className="mini-label">
+          children <span className="field-tag is-optional">optional</span>
+          <InfoTip doc={GATE_FIELD_DOCS.forEach} />
+        </span>
+        <div className="delegation-children">
+          <div className="pill-row">
+            <button
+              type="button"
+              className={`toggle-pill${view.perItem ? "" : " is-on"}`}
+              onClick={() => {
+                setStored({ ...inputsDraft, pendingPerItem: false });
+                if (isPerItem(gate)) onSet(oneChildFields(gate));
+              }}
+            >
+              One child
+            </button>
+            <button
+              type="button"
+              className={`toggle-pill${view.perItem ? " is-on" : ""}`}
+              disabled={view.perItemDisabled}
+              {...(view.perItemDisabled ? { "data-tip": "No earlier artifact to iterate over" } : {})}
+              onClick={() => !isPerItem(gate) && setStored({ ...inputsDraft, pendingPerItem: true })}
+            >
+              <Layers size={12} aria-hidden="true" /> One for-each item of
+            </button>
+          </div>
+          {view.perItem && (
+            <select
+              className="field-input mono-input is-small delegation-select"
+              aria-label="Folder to iterate over"
+              value={gate.for_each ?? ""}
+              onChange={(e) => chooseFolder(e.target.value)}
+            >
+              {gate.for_each === undefined && <option value="">choose a folder</option>}
+              {view.forEachOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.available ? o.id : `${o.id} (not available here)`}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {view.needsBinding && (
+          <span className="field-hint">Bind {gate.for_each} to one of the child's inputs below.</span>
+        )}
+      </div>
+      <div className="mini-field">
+        <span className="mini-label">
+          inputs <span className="field-tag is-optional">optional</span>
+          <InfoTip doc={GATE_FIELD_DOCS.inputs} />
+        </span>
+        <datalist id={suggestionsId}>
+          {view.suggestions.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+        <div className="delegation-inputs">
+          {view.rows.map((row, i) => (
+            <div key={i} className="delegation-input-row">
+              <select
+                className="field-input mono-input is-small delegation-select"
+                value={row.artifact}
+                aria-label="Artifact given to the child input"
+                onChange={(e) => apply(rebindRow(inputsDraft, i, e.target.value))}
+              >
+                {!row.artifact && <option value="">artifact</option>}
+                {row.options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.available ? o.id : `${o.id} (not available here)`}
+                  </option>
+                ))}
+              </select>
+              <span className="delegation-arrow" aria-hidden="true">
+                →
+              </span>
+              <input
+                className="field-input mono-input is-small"
+                value={row.name}
+                placeholder="child input"
+                aria-label="Child input"
+                list={suggestionsId}
+                data-error={!!row.error}
+                onChange={(e) => apply(renameRow(inputsDraft, i, e.target.value))}
+              />
+              <button type="button" className="icon-mini" data-tip="Remove input" aria-label="Remove input" onClick={() => apply(removeRow(inputsDraft, i))}>
+                <X size={14} />
+              </button>
+              {row.itemFile && <span className="field-hint delegation-row-note">each child gets its item's file</span>}
+              {row.error && <span className="field-error delegation-row-note">{row.error}</span>}
+            </div>
+          ))}
+          <button type="button" className="text-button is-small" onClick={() => apply(addRow(inputsDraft))}>
+            + Add input
+          </button>
+        </div>
+      </div>
+      <label className="mini-field">
+        <span className="mini-label">
+          acceptance criteria <span className="field-tag is-optional">optional</span>
+          <InfoTip doc={GATE_FIELD_DOCS.accept} />
+        </span>
+        <select
+          className="field-input delegation-select"
+          value={gate.accept ?? "finished"}
+          onChange={(e) => onSet({ accept: e.target.value as "finished" | "succeeded" })}
+        >
+          <option value="finished">all children are completed</option>
+          <option value="succeeded">all children are successful</option>
+        </select>
+      </label>
+      {view.perItem && (
+        <div className="field-grid">
+          <label className="mini-field">
+            <span className="mini-label">
+              re-run on send-back <InfoTip doc={GATE_FIELD_DOCS.rerun} />
+            </span>
+            <select
+              className="field-input delegation-select"
+              value={gate.rerun ?? "all"}
+              disabled={!isPerItem(gate)}
+              onChange={(e) => onSet(rerunFields(e.target.value as "all" | "failed", gate))}
+            >
+              <option value="all">all items</option>
+              <option value="failed">failed items only</option>
+            </select>
+          </label>
+          <label className="mini-field">
+            <span className="mini-label">
+              automatic retries <InfoTip doc={GATE_FIELD_DOCS.retries} />
+            </span>
+            <input
+              className="field-input"
+              type="number"
+              min={0}
+              placeholder="0"
+              value={gate.retries ?? ""}
+              disabled={!view.retriesEnabled}
+              onChange={(e) => onSet({ retries: e.target.value ? Number(e.target.value) : null })}
+            />
+          </label>
+          <label className="mini-field delegation-check">
+            <input
+              type="checkbox"
+              checked={gate.rerun_override !== false}
+              disabled={!isPerItem(gate)}
+              onChange={(e) => onSet({ rerun_override: e.target.checked })}
+            />
+            <span className="mini-label">
+              owner may choose items <InfoTip doc={GATE_FIELD_DOCS.rerunOverride} />
+            </span>
+          </label>
+        </div>
+      )}
+      <div className="delegation-grid">
+        <span className="mini-label">
+          child <span className="field-tag is-optional">optional</span>
+          <InfoTip doc={GATE_FIELD_DOCS.slug} />
+        </span>
+        <span className="mini-label">
+          returns <span className="field-tag is-optional">optional</span>
+          <InfoTip doc={GATE_FIELD_DOCS.returns} />
+        </span>
         <input
           className="field-input mono-input is-small"
-          value={draft}
-          placeholder="artifact ids, comma separated"
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => e.key === "Enter" && commit()}
+          value={gate.slug ?? ""}
+          placeholder={defaultChildSlug(gate)}
+          aria-label="Child workstream slug"
+          data-tip={`for workstream <slug>: ${childSlugFor(gate, stepId)}`}
+          onChange={(e) => onSet({ slug: e.target.value || null })}
         />
-      ) : (
-        <span className="mono delegation-written" data-tip="Written as a mapping; edit in YAML">
-          {returns.map(([id, from]) => (id === from ? id : `${id} ← ${from}`)).join(", ")}
-        </span>
-      )}
-      {inputs.length > 0 && (
-        <span className="delegation-inputs">
-          <span className="mini-label">
-            inputs <InfoTip doc={GATE_FIELD_DOCS.inputs} />
+        {listForm ? (
+          <input
+            className="field-input mono-input is-small"
+            value={draft}
+            placeholder="artifact ids, comma separated"
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => e.key === "Enter" && commit()}
+          />
+        ) : (
+          <span className="mono delegation-written" data-tip="Written as a mapping; edit in YAML">
+            {returns.map(([id, from]) => (id === from ? id : `${id} ← ${from}`)).join(", ")}
           </span>
-          <span className="mono">{inputs.map(([a, b]) => (a === b ? a : `${a} ← ${b}`)).join(", ")}</span>
-        </span>
-      )}
-      <button
-        type="button"
-        className="delegation-open"
-        disabled={!link.ok}
-        data-tip={link.ok ? `Open ${link.path}` : link.reason}
-        onClick={() => link.ok && onOpenWorkflow(link.key)}
-      >
-        {link.ok ? `Open ${gate.text || "…"} →` : `${gate.text || "…"} · not found`}
-      </button>
+        )}
+        <button
+          type="button"
+          className="delegation-open"
+          disabled={!link.ok}
+          data-tip={link.ok ? `Open ${link.path}` : link.reason}
+          onClick={() => link.ok && onOpenWorkflow(link.key)}
+        >
+          {link.ok ? `Open ${gate.text || "…"} →` : `${gate.text || "…"} · not found`}
+        </button>
+      </div>
     </div>
   );
 }

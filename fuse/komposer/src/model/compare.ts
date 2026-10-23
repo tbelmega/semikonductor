@@ -83,8 +83,13 @@ const gateSettings = (g: Gate) =>
     guide: g.guide,
     route_back_to: g.route_back_to,
     slug: g.slug,
+    for_each: g.for_each,
     inputs: g.inputs,
     returns: g.returns,
+    accept: g.accept,
+    rerun: g.rerun,
+    rerun_override: g.rerun_override,
+    retries: g.retries,
   });
 const conditionValue = (c: StepView["condition"]) => (c ? canonical({ kind: c.kind, text: c.text, description: c.description }) : "");
 
@@ -372,11 +377,14 @@ export function applyProblem(left: OpenWorkflow, right: OpenWorkflow): string | 
   return copySourceProblem(right);
 }
 
-// The structured edits cannot write a workflow gate's inputs or a returns
-// mapping, so a gate that carries a slug, inputs or returns is never copied
-// or changed from Compare, rather than copied without them.
-const delegates = (g: Gate) => g.kind === "workflow" && (g.slug !== undefined || !!g.inputs || !!g.returns);
-const delegation = (g: Gate) => canonical({ slug: g.slug, inputs: g.inputs, returns: g.returns });
+// Compare does not copy a workflow gate's delegation fields (gateFields below
+// leaves them out), so a gate that carries any of them is never copied or
+// changed from Compare, rather than copied without them.
+const RERUN_KEYS = ["accept", "rerun", "rerun_override", "retries"] as const;
+const delegates = (g: Gate) =>
+  g.kind === "workflow" && (g.slug !== undefined || !!g.inputs || !!g.returns || g.for_each !== undefined || RERUN_KEYS.some((k) => g[k] !== undefined));
+const delegation = (g: Gate) =>
+  canonical({ slug: g.slug, inputs: g.inputs, returns: g.returns, for_each: g.for_each, accept: g.accept, rerun: g.rerun, rerun_override: g.rerun_override, retries: g.retries });
 
 export const GATE_LABEL: Record<Gate["kind"], string> = {
   "owner-action": "owner",
@@ -477,7 +485,7 @@ export function differences(x: StepView, y: StepView, step: number, files?: Comp
     out.push({ mark: "chg", label: `${a.artifact} ${label.join(", ")}`, edits });
   }
   const refusal = (g: Gate) =>
-    `The workflow gate ${g.text} sets the child's slug, inputs or returns, which Compare cannot write; change it on the Edit page instead.`;
+    `The workflow gate ${g.text} sets the child's slug, inputs, returns, for_each, accept, rerun, rerun_override or retries, which Compare cannot write; change it on the Edit page instead.`;
   // Compare adds a gate at the end of the left list. Gates of one rank run in
   // file order, so a gate the right step runs before a gate both steps have
   // would run after it; such an addition is refused rather than misplaced.
@@ -551,7 +559,7 @@ export function moveEdits(row: CompareRow): Edit[] {
 export function copyStepEdits(source: StepView[], index: number, target: StepView[], at?: number, files?: CompareFiles): Edit[] {
   const step = { ...source[index], gates: source[index].gates.map((g) => gateForLeft(g, files)) };
   if (step.gates.some(delegates))
-    throw new Error(`Step ${step.id} has a workflow gate with a slug, inputs or returns; copy it in edit mode instead.`);
+    throw new Error(`Step ${step.id} has a workflow gate with a slug, inputs, returns, for_each, accept, rerun, rerun_override or retries; copy it in edit mode instead.`);
   const position = copyPosition(source, index, target, at);
   const edits: Edit[] = [];
   const to = position.at;

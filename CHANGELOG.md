@@ -168,9 +168,12 @@ script installs plain skills and an always-on instruction block that every suppo
     everywhere.
   - The address names the page and the selected workflow, so back and forward move between them
     and a link opens the same view.
-  - It keeps a workflow gate's `for_each`, `accept`, `rerun`, `rerun_override` and `retries` on
-    edit and in Compare, shows them in the gate's tooltip, and shows a `for_each` run as waiting
-    until every child of the pass is complete.
+  - A workflow gate's `for_each`, `accept`, `rerun`, `rerun_override` and `retries` are shown and
+    edited in Komposer. A for-each gate is marked on every diagram with a layers glyph and a
+    `for-each <folder>` chip, and the folder's consumes chip carries the same glyph. The step
+    inspector switches a gate between one child and one per item of a folder, edits its inputs, and
+    sets what lets the step complete and how failed items are re-run. Compare keeps these settings
+    and shows them, and a for-each run shows as waiting until every child of the pass is complete.
 - **Skills:**
   - `fuse-workstream`: finds a workstream to resume, recommends a workflow for new work, starts it
     once the user agrees, and runs it, keeping fuse-flow's commands out of what the owner reads.

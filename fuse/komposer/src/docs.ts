@@ -113,4 +113,15 @@ export const GATE_FIELD_DOCS = {
   slug: fieldFromGateUnion("slug", false),
   inputs: fieldFromGateUnion("inputs", false),
   returns: fieldFromGateUnion("returns", false),
+  // A workflow gate's per-item and outcome settings, in Komposer's own words:
+  // the schema's descriptions are written for the engine (rule 5).
+  forEach: komposerDoc("for_each", "One child workstream per file in the chosen folder, each given its own file."),
+  accept: komposerDoc("accept", "What lets the step complete: all children completed, failed or not, or all children successful."),
+  rerun: komposerDoc("rerun", "Which items get a new child when the owner sends the work back; the others are carried over."),
+  rerunOverride: komposerDoc("rerun_override", "Whether the owner can name the items that get a new child on a send-back."),
+  retries: komposerDoc("retries", "How many times failed items get a new child by themselves, with the previous attempt's documents."),
 };
+
+function komposerDoc(yamlKey: string, description: string): FieldDoc {
+  return { yamlKey, required: false, description };
+}
