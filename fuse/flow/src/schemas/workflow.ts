@@ -94,7 +94,7 @@ export const WorkflowSchema = z
     // values that step was written with, so read lists defensively.
     const list = <T>(v: T[] | unknown): T[] => (Array.isArray(v) ? v : []);
     type Written = { artifact: string };
-    type WrittenGate = { kind?: string; route_back_to?: string[]; inputs?: Record<string, string>; returns?: Record<string, string> };
+    type WrittenGate = { kind?: string; route_back_to?: string[]; inputs?: Record<string, string>; returns?: Record<string, string>; for_each?: string };
     const written = (step: (typeof wf.steps)[number]) =>
       [...list<Written>(step.produces), ...list<Written>(step.optional_produces), ...list<Written>(step.updates)].map((a) => a?.artifact);
     // An input stands for a document from outside, so no step may write one.
@@ -109,6 +109,10 @@ export const WorkflowSchema = z
     // order, which is the order fuse-flow runs the steps in, respects both.
     const earlier = new Set<string>();
     const artifactsSoFar = new Set<string>(inputs);
+    // Ids whose nearest earlier writer returns one document per item, which
+    // one input cannot take; a later plain writer makes the id ordinary again.
+    const perItem = new Map<string, string>();
+    const perItemRefusal = (id: string) => `, which step ${perItem.get(id)} returns once per item; one input cannot take one document per item`;
     wf.steps.forEach((step, i) => {
       if (earlier.has(step.id)) {
         ctx.addIssue({ code: "custom", path: ["steps", i, "id"], message: `duplicate step id "${step.id}"` });
@@ -156,13 +160,35 @@ export const WorkflowSchema = z
         }
         if (g?.kind !== "workflow") return;
         // The child is created when the step is handed out, so it is given
-        // only what exists before the step.
+        // only what exists before the step, and one document at a time.
         for (const [child, parent] of Object.entries(g.inputs ?? {})) {
           if (!artifactsSoFar.has(parent)) {
             ctx.addIssue({
               code: "custom",
               path: ["steps", i, "gates", j, "inputs", child],
               message: `"${step.id}" gives its child "${parent}", which no step before it produces or updates, no earlier workflow gate returns, and the workflow does not declare as an input`,
+            });
+          } else if (perItem.has(parent)) {
+            ctx.addIssue({ code: "custom", path: ["steps", i, "gates", j, "inputs", child], message: `"${step.id}" gives its child "${parent}"${perItemRefusal(parent)}` });
+          }
+        }
+        if (g.for_each !== undefined) {
+          const at = ["steps", i, "gates", j, "for_each"];
+          if (!artifactsSoFar.has(g.for_each)) {
+            ctx.addIssue({
+              code: "custom",
+              path: at,
+              message: `"${step.id}" waits for one child per item of "${g.for_each}", which no step before it produces or updates, no earlier workflow gate returns, and the workflow does not declare as an input`,
+            });
+          } else if (perItem.has(g.for_each)) {
+            ctx.addIssue({ code: "custom", path: at, message: `"${step.id}" waits for one child per item of "${g.for_each}"${perItemRefusal(g.for_each)}` });
+          }
+          // Without an input that names the folder, no child would learn its item.
+          if (!Object.values(g.inputs ?? {}).includes(g.for_each)) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["steps", i, "gates", j, "inputs"],
+              message: `"${step.id}" gives "${g.for_each}" to no input of its children; map it in inputs, so each child gets its item's file`,
             });
           }
         }
@@ -176,8 +202,17 @@ export const WorkflowSchema = z
           }
         }
       });
-      for (const id of own) artifactsSoFar.add(id);
-      for (const g of delegations) for (const id of Object.keys(g.returns ?? {})) artifactsSoFar.add(id);
+      for (const id of own) {
+        artifactsSoFar.add(id);
+        perItem.delete(id);
+      }
+      for (const g of delegations) {
+        for (const id of Object.keys(g.returns ?? {})) {
+          artifactsSoFar.add(id);
+          if (g.for_each !== undefined) perItem.set(id, step.id);
+          else perItem.delete(id);
+        }
+      }
     });
   })
   // Last, because a refinement returns a new schema that does not carry metadata.

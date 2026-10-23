@@ -174,12 +174,22 @@ export const StepStateSchema = z
           description: "The result of each check and script gate when the step was last continued.",
         }),
         children: z
-          .array(z.object({ pass: z.number().int().min(1), slug: z.string() }).strict())
+          .array(
+            z
+              .object({
+                pass: z.number().int().min(1),
+                slug: z.string(),
+                item: z.string().optional().meta({ description: "With for_each: the item this child was created for, the file name without its extension." }),
+                file: z.string().optional().meta({ description: "With for_each: the item's file, relative to the repository root, bound to the child's inputs." }),
+              })
+              .strict(),
+          )
           .optional()
           .meta({
             description:
-              "The child workstreams of a step with a workflow gate, one per pass of the step: the newest is " +
-              "the one the step waits for, and the one later steps read returned documents from.",
+              "The child workstreams of a step with a workflow gate, one per pass of the step, or several per pass " +
+              "when the gate has for_each, one per item: the newest pass's are the ones the step waits for, and the " +
+              "ones later steps read returned documents from.",
           }),
         history: z.array(z.string()).meta({ description: "One timestamped line per event on the step, oldest first." }),
       })
@@ -222,10 +232,14 @@ export const WorkstreamSchema = z
       description: "The workstream this one was started after, with `start --after`, which gave it its inputs.",
     }),
     parent: z
-      .object({ slug: z.string(), step: z.string() })
+      .object({ slug: z.string(), step: z.string(), item: z.string().optional() })
       .strict()
       .optional()
-      .meta({ description: "For a child workstream: the workstream and the step with the workflow gate that created it and waits for it." }),
+      .meta({
+        description:
+          "For a child workstream: the workstream and the step with the workflow gate that created it and waits for " +
+          "it, and with for_each the item this child was created for.",
+      }),
     inputs: z.object({}).catchall(z.string()).optional().meta({
       description: "The workflow's inputs that were bound when the workstream started: input id -> path.",
     }),

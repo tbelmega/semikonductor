@@ -70,6 +70,10 @@ script installs plain skills and an always-on instruction block that every suppo
     one stays as history. `validate` checks these references across workflow files, including
     loops of workflows waiting for each other. Komposer shows hand-offs and workflow gates as
     links to the target workflow, and links each run to the runs it came from or waits for.
+  - `for_each: <folder artifact>` on a workflow gate makes the step wait for one child workstream
+    per file in the folder, each given its own file as an input. The `DELEGATE` line names every
+    child with its item, `continue` waits until all are complete, and later steps read one
+    returned document per child, labelled with its item.
   - A workstream records its base, the commit HEAD was at when it started, with that commit's
     subject. Agent reviews of code cover the changes since the base, so they work on any
     branching strategy, including on the integration branch itself. After a rebase or squash

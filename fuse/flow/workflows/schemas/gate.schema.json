@@ -178,22 +178,30 @@
       "additionalProperties": false
     },
     {
-      "description": "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `inputs`, `returns`, `description` and `route_back_to`.",
+      "description": "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `for_each`, `inputs`, `returns`, `description` and `route_back_to`.",
       "type": "object",
       "properties": {
         "workflow": {
-          "description": "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child workstream with its inputs bound from this workstream's documents, and `continue` is refused until the child is complete. After a send-back, the next pass gets a fresh child.",
+          "description": "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child workstream with its inputs bound from this workstream's documents, and `continue` is refused until the child is complete. After a send-back, the next pass gets a fresh child. With `for_each: <folder artifact>`, the step waits for one child per file of that folder, each given its own file, and `continue` is refused until every child is complete.",
           "type": "string"
         },
         "slug": {
-          "description": "The child workstream's slug, a template that contains {slug}, the parent's slug, and something more, and may contain {step}, this step's id; {slug}-{step} unless set. Engine effect: the child is created under this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
+          "description": "The child workstream's slug, a template that contains {slug}, the parent's slug, and something more, and may contain {step}, this step's id; {slug}-{step} unless set. With for_each it must also contain {item}, the item's id; {slug}-{step}-{item} unless set. Engine effect: the child is created under this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
           "examples": [
-            "{slug}-adversarial"
+            "{slug}-adversarial",
+            "{slug}-unit-{item}"
+          ],
+          "type": "string"
+        },
+        "for_each": {
+          "description": "A folder artifact of this workflow, available before this step, whose direct files are the items: the step waits for one child workstream per file, the item's id being the file name without its extension. Engine effect: when the step is handed out, fuse-flow records the set of items and creates one child per item, binding every input that names this artifact to the item's own file; `continue` is refused until every child is complete, and later steps read what each child returned, one document per item.",
+          "examples": [
+            "approved-units"
           ],
           "type": "string"
         },
         "inputs": {
-          "description": "The documents the child is given: child input id -> artifact id in this workflow, available before this step. Engine effect: each binds the child's declared input to this workstream's document.",
+          "description": "The documents the child is given: child input id -> artifact id in this workflow, available before this step. Engine effect: each binds the child's declared input to this workstream's document; with for_each, an input that names the for_each artifact is bound to the item's file.",
           "examples": [
             {
               "review-diff": "review-diff"
@@ -209,7 +217,7 @@
           }
         },
         "returns": {
-          "description": "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` resolves each to the newest child's recorded document.",
+          "description": "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` resolves each to the newest child's recorded document, or with for_each to one document per child.",
           "examples": [
             [
               "adversarial-review-report"

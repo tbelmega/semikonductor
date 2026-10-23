@@ -327,6 +327,62 @@ test("a completed workflow gate whose child workstream is missing fails", () => 
   expect(result.code).toBe(1);
 });
 
+const PER_ITEM = `version: 1
+name: per-item
+steps:
+  - id: list
+    instruction: write one file per unit
+    produces:
+      - artifact: units
+        path: units/
+  - id: delegate
+    instruction: let one child write a note per unit
+    gates:
+      - workflow: ./note-kid.yml
+        for_each: units
+        inputs: { unit: units }
+  - id: finish
+    instruction: finish the work
+`;
+
+test("every child of a completed for_each gate is checked with the workstream under test, and a missing one fails", () => {
+  const { root, env } = project();
+  const parent = join(root, "per-item.yml");
+  writeFileSync(parent, PER_ITEM);
+  writeFileSync(join(root, "note-kid.yml"), NOTE_KID.replace("steps:", "inputs:\n  - artifact: unit\nsteps:"));
+  flow(root, env, "start", "hello", "--workflow", parent);
+  write(root, "units/a.json");
+  write(root, "units/b.json");
+  flow(root, env, "continue", "hello");
+  for (const kid of ["hello-delegate-a", "hello-delegate-b"]) {
+    flow(root, env, "start", kid);
+    write(root, `kid/${kid}.md`);
+    write(root, "kid-ok");
+    flow(root, env, "continue", kid);
+  }
+  flow(root, env, "continue", "hello");
+  flow(root, env, "continue", "hello");
+  const passing = check(root, parent, env);
+  expect(passing.out).toContain("workstream hello-delegate-a (child of hello, step delegate) follows");
+  expect(passing.out).toContain("workstream hello-delegate-b (child of hello, step delegate) follows");
+  expect(passing.out).toContain("MECHANICAL: PASS");
+  rmSync(join(root, "kid", "hello-delegate-b.md"));
+  const failing = check(root, parent, env);
+  expect(failing.out).toContain("hello-delegate-b: work: missing artifact kid/hello-delegate-b.md (note)");
+  expect(failing.code).toBe(1);
+  // A child whose state names another item than the parent recorded for it.
+  const bFile = join(root, ".konductor", "workstreams", "hello-delegate-b.yml");
+  writeFileSync(join(root, "kid", "hello-delegate-b.md"), "x\n");
+  writeFileSync(bFile, readFileSync(bFile, "utf8").replace("  item: b\n", "  item: a\n"));
+  expect(check(root, parent, env).out).toContain("delegate: child workstream hello-delegate-b was recorded for item b but was created for item a");
+  rmSync(join(root, ".konductor", "workstreams", "hello-delegate-a.yml"));
+  expect(check(root, parent, env).out).toContain("delegate: child workstream hello-delegate-a is missing");
+  // A completed for_each step with no children recorded for its pass.
+  const parentFile = join(root, ".konductor", "workstreams", "hello.yml");
+  writeFileSync(parentFile, readFileSync(parentFile, "utf8").replace(/    children:\n(?:      .*\n)+/, ""));
+  expect(check(root, parent, env).out).toContain("delegate: no child workstreams are recorded for its pass");
+});
+
 test("an edited project copy of a child workflow fails", () => {
   const { root, env } = project();
   // The harness's copies live apart from the project's copies.

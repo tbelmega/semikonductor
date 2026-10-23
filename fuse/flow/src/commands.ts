@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { currentBase, resolveBase } from "./base.ts";
 import { FlowError } from "./errors.ts";
 import { EVENT, ownerNotes, runEvents, SKIP_REASON, stamp } from "./history.ts";
@@ -46,10 +46,12 @@ import {
   documentOf,
   firstUnfinished,
   isComplete,
+  itemsOf,
   links,
   parentGone,
   recordedFolder,
   refuseCycle,
+  returnedDocuments,
   untouched,
   whereIs,
   workflowFile,
@@ -145,7 +147,7 @@ const gateNumber = (step: Step, g: Gate) => gatesInOrder(step).indexOf(g) + 1;
 // A gate as the hand-over block names it.
 function gateLabel(c: Ctx, step: Step, state: StepState, g: Gate): string {
   if (g.kind === "agent") return `review (${g.text})`;
-  if (g.kind === "workflow") return `workstream ${childOf(c, state, step)}`;
+  if (g.kind === "workflow") return childrenLabel(c, state, step);
   if (g.kind === "check" || g.kind === "script") return mechanical(c, g).label;
   return g.text;
 }
@@ -502,9 +504,15 @@ function present(c: Ctx): string[] {
         ensureChild(c, step);
       } catch (e) {
         if (!(e instanceof FlowError)) throw e;
-        const exists = workstreamExists(c.root, childOf(c, state, step)!);
+        const gate = childGate(step)!;
+        const recorded = (state.children ?? []).filter((ch) => ch.pass === (state.pass ?? 1));
+        const exists =
+          gate.for_each === undefined
+            ? workstreamExists(c.root, childOf(c, state, step)!)
+            : recorded.length > 0 && recorded.every((ch) => workstreamExists(c.root, ch.slug));
+        const waits = gate.for_each !== undefined ? `child workstreams that cannot be ${exists ? "used" : "created"}` : `a child workstream that cannot be ${exists ? "used" : "created"}`;
         return [
-          `STEP ${step.id} (${position(c, step)}) waits for a child workstream that cannot be ${exists ? "used" : "created"}: ${e.message}.`,
+          `STEP ${step.id} (${position(c, step)}) waits for ${waits}: ${e.message}.`,
           `If you cannot resolve this, report the step blocked: run \`${FUSE_FLOW} continue ${c.slug} --blocked "<the reason above>"\`, so the owner decides.`,
           ...stopEarly(c, ws, step),
         ];
@@ -526,13 +534,68 @@ const RESTORE =
 // A workflow reference as the agent reads it: a name, or a path from the repository root.
 const refName = (c: Ctx, ref: string) => (isWorkflowPath(ref) ? display(c.p, ref) : ref);
 
-// The child workstream of the step's current pass, as recorded, or the slug
-// it will be created under.
-function childOf(c: Ctx, state: StepState, step: Step): string | undefined {
+// One child of a step's pass: its slug and, under a for_each gate, its item
+// and the item's file.
+type Child = { slug: string; item?: string; file?: string };
+
+const asChild = (ch: { slug: string; item?: string; file?: string }): Child => ({
+  slug: ch.slug,
+  ...(ch.item !== undefined ? { item: ch.item } : {}),
+  ...(ch.file !== undefined ? { file: ch.file } : {}),
+});
+
+// A child as the output names it: with its item under a for_each gate.
+const childName = (ch: Child) => (ch.item !== undefined ? `workstream ${ch.slug} (item ${ch.item})` : `workstream ${ch.slug}`);
+
+// The children of the step's current pass. Once recorded, the record decides;
+// the set is derived from the gate and the folder only before that record exists.
+function childrenOf(c: Ctx, state: StepState, step: Step): Child[] {
   const gate = childGate(step);
-  if (!gate) return undefined;
+  if (!gate) return [];
   const pass = state.pass ?? 1;
-  return state.children?.find((ch) => ch.pass === pass)?.slug ?? childSlug(gate, c.slug, step.id, pass);
+  const recorded = (state.children ?? []).filter((ch) => ch.pass === pass);
+  if (recorded.length) return recorded.map(asChild);
+  if (gate.for_each === undefined) return [{ slug: childSlug(gate, c.slug, step.id, pass) }];
+  return itemsOf(c.root, c.slug, step, gate).map(({ item, file }) => ({ slug: childSlug(gate, c.slug, step.id, pass, item), item, file }));
+}
+
+// The same, or none when the set cannot be derived, for lines that only name
+// the children; the refusal is printed where the step is handed out.
+function knownChildren(c: Ctx, state: StepState, step: Step): Child[] {
+  try {
+    return childrenOf(c, state, step);
+  } catch (e) {
+    if (!(e instanceof FlowError)) throw e;
+    return [];
+  }
+}
+
+// The child workstream of a plain workflow gate's current pass, as recorded,
+// or the slug it will be created under.
+function childOf(c: Ctx, state: StepState, step: Step): string | undefined {
+  return childGate(step) ? childrenOf(c, state, step)[0]?.slug : undefined;
+}
+
+// The step's children as a label names them: one, or the set.
+function childrenLabel(c: Ctx, state: StepState, step: Step): string {
+  const children = knownChildren(c, state, step);
+  if (childGate(step)?.for_each === undefined) return `workstream ${children[0]?.slug}`;
+  return children.length ? `workstreams ${children.map((ch) => ch.slug).join(", ")}` : "the child workstreams";
+}
+
+// An edit of the gate cannot reinterpret children already recorded for this
+// pass (per-item children under a plain gate, or the reverse); a new pass
+// records the gate's shape.
+function checkShape(c: Ctx, step: Step, gate: Gate, state: StepState): void {
+  const recorded = (state.children ?? []).filter((ch) => ch.pass === (state.pass ?? 1));
+  if (!recorded.length) return;
+  const perItem = recorded.some((ch) => ch.item !== undefined);
+  if (perItem === (gate.for_each !== undefined)) return;
+  throw new FlowError(
+    `step ${step.id} waits for one child workstream${gate.for_each !== undefined ? " per item" : ""}, but the children recorded for this pass of the step ` +
+      `(${recorded.map((ch) => ch.slug).join(", ")}) were created for a gate ${perItem ? "with" : "without"} for_each. To give the step a new pass, the owner ` +
+      `sends the work back to it: \`${FUSE_FLOW} continue ${c.slug} --back-to ${step.id}\`; or change the gate back`,
+  );
 }
 
 // The READ line for a workflow input.
@@ -542,30 +605,31 @@ function inputLine(c: Ctx, ws: Workstream, id: string): string {
   return onDisk(c, path) ? `READ ${path} (input ${id}).` : `READ ${path} (input ${id}). ${RESTORE}`;
 }
 
-// The READ line for a document an earlier step's child returned.
-function returnedLine(c: Ctx, ws: Workstream, source: Step, id: string, childId: string): string {
+// The READ lines for a document an earlier step's child returned: one, or
+// one per child of the step's newest pass under a for_each gate.
+function returnedLines(c: Ctx, ws: Workstream, source: Step, id: string, childId: string): string[] {
   const state = stateOf(ws, source.id);
+  const set = childGate(source)!.for_each !== undefined;
   if (state.status === "SKIPPED") {
     const why = `READ ${id}: step ${source.id} was skipped (${state.skip_reason ?? "no reason recorded"}), so no child workstream returned it`;
     // Passed over when the owner started later or jumped forward, the step's
     // work may still be needed.
-    return passedOver(state) ? `${why}. ${RESTORE}` : `${why} and there is nothing to read.`;
+    return [passedOver(state) ? `${why}. ${RESTORE}` : `${why} and there is nothing to read.`];
   }
-  const child = state.children?.at(-1)?.slug;
-  if (!child) return `READ ${id}: step ${source.id} has no child workstream, so there is nothing to read.`;
-  if (!isComplete(c.root, child)) {
-    return `READ ${id}: workstream ${child}, the child of step ${source.id}, ${whereIs(c.root, child)}, so it has not returned ${childId} and there is nothing to read yet.`;
-  }
-  const path = documentOf(c.root, child, childId);
-  if (!path) return `READ ${id}: workstream ${child}, the child of step ${source.id}, recorded no ${childId}, so there is nothing to read.`;
-  const from = `(${id}, returned by workstream ${child}, the child of step ${source.id})`;
-  return onDisk(c, path) ? `READ ${path} ${from}.` : `READ ${path} ${from}. ${RESTORE}`;
+  const children = returnedDocuments(c.root, state, childId);
+  if (!children.length) return [`READ ${id}: step ${source.id} has no child workstream${set ? "s" : ""}, so there is nothing to read.`];
+  return children.map(({ slug, item, complete, path }) => {
+    const child = set ? `workstream ${slug} (item ${item})` : `workstream ${slug}`;
+    if (!complete) return `READ ${id}: ${child}, the child of step ${source.id}, ${whereIs(c.root, slug)}, so it has not returned ${childId} and there is nothing to read yet.`;
+    if (!path) return `READ ${id}: ${child}, the child of step ${source.id}, recorded no ${childId}, so there is nothing to read.`;
+    const from = `(${id}, returned by workstream ${slug}${set ? ` for item ${item}` : ""}, the child of step ${source.id})`;
+    return onDisk(c, path) ? `READ ${path} ${from}.` : `READ ${path} ${from}. ${RESTORE}`;
+  });
 }
 
-// Refuses a workstream under the child's slug that is not this step's child:
-// one that follows another workflow, or belongs to another parent step; and
-// a child whose next step blocks cannot be printed.
-function checkChild(c: Ctx, step: Step, gate: Gate, slug: string): void {
+// Refuses a workstream under the child's slug that is not this step's child
+// for this item, since running it could never satisfy the gate.
+function checkChild(c: Ctx, step: Step, gate: Gate, { slug, item }: Child): void {
   const child = readWorkstream(c.root, slug);
   if (workflowFile(c.root, child.workflow) !== workflowFile(c.root, gate.text)) {
     // A child recorded for this pass keeps its slug whatever the gate's slug
@@ -591,50 +655,107 @@ function checkChild(c: Ctx, step: Step, gate: Gate, slug: string): void {
         ". Rename that workstream's state file, or give the gate a slug of its own",
     );
   }
+  if (child.parent.item !== item) {
+    throw new FlowError(
+      `step ${step.id} waits for a child workstream ${slug}${item !== undefined ? ` for item ${item}` : ""}, but workstream ${slug} exists and was created ` +
+        `${child.parent.item !== undefined ? `for item ${child.parent.item}` : "for the step as a whole"}. Rename that workstream's state file, or give the gate a slug of its own`,
+    );
+  }
   // The child's step blocks print the review guides of the steps it has not
   // finished, as its own commands check them.
   const file = findWorkflow(c.root, child.workflow);
   refuseBadReviewGuides(c.p, loadWorkflow(file), file, unfinishedIn(child));
 }
 
-// Why the step may not complete yet because of its child, or undefined when
-// its child for this pass exists, is its own and is complete.
-function childNotDone(c: Ctx, step: Step): string | undefined {
-  const gate = childGate(step);
-  if (!gate) return undefined;
+// A child that keeps the step from completing. Only an "unfinished" one can
+// be run to satisfy the gate; "missing" and "unusable" need the recovery
+// their reason names, so the output must not tell the agent to run them.
+type Pending = { child: Child; kind: "unfinished" | "missing" | "unusable"; why: string };
+
+// The children of the step's current pass that keep it from completing.
+function pendingChildren(c: Ctx, step: Step): Pending[] {
+  const gate = childGate(step)!;
   const state = stateOf(readWorkstream(c.root, c.slug), step.id);
-  const slug = childOf(c, state, step)!;
-  if (!workstreamExists(c.root, slug)) return `workstream ${slug}, which this step waits for, does not exist`;
-  checkChild(c, step, gate, slug);
-  if (!state.children?.some((ch) => ch.pass === (state.pass ?? 1) && ch.slug === slug)) {
-    throw new FlowError(`workstream ${slug} is not recorded as this pass's child; run \`${FUSE_FLOW} start ${c.slug}\` to record it`);
+  checkShape(c, step, gate, state);
+  const set = gate.for_each !== undefined;
+  const pending: Pending[] = [];
+  for (const child of childrenOf(c, state, step)) {
+    const { slug } = child;
+    const name = set ? childName(child) : `workstream ${slug}, which this step waits for,`;
+    if (!workstreamExists(c.root, slug)) {
+      pending.push({ child, kind: "missing", why: `${name} does not exist` });
+      continue;
+    }
+    try {
+      checkChild(c, step, gate, child);
+      if (!state.children?.some((ch) => ch.pass === (state.pass ?? 1) && ch.slug === slug)) {
+        throw new FlowError(`workstream ${slug} is not recorded as this pass's child; run \`${FUSE_FLOW} start ${c.slug}\` to record it`);
+      }
+    } catch (e) {
+      if (!(e instanceof FlowError)) throw e;
+      pending.push({ child, kind: "unusable", why: e.message });
+      continue;
+    }
+    if (!isComplete(c.root, slug)) pending.push({ child, kind: "unfinished", why: `${name} ${whereIs(c.root, slug)}` });
   }
-  return isComplete(c.root, slug) ? undefined : `workstream ${slug}, which this step waits for, ${whereIs(c.root, slug)}`;
+  return pending;
 }
 
-// Why a delegating step may not complete yet because of its child, or
-// undefined when the step has no workflow gate or its own child for this pass
-// is complete. The same check as on continue. `child` says whether finishing
-// the child would satisfy the gate: "unfinished" when it is this pass's own
-// child and only not complete, "missing" when it does not exist, and
-// "unusable" when it cannot satisfy the gate however far it runs.
-function waitingFor(c: Ctx, step: Step): { slug: string; why: string; child: "unfinished" | "missing" | "unusable" } | undefined {
+// Why the step may not complete yet because of its children, or undefined.
+// An unusable child throws, so the caller never tells the agent to run it.
+function childNotDone(c: Ctx, step: Step): string | undefined {
   if (!childGate(step)) return undefined;
-  const slug = childOf(c, stateOf(readWorkstream(c.root, c.slug), step.id), step)!;
+  const pending = pendingChildren(c, step);
+  if (!pending.length) return undefined;
+  const unusable = pending.some((p) => p.kind === "unusable");
+  if (childGate(step)!.for_each === undefined) {
+    if (unusable) throw new FlowError(pending[0].why);
+    return pending[0].why;
+  }
+  const total = childrenOf(c, stateOf(readWorkstream(c.root, c.slug), step.id), step).length;
+  const why =
+    `${pending.length} of the ${total} child workstreams this step waits for ${pending.length === 1 ? "is" : "are"} not complete: ` +
+    pending.map((p) => p.why).join("; ");
+  if (unusable) throw new FlowError(why);
+  return why;
+}
+
+// What holds a delegating step back, as continue checks it, or undefined.
+// `child` is the weakest kind among the pending children, so the owner is
+// offered to finish them only when finishing them would satisfy the gate.
+function waitingFor(
+  c: Ctx,
+  step: Step,
+): { label: string; slugs: string[]; why: string; child: "unfinished" | "missing" | "unusable"; each: { slug: string; kind: Pending["kind"]; why: string }[] } | undefined {
+  if (!childGate(step)) return undefined;
+  const state = stateOf(readWorkstream(c.root, c.slug), step.id);
+  const label = (slugs: string[]) => (slugs.length === 1 ? `workstream ${slugs[0]}` : `workstreams ${slugs.join(", ")}`);
   try {
-    const why = childNotDone(c, step);
-    if (!why) return undefined;
-    return { slug, why, child: workstreamExists(c.root, slug) ? "unfinished" : "missing" };
+    const pending = pendingChildren(c, step);
+    if (!pending.length) return undefined;
+    const slugs = pending.map((p) => p.child.slug);
+    let why: string;
+    try {
+      why = childNotDone(c, step)!;
+    } catch (e) {
+      if (!(e instanceof FlowError)) throw e;
+      why = e.message;
+    }
+    const kinds = new Set(pending.map((p) => p.kind));
+    const child = kinds.has("unusable") ? "unusable" : kinds.has("missing") ? "missing" : "unfinished";
+    return { label: label(slugs), slugs, why, child, each: pending.map((p) => ({ slug: p.child.slug, kind: p.kind, why: p.why })) };
   } catch (e) {
     if (!(e instanceof FlowError)) throw e;
-    return { slug, why: e.message, child: "unusable" };
+    // The set itself is the problem: the items cannot be derived, or the
+    // gate's shape changed.
+    const slugs = knownChildren(c, state, step).map((ch) => ch.slug);
+    return { label: slugs.length ? label(slugs) : "the child workstreams", slugs, why: e.message, child: "unusable", each: slugs.map((slug) => ({ slug, kind: "unusable" as const, why: e.message })) };
   }
 }
 
-// The workflow and inputs of the child workstream `slug` that the step's
-// workflow gate creates, or a refusal that says why it cannot be created.
-// Writes nothing, so the step block can say why too.
-function newChild(c: Ctx, step: Step, gate: Gate, slug: string): { target: Workflow; inputs: Record<string, string> } {
+// Resolves a child's workflow and inputs without writing anything, so the
+// step block can report every child that cannot be created, with its reason.
+function newChild(c: Ctx, step: Step, gate: Gate, { slug, file }: Child): { target: Workflow; inputs: Record<string, string> } {
   refuseCycle(c.root, c.slug, gate.text);
   const targetPath = findWorkflow(c.root, gate.text);
   const target = loadWorkflow(targetPath);
@@ -643,7 +764,7 @@ function newChild(c: Ctx, step: Step, gate: Gate, slug: string): { target: Workf
   if (errors.length) throw new FlowError(`workflow ${target.name} cannot start: ${errors.join("; ")}`);
   const inputs: Record<string, string> = {};
   for (const [childId, parentId] of Object.entries(gate.inputs ?? {})) {
-    const path = documentOf(c.root, c.slug, parentId, step.id);
+    const path = parentId === gate.for_each && file !== undefined ? file : documentOf(c.root, c.slug, parentId, step.id);
     if (path !== undefined) inputs[childId] = path;
   }
   const missing = target.inputs.filter((i) => i.required && !has(inputs, i.artifact));
@@ -656,56 +777,159 @@ function newChild(c: Ctx, step: Step, gate: Gate, slug: string): { target: Workf
   return { target, inputs };
 }
 
-// Creates the child workstream of a step with a workflow gate, if it does not
-// exist yet, with its inputs bound from this workstream's documents, and
-// records it for the step's pass. The child is only created: its first step
-// is handed out when the agent starts it.
+// Creates the children of the step's pass that do not exist yet, and records
+// them. Under a for_each gate the set is recorded first, under this
+// workstream's lock, so two commands racing to hand the step out end with one
+// set read from the folder once; the children are then created from the record.
 function ensureChild(c: Ctx, step: Step): void {
   const gate = childGate(step);
   if (!gate) return;
   const state = stateOf(readWorkstream(c.root, c.slug), step.id);
   const pass = state.pass ?? 1;
-  const slug = childOf(c, state, step)!;
-  if (workstreamExists(c.root, slug)) {
-    checkChild(c, step, gate, slug);
-  } else {
-    const { target, inputs } = newChild(c, step, gate, slug);
-    updateWorkstream(
-      c.root,
-      slug,
-      (child) => {
-        for (const s of target.steps) stateOf(child, s.id);
-      },
-      { workflow: gate.text, started: localDate(), ...baseNow(c.root), parent: { slug: c.slug, step: step.id }, ...(Object.keys(inputs).length ? { inputs } : {}), steps: {} },
-    );
+  checkShape(c, step, gate, state);
+  if (gate.for_each === undefined) {
+    const child = childrenOf(c, state, step)[0];
+    if (workstreamExists(c.root, child.slug)) {
+      checkChild(c, step, gate, child);
+    } else {
+      const { target, inputs } = newChild(c, step, gate, child);
+      createChild(c, step, gate, child, target, inputs);
+    }
+    if (state.children?.some((ch) => ch.pass === pass)) return;
+    updateWorkstream(c.root, c.slug, (ws) => {
+      const s = stateOf(ws, step.id);
+      if (s.children?.some((ch) => ch.pass === pass)) return;
+      s.children = [...(s.children ?? []), { pass, slug: child.slug }];
+      s.history.push(stamp(EVENT.childCreated(child.slug)));
+    });
+    return;
   }
-  if (state.children?.some((ch) => ch.pass === pass)) return;
-  updateWorkstream(c.root, c.slug, (ws) => {
-    const s = stateOf(ws, step.id);
-    if (s.children?.some((ch) => ch.pass === pass)) return;
-    s.children = [...(s.children ?? []), { pass, slug }];
-    s.history.push(stamp(EVENT.childCreated(slug)));
-  });
+  let children = (state.children ?? []).filter((ch) => ch.pass === pass).map(asChild);
+  if (!children.length) {
+    updateWorkstream(c.root, c.slug, (ws) => {
+      const s = stateOf(ws, step.id);
+      // The pass is read under the lock too: a send-back between the read
+      // above and here would otherwise record pass-2 slugs under pass 1.
+      const pass = s.pass ?? 1;
+      const recorded = (s.children ?? []).filter((ch) => ch.pass === pass);
+      if (recorded.length) {
+        children = recorded.map(asChild);
+        return;
+      }
+      const derived = childrenOf(c, s, step);
+      // An item that ends in -<n> can give a slug an earlier pass's child
+      // already has; adopting or overwriting that child would mix the passes.
+      for (const ch of derived) {
+        const taken = (s.children ?? []).find((e) => e.slug === ch.slug);
+        if (taken) {
+          throw new FlowError(
+            `step ${step.id} cannot create its child workstreams: item ${ch.item} of pass ${pass} would take the slug ${ch.slug} of pass ${taken.pass}'s child` +
+              `${taken.item !== undefined ? ` for item ${taken.item}` : ""}; rename the file ${ch.file}`,
+          );
+        }
+      }
+      s.children = [...(s.children ?? []), ...derived.map((ch) => ({ pass, slug: ch.slug, item: ch.item!, file: ch.file! }))];
+      s.history.push(stamp(EVENT.childrenRecorded(derived.map((ch) => `${ch.slug} (item ${ch.item})`))));
+      children = derived;
+    });
+  }
+  const problems: string[] = [];
+  const created: string[] = [];
+  for (const child of children) {
+    try {
+      if (workstreamExists(c.root, child.slug)) {
+        checkChild(c, step, gate, child);
+      } else {
+        const { target, inputs } = newChild(c, step, gate, child);
+        createChild(c, step, gate, child, target, inputs);
+        created.push(child.slug);
+      }
+    } catch (e) {
+      if (!(e instanceof FlowError)) throw e;
+      problems.push(e.message);
+    }
+  }
+  // The history says a child was created only once its file exists.
+  if (created.length) {
+    updateWorkstream(c.root, c.slug, (ws) => {
+      const s = stateOf(ws, step.id);
+      for (const slug of created) s.history.push(stamp(EVENT.childCreated(slug)));
+    });
+  }
+  if (problems.length) throw new FlowError([...new Set(problems)].join("; "));
 }
 
-// Removes the child of the step's current pass when nothing has happened in
-// it, because the step was skipped: a skipped step leaves no child. Returns
-// the line to print.
+// Writes a child workstream's state file, unless another command has since.
+function createChild(c: Ctx, step: Step, gate: Gate, { slug, item }: Child, target: Workflow, inputs: Record<string, string>): void {
+  updateWorkstream(
+    c.root,
+    slug,
+    (child) => {
+      for (const s of target.steps) stateOf(child, s.id);
+    },
+    {
+      workflow: gate.text,
+      started: localDate(),
+      ...baseNow(c.root),
+      parent: { slug: c.slug, step: step.id, ...(item !== undefined ? { item } : {}) },
+      ...(Object.keys(inputs).length ? { inputs } : {}),
+      steps: {},
+    },
+  );
+}
+
+// The unfinished siblings of a for_each child, so its completion block can
+// say the parent step still waits for them.
+function unfinishedSiblings(c: Ctx, parent: { slug: string; step: string }): string[] {
+  const ws = readWorkstream(c.root, parent.slug);
+  const state = stateOf(ws, parent.step);
+  const pass = state.pass ?? 1;
+  const siblings: string[] = [];
+  for (const ch of (state.children ?? []).filter((ch) => ch.pass === pass && ch.slug !== c.slug && ch.item !== undefined)) {
+    // A sibling that cannot be read still holds the parent step; this child's
+    // completion is already recorded, so the report must not fail on it.
+    try {
+      if (!isComplete(c.root, ch.slug)) siblings.push(`${childName(asChild(ch))}, which ${whereIs(c.root, ch.slug)}`);
+    } catch (e) {
+      if (!(e instanceof FlowError)) throw e;
+      siblings.push(`${childName(asChild(ch))}, which cannot be read: ${e.message.split("\n")[0]}`);
+    }
+  }
+  return siblings;
+}
+
+// A skipped step leaves no child behind, unless work was done in it.
 function dropUntouchedChild(c: Ctx, step: Step): string[] {
   if (!childGate(step)) return [];
   const ws = readWorkstream(c.root, c.slug);
   const state = stateOf(ws, step.id);
   const pass = state.pass ?? 1;
-  const slug = state.children?.find((ch) => ch.pass === pass)?.slug;
-  if (!slug || !workstreamExists(c.root, slug)) return [];
-  if (!untouched(readWorkstream(c.root, slug))) return [`The child workstream ${slug} stays as it is, because work was done in it.`];
-  rmSync(workstreamFile(c.root, slug), { force: true });
-  updateWorkstream(c.root, c.slug, (ws2) => {
-    const s = stateOf(ws2, step.id);
-    s.children = (s.children ?? []).filter((ch) => ch.pass !== pass);
-    if (!s.children.length) delete s.children;
-  });
-  return [`Removed the child workstream ${slug}, in which nothing had happened.`];
+  const children = (state.children ?? []).filter((ch) => ch.pass === pass);
+  const lines: string[] = [];
+  const dropped = new Set<string>();
+  for (const ch of children) {
+    // A recorded child that was never created, or whose file is gone, has no work to keep.
+    if (!workstreamExists(c.root, ch.slug)) {
+      dropped.add(ch.slug);
+      lines.push(`Dropped the record of child workstream ${ch.slug}, which does not exist.`);
+      continue;
+    }
+    if (!untouched(readWorkstream(c.root, ch.slug))) {
+      lines.push(`The child workstream ${ch.slug} stays as it is, because work was done in it.`);
+      continue;
+    }
+    rmSync(workstreamFile(c.root, ch.slug), { force: true });
+    dropped.add(ch.slug);
+    lines.push(`Removed the child workstream ${ch.slug}, in which nothing had happened.`);
+  }
+  if (dropped.size) {
+    updateWorkstream(c.root, c.slug, (ws2) => {
+      const s = stateOf(ws2, step.id);
+      s.children = (s.children ?? []).filter((ch) => !(ch.pass === pass && dropped.has(ch.slug)));
+      if (!s.children.length) delete s.children;
+    });
+  }
+  return lines;
 }
 
 // What the agent does now. `above` is the refusal printed above the block,
@@ -740,7 +964,8 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   lines.push(modeLine(c, step));
 
   const gate = childGate(step);
-  const child = gate ? childOf(c, state, step) : undefined;
+  const children = gate ? knownChildren(c, state, step) : [];
+  const child = gate && gate.for_each === undefined ? children[0]?.slug : undefined;
   // Why the child cannot be created or used, as continue would refuse it.
   const unusable = (check: () => void) => {
     try {
@@ -755,7 +980,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   // Set when the child cannot be created or used, so the step cannot complete.
   let blocker: string | undefined;
   if (gate && child && !workstreamExists(c.root, child)) {
-    const why = unusable(() => newChild(c, step, gate, child));
+    const why = unusable(() => newChild(c, step, gate, children[0]));
     if (why) blocker = "created";
     lines.push(
       why
@@ -763,7 +988,10 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
         : `DELEGATE: this step waits for workstream ${child}, which follows workflow ${refName(c, gate.text)}. It does not exist; fuse-flow creates it when it prints this step with \`${FUSE_FLOW} start ${c.slug}\`.`,
     );
   } else if (gate && child) {
-    const why = unusable(() => checkChild(c, step, gate, child));
+    const why = unusable(() => {
+      checkShape(c, step, gate, state);
+      checkChild(c, step, gate, children[0]);
+    });
     if (why) blocker = "used";
     const given = Object.keys(readWorkstream(c.root, child).inputs ?? {});
     lines.push(
@@ -776,6 +1004,41 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
     );
     if (!why && (cond?.kind === "agent" || cond?.kind === "owner-action")) {
       lines.push(`If this step does not apply, skip it before you start ${child}; fuse-flow then removes ${child}, since nothing has happened in it.`);
+    }
+  } else if (gate) {
+    // One child per item: the usable ones in one line, then each that cannot
+    // be created or used, with its reason.
+    const shape = unusable(() => checkShape(c, step, gate, state));
+    const problems: string[] = [];
+    const usable: string[] = [];
+    for (const ch of children) {
+      const exists = workstreamExists(c.root, ch.slug);
+      const why = unusable(() => (exists ? checkChild(c, step, gate, ch) : newChild(c, step, gate, ch)));
+      if (why) problems.push(`${childName(ch)} cannot be ${exists ? "used" : "created"}${reason(why)}`);
+      else {
+        const given = exists ? Object.keys(readWorkstream(c.root, ch.slug).inputs ?? {}) : [];
+        usable.push(`${ch.slug} (item ${ch.item}${given.length ? `, given ${given.join(", ")}` : ""})`);
+      }
+    }
+    if (shape || problems.length || !children.length) blocker = children.length && children.every((ch) => workstreamExists(c.root, ch.slug)) ? "used" : "created";
+    if (shape) {
+      lines.push(`DELEGATE: this step waits for one child workstream per item of ${gate.for_each}, and the children recorded for it cannot be used${reason(shape)}`);
+    } else if (!children.length) {
+      const why = unusable(() => childrenOf(c, state, step)) ?? "none";
+      lines.push(`DELEGATE: this step waits for one child workstream per item of ${gate.for_each}, which fuse-flow cannot create${reason(why)}`);
+    } else {
+      const folder = posix.dirname(children[0].file ?? "") + "/";
+      lines.push(
+        `DELEGATE: this step waits for ${children.length} child workstream${children.length === 1 ? "" : "s"}, one per item of ${gate.for_each} (${folder}), ` +
+          `each following workflow ${refName(c, gate.text)}: ${usable.join(", ")}${usable.length ? "." : ""}${problems.length ? ` ${problems.join(" ")}` : ""}` +
+          (usable.length
+            ? ` First run each to its end: \`${FUSE_FLOW} start <slug>\` prints its current step. They may run side by side, each in its own ` +
+              "subagent; the owner's decisions in each are made there. Then do this step's work."
+            : ""),
+      );
+      if (!problems.length && (cond?.kind === "agent" || cond?.kind === "owner-action")) {
+        lines.push("If this step does not apply, skip it before you start them; fuse-flow then removes them, since nothing has happened in them.");
+      }
     }
   }
 
@@ -801,7 +1064,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
     }
     const returned = own(childGate(source)?.returns, id);
     if (returned !== undefined) {
-      lines.push(returnedLine(c, ws, source, id, returned));
+      lines.push(...returnedLines(c, ws, source, id, returned));
       continue;
     }
     const artifact = [...source.produces, ...source.optional_produces, ...source.updates].find((a) => a.artifact === id)!;
@@ -841,7 +1104,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
     }
   }
 
-  // What this step's child returns, for this step's own work.
+  // What this step's children return, for this step's own work.
   if (gate && child) {
     const complete = isComplete(c.root, child);
     for (const [id, childId] of Object.entries(gate.returns ?? {})) {
@@ -855,6 +1118,22 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
             ? `RETURNS ${id}: workstream ${child} recorded no ${childId}, so there is nothing to read.`
             : `RETURNS ${id}: workstream ${child}'s ${childId}, once ${child} is complete; read it then.`,
       );
+    }
+  } else if (gate && children.length) {
+    for (const [id, childId] of Object.entries(gate.returns ?? {})) {
+      for (const ch of children) {
+        const complete = workstreamExists(c.root, ch.slug) && isComplete(c.root, ch.slug);
+        const path = complete ? documentOf(c.root, ch.slug, childId) : undefined;
+        lines.push(
+          path
+            ? onDisk(c, path)
+              ? `READ ${path} (${id}, returned by workstream ${ch.slug} for item ${ch.item}).`
+              : `READ ${path} (${id}, returned by workstream ${ch.slug} for item ${ch.item}). ${RESTORE}`
+            : complete
+              ? `RETURNS ${id}: ${childName(ch)} recorded no ${childId}, so there is nothing to read.`
+              : `RETURNS ${id}: ${childId} of ${childName(ch)}, once ${ch.slug} is complete; read it then.`,
+        );
+      }
     }
   }
 
@@ -954,11 +1233,13 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   const passedEarlier = passedBeforeAccepted(c, step, state);
   for (const g of gatesInOrder(step)) {
     if (g.kind === "workflow") {
+      const named = child !== undefined ? `workstream ${child}` : children.length ? `workstreams ${children.map((ch) => ch.slug).join(", ")}` : "the child workstreams";
+      const them = child !== undefined || !children.length ? "it" : "each";
       lines.push(
         blocker
-          ? `  ${++n}. Workstream ${child} cannot be ${blocker}, so this step cannot complete until that is resolved. If you cannot resolve it, ` +
+          ? `  ${++n}. ${capitalize(named)} cannot be ${blocker}, so this step cannot complete until that is resolved. If you cannot resolve it, ` +
               `report the step blocked: run \`${ff} --blocked "<the reason>"\`, so the owner decides.`
-          : `  ${++n}. Make sure workstream ${child} is complete. fuse-flow checks it on continue and refuses the step until it is.`,
+          : `  ${++n}. Make sure ${named} ${them === "it" ? "is" : "are all"} complete. fuse-flow checks ${them} on continue and refuses the step until ${them === "it" ? "it is" : "all are"}.`,
       );
     } else if (g.kind === "check" || g.kind === "script") {
       const m = mechanical(c, g);
@@ -1416,14 +1697,15 @@ function producedLine(c: Ctx, step: Step, state: StepState): string {
 
 function verificationLine(c: Ctx, step: Step, state: StepState): string {
   const mechanicalGates = gatesInOrder(step).filter((g) => g.kind === "workflow" || g.kind === "check" || g.kind === "script");
-  const notRun = (g: Gate) => (g.kind === "workflow" ? `workstream ${childOf(c, state, step)}: not checked` : `${mechanical(c, g).label}: not run`);
+  const notRun = (g: Gate) => (g.kind === "workflow" ? `${childrenLabel(c, state, step)}: not checked` : `${mechanical(c, g).label}: not run`);
   const parts = state.verification ? [...state.verification] : mechanicalGates.map(notRun);
   // A child recorded complete that has become unfinished since is not
   // complete now.
   const pending = state.verification && waitingFor(c, step);
   if (pending) {
     for (const [i, part] of parts.entries()) {
-      if (part.startsWith(`workstream ${pending.slug} (`) && part.endsWith("): complete")) parts[i] = `${part} when the step's work was recorded; now ${pending.why}`;
+      const theirs = pending.each.find(({ slug }) => part.startsWith(`workstream ${slug} (`));
+      if (theirs && part.endsWith("): complete")) parts[i] = `${part} when the step's work was recorded; now ${theirs.why}`;
     }
   }
   for (const g of gatesInOrder(step)) {
@@ -1514,11 +1796,15 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
     }
     if (ws.parent) {
       const gone = parentGone(c.root, c.slug, ws.parent);
+      const siblings = gone ? [] : unfinishedSiblings(c, ws.parent);
       forYou.push(
         gone
           ? `  - Step ${ws.parent.step} of workstream ${ws.parent.slug} no longer waits for this workstream: ${gone}. Tell the ` +
               "owner, who decides whether this workstream's work is still needed there."
-          : `  - Step ${ws.parent.step} of workstream ${ws.parent.slug} waits for this workstream. Go on there: ` +
+          : siblings.length
+            ? `  - Step ${ws.parent.step} of workstream ${ws.parent.slug} waits for this workstream and for ${siblings.join(", and ")}. ` +
+              `Go on there once they are complete: \`${FUSE_FLOW} start ${ws.parent.slug}\` prints that step, with what the child workstreams return to it.`
+            : `  - Step ${ws.parent.step} of workstream ${ws.parent.slug} waits for this workstream. Go on there: ` +
               `\`${FUSE_FLOW} start ${ws.parent.slug}\` prints that step, with what this workstream returns to it.`,
       );
     }
@@ -1572,26 +1858,38 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
       "NEXT STEP:",
     );
     if (pending) {
-      // Only this pass's own unfinished child can be finished to satisfy the
-      // gate; a missing or unusable one needs the recovery its reason names.
+      // Only this pass's own unfinished children can be finished to satisfy
+      // the gate; a missing or unusable one needs the recovery its reason names.
       const approval = `then run \`${FUSE_FLOW} start ${c.slug}\` for the owner's approval.`;
+      const one = pending.slugs.length === 1;
       if (pending.child === "unfinished") {
-        lines.push(`  - Finish workstream ${pending.slug} first, then ${asks}.`);
+        lines.push(`  - Finish ${pending.label} first, then ${asks}.`);
         commands.push(
-          `  - The owner has workstream ${pending.slug} finished first: run \`${FUSE_FLOW} start ${pending.slug}\`, which prints its current step, ` +
-            `and run it to its end; ${approval}`,
+          one
+            ? `  - The owner has workstream ${pending.slugs[0]} finished first: run \`${FUSE_FLOW} start ${pending.slugs[0]}\`, which prints its current step, ` +
+                `and run it to its end; ${approval}`
+            : `  - The owner has ${pending.label} finished first: run \`${FUSE_FLOW} start <slug>\` for each, which prints its current step, ` +
+                `and run each to its end; ${approval}`,
         );
       } else if (pending.child === "missing") {
-        lines.push(`  - Restore workstream ${pending.slug}, or send the work back to this step for a new child workstream, then ${asks}.`);
+        // Only the missing children need restoring; an unfinished sibling is finished as usual.
+        const missing = pending.each.filter((p) => p.kind === "missing").map((p) => p.slug);
+        const rest = pending.each.filter((p) => p.kind !== "missing").map((p) => p.slug);
+        const oneMissing = missing.length === 1;
+        const then = rest.length ? `finish ${rest.length === 1 ? `workstream ${rest[0]}` : `workstreams ${rest.join(", ")}`}, and then ${asks}` : asks;
+        lines.push(`  - Restore ${oneMissing ? `workstream ${missing[0]}` : `workstreams ${missing.join(", ")}`}, or send the work back to this step for ${oneMissing ? "a new child workstream" : "new child workstreams"}, then ${then}.`);
         commands.push(
-          `  - The owner has workstream ${pending.slug} restored: restore \`${relative(c.root, workstreamFile(c.root, pending.slug))}\` ` +
-            `from version control or a backup, ${approval}`,
+          oneMissing
+            ? `  - The owner has workstream ${missing[0]} restored: restore \`${relative(c.root, workstreamFile(c.root, missing[0]))}\` ` +
+                `from version control or a backup, ${approval}`
+            : `  - The owner has workstreams ${missing.join(", ")} restored: restore their state files under \`${relative(c.root, dirname(workstreamFile(c.root, c.slug)))}/\` ` +
+                `from version control or a backup, ${approval}`,
         );
       } else {
         lines.push(`  - Correct what holds the approval back, as the status says, then ${asks}.`);
         commands.push(`  - The owner has what holds the approval back corrected: do what the status above says, ${approval}`);
       }
-      lines.push(`  - Skip this step, without what workstream ${pending.slug} would return.`);
+      lines.push(`  - Skip this step, without what ${pending.label} would return.`);
       commands.push(`  - The owner skips the step: run \`${ff} --skip "<the owner's reason>"\`.`);
     } else if (notRun.length) {
       lines.push(`  - Redo this step, so that the gates that have not run on its work run: ${notRun.join(", ")}.`);
@@ -1607,7 +1905,7 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
     const pending = waitingFor(c, step);
     lines.push(`STATUS: blocked. ${why}`, producedLine(c, step, state), verificationLine(c, step, state), "NEXT STEP:");
     if (pending) {
-      lines.push(`  - Skip this step, without what workstream ${pending.slug} would return.`);
+      lines.push(`  - Skip this step, without what ${pending.label} would return.`);
       commands.push(`  - The owner skips the step: run \`${ff} --skip "<the owner's reason>"\`.`);
     } else {
       // Accepting the step completes it, so the gates not yet passed never
@@ -1981,10 +2279,12 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   const verification: string[] = [];
   const gate = childGate(step);
   if (gate) {
-    const child = childOf(c, stateOf(readWorkstream(c.root, c.slug), step.id), step)!;
+    const set = gate.for_each !== undefined;
+    const children = knownChildren(c, stateOf(readWorkstream(c.root, c.slug), step.id), step);
+    const child = children[0]?.slug;
     // A child that does not exist yet is created now, as start would; one
     // that cannot be created is the step's blocker, not something to start.
-    if (!workstreamExists(c.root, child)) {
+    if (!children.length || children.some((ch) => !workstreamExists(c.root, ch.slug))) {
       try {
         ensureChild(c, step);
       } catch (e) {
@@ -1993,7 +2293,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
           c,
           step,
           pass,
-          `workstream ${child}, which this step waits for, cannot be created: ${e.message}. If you cannot resolve this, ` +
+          `${set ? "the child workstreams this step waits for" : `workstream ${child}, which this step waits for,`} cannot be created: ${e.message}. If you cannot resolve this, ` +
             `report the step blocked: run \`${FUSE_FLOW} continue ${c.slug} --blocked "<the reason above>"\`, so the owner decides.`,
         );
       }
@@ -2007,8 +2307,13 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
       why = e.message;
       run = false;
     }
-    if (why) throw refuse(c, step, pass, run ? `${why}. Run it to its end with \`${FUSE_FLOW} start ${child}\`, then continue this step.` : `${why}.`);
-    verification.push(`workstream ${child} (${refName(c, gate.text)}): complete`);
+    const hint = set
+      ? `Run each to its end: \`${FUSE_FLOW} start <slug>\` prints its current step; then continue this step.`
+      : `Run it to its end with \`${FUSE_FLOW} start ${child}\`, then continue this step.`;
+    if (why) throw refuse(c, step, pass, run ? `${why}. ${hint}` : `${why}.`);
+    for (const ch of childrenOf(c, stateOf(readWorkstream(c.root, c.slug), step.id), step)) {
+      verification.push(`workstream ${ch.slug} (${ch.item !== undefined ? `item ${ch.item}, ` : ""}${refName(c, gate.text)}): complete`);
+    }
   }
 
   const produced = place(c, step.produces);
@@ -2682,11 +2987,17 @@ export function status(root: string, slug: string): string[] {
         return `${a.path} (${a.status}${also.length ? `; also recorded by ${also.join(", ")}` : ""})`;
       });
     const details = [shown.join(", "), state.skip_reason ?? ""].filter(Boolean);
-    // A waiting step names the child of its current pass, recorded or not
-    // yet created, and its earlier passes' children apart from it.
-    const child = childGate(step) && !finished(state.status) && state.status !== "PENDING" ? childOf(c, state, step) : undefined;
-    const others = (state.children ?? []).map((ch) => ch.slug).filter((s) => s !== child);
-    if (child) {
+    // A waiting step names the children of its current pass, recorded or not
+    // yet created, and its earlier passes' children apart from them.
+    const waiting = childGate(step) && !finished(state.status) && state.status !== "PENDING";
+    const waitedFor = waiting ? knownChildren(c, state, step) : [];
+    const others = (state.children ?? []).map((ch) => ch.slug).filter((s) => !waitedFor.some((ch) => ch.slug === s));
+    if (waiting && childGate(step)!.for_each !== undefined) {
+      if (waitedFor.length) for (const ch of waitedFor) details.push(`waits for ${childName(ch)}, which ${whereIs(root, ch.slug)}`);
+      else details.push(`waits for one child workstream per item of ${childGate(step)!.for_each}, which cannot be created`);
+      if (others.length) details.push(`earlier child workstream${others.length > 1 ? "s" : ""} ${others.join(", ")}`);
+    } else if (waitedFor.length) {
+      const child = waitedFor[0].slug;
       details.push(`waits for workstream ${child}, which ${whereIs(root, child)}`);
       if (others.length) details.push(`earlier child workstream${others.length > 1 ? "s" : ""} ${others.join(", ")}`);
     } else if (others.length) details.push(`child workstream${others.length > 1 ? "s" : ""} ${others.join(", ")}`);

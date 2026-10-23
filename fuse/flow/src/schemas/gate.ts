@@ -13,10 +13,11 @@ export type GateKind = (typeof GATE_KINDS)[number];
 // command, what the agent reviews, or the workflow a child workstream
 // follows. max_rounds and guide are set on agent gates only; max_rounds is
 // undefined when the workflow does not set it, so policy can fill it in.
-// slug, inputs and returns are set on workflow gates only: the child's slug
-// template, its inputs (child input id -> parent artifact id) and the
-// documents it returns (parent id -> child id). route_back_to lists the steps
-// to suggest sending the work back to.
+// slug, inputs, returns and for_each are set on workflow gates only: the
+// child's slug template, its inputs (child input id -> parent artifact id),
+// the documents it returns (parent id -> child id), and the folder artifact
+// whose files the step waits for one child each. route_back_to lists the
+// steps to suggest sending the work back to.
 export type Gate = {
   kind: GateKind;
   text: string;
@@ -26,11 +27,14 @@ export type Gate = {
   slug?: string;
   inputs?: Record<string, string>;
   returns?: Record<string, string>;
+  for_each?: string;
   route_back_to: string[];
 };
 
-// The slug a workflow gate gives its child unless it says otherwise.
+// The slug a workflow gate gives its child unless it says otherwise, and the
+// one it gives each child of a `for_each` gate.
 export const DEFAULT_CHILD_SLUG = "{slug}-{step}";
+export const DEFAULT_CHILD_SLUG_PER_ITEM = "{slug}-{step}-{item}";
 
 // A condition is a gate without the fields that only make sense on a gate.
 // `description` is for the reader only; the engine never reads it.
@@ -80,8 +84,8 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   let text: unknown;
   let extra: Record<string, unknown> = {};
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, ...rest } = v as Record<string, unknown>;
-    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns };
+    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, ...rest } = v as Record<string, unknown>;
+    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each };
     const entries = Object.entries(rest);
     if (entries.length !== 1) return `${HINT}; got ${JSON.stringify(v)}`;
     [kind, text] = entries[0];
@@ -103,11 +107,11 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   if (kind === "check" && !CHECK_KIND.test(trimmed)) {
     return `check names a kind of check, a single lower-case word such as default; for a command use \`script: ${trimmed}\``;
   }
-  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns } = extra;
+  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns, for_each: forEach } = extra;
   if (description !== undefined && typeof description !== "string") return "description must be text";
   if (asCondition) {
     if (kind === "workflow") return "a condition cannot be a workflow; a workflow gate goes under gates";
-    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns"] as const) {
+    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns", "for_each"] as const) {
       if (extra[field] !== undefined) return `a condition has no ${field}`;
     }
     return { kind, text: trimmed, ...(description !== undefined ? { description: description as string } : {}), route_back_to: [] };
@@ -120,20 +124,27 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   }
   if (guide !== undefined && kind !== "agent") return "guide goes on an agent gate only";
   if (guide !== undefined && (typeof guide !== "string" || !guide.trim())) return "guide must be a path";
-  for (const field of ["slug", "inputs", "returns"] as const) {
+  for (const field of ["slug", "inputs", "returns", "for_each"] as const) {
     if (extra[field] !== undefined && kind !== "workflow") return `${field} goes on a workflow gate only`;
   }
   const gate: Gate = { kind, text: trimmed, route_back_to: routes };
   if (description !== undefined) gate.description = description as string;
   if (maxRounds !== undefined) gate.max_rounds = maxRounds as number;
   if (guide !== undefined) gate.guide = (guide as string).trim();
+  if (forEach !== undefined) {
+    if (typeof forEach !== "string" || !ID.test(forEach)) return `for_each names an artifact id, lowercase letters, digits and hyphens; got ${JSON.stringify(forEach)}`;
+    gate.for_each = forEach;
+  }
   if (slug !== undefined) {
-    // {slug} keeps two parent workstreams from sharing one child.
-    const sample = typeof slug === "string" ? slug.replaceAll("{slug}", "a").replaceAll("{step}", "b") : "";
+    // {slug} keeps two parent workstreams from sharing one child; {item}
+    // keeps the children of one for_each gate apart.
+    const sample = typeof slug === "string" ? slug.replaceAll("{slug}", "a").replaceAll("{step}", "b").replaceAll("{item}", "c") : "";
     if (typeof slug !== "string" || !slug.includes("{slug}") || !ID.test(sample)) {
-      return `slug is a template that contains {slug}, with lowercase letters, digits, hyphens and {step}; got ${JSON.stringify(slug)}`;
+      return `slug is a template that contains {slug}, with lowercase letters, digits, hyphens, {step} and, with for_each, {item}; got ${JSON.stringify(slug)}`;
     }
     if (slug === "{slug}") return "slug must add to {slug}, such as {slug}-review, or the child would take the parent's own slug";
+    if (forEach !== undefined && !slug.includes("{item}")) return "slug must contain {item} when the gate has for_each, so each child gets a slug of its own";
+    if (forEach === undefined && slug.includes("{item}")) return "{item} in slug needs for_each on the gate";
     gate.slug = slug;
   }
   if (inputs !== undefined) {
@@ -172,7 +183,9 @@ const KIND_DOCS: Record<GateKind, string> = {
     "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step " +
     "waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child " +
     "workstream with its inputs bound from this workstream's documents, and `continue` is refused until the " +
-    "child is complete. After a send-back, the next pass gets a fresh child.",
+    "child is complete. After a send-back, the next pass gets a fresh child. With `for_each: <folder artifact>`, " +
+    "the step waits for one child per file of that folder, each given its own file, and `continue` is refused " +
+    "until every child is complete.",
 };
 
 const DESCRIPTION = z.string().optional().meta({
@@ -232,14 +245,25 @@ const SHAPES = [
       slug: z.string().optional().meta({
         description:
           "The child workstream's slug, a template that contains {slug}, the parent's slug, and something more, " +
-          `and may contain {step}, this step's id; ${DEFAULT_CHILD_SLUG} unless set. Engine effect: the child is created under ` +
+          `and may contain {step}, this step's id; ${DEFAULT_CHILD_SLUG} unless set. With for_each it must also contain ` +
+          `{item}, the item's id; ${DEFAULT_CHILD_SLUG_PER_ITEM} unless set. Engine effect: the child is created under ` +
           "this slug; a later pass of the step after a send-back adds -<pass>, such as -2.",
-        examples: ["{slug}-adversarial"],
+        examples: ["{slug}-adversarial", "{slug}-unit-{item}"],
+      }),
+      for_each: z.string().optional().meta({
+        description:
+          "A folder artifact of this workflow, available before this step, whose direct files are the items: the " +
+          "step waits for one child workstream per file, the item's id being the file name without its extension. " +
+          "Engine effect: when the step is handed out, fuse-flow records the set of items and creates one child per " +
+          "item, binding every input that names this artifact to the item's own file; `continue` is refused until " +
+          "every child is complete, and later steps read what each child returned, one document per item.",
+        examples: ["approved-units"],
       }),
       inputs: idRecord(z.string(), z.string()).optional().meta({
         description:
           "The documents the child is given: child input id -> artifact id in this workflow, available before " +
-          "this step. Engine effect: each binds the child's declared input to this workstream's document.",
+          "this step. Engine effect: each binds the child's declared input to this workstream's document; with " +
+          "for_each, an input that names the for_each artifact is bound to the item's file.",
         examples: [{ "review-diff": "review-diff" }],
       }),
       returns: z
@@ -249,7 +273,7 @@ const SHAPES = [
           description:
             "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of " +
             "id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` " +
-            "resolves each to the newest child's recorded document.",
+            "resolves each to the newest child's recorded document, or with for_each to one document per child.",
           examples: [["adversarial-review-report"], { "system-design": "design" }],
         }),
       description: DESCRIPTION,
@@ -258,7 +282,7 @@ const SHAPES = [
     .strict()
     .meta({
       description:
-        "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `inputs`, `returns`, " +
+        "The workflow gate as a mapping: `workflow: <name>`, optionally with `slug`, `for_each`, `inputs`, `returns`, " +
         "`description` and `route_back_to`.",
     }),
   z.string().meta({

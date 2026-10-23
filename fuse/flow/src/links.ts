@@ -5,15 +5,15 @@
 // delegation: a step with a workflow gate creates a child workstream and
 // waits for it, and later steps read the documents the child returns.
 
-import { existsSync, realpathSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { posix, resolve } from "node:path";
 import { FlowError } from "./errors.ts";
 import { has, own } from "./own.ts";
 import { artifactPath, loadProject, reviewGuideProblems } from "./policy.ts";
 import { findWorkflow } from "./project.ts";
-import { DEFAULT_CHILD_SLUG } from "./schemas/gate.ts";
+import { DEFAULT_CHILD_SLUG, DEFAULT_CHILD_SLUG_PER_ITEM } from "./schemas/gate.ts";
 import { type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
-import { listWorkstreams, readWorkstream, startedOn, stateOf, type Workstream, workstreamExists } from "./workstream.ts";
+import { listWorkstreams, readWorkstream, startedOn, stateOf, type StepState, type Workstream, workstreamExists } from "./workstream.ts";
 
 const finished = (status: string) => status === "COMPLETED" || status === "SKIPPED";
 
@@ -26,10 +26,93 @@ export function firstUnfinished(wf: Workflow, ws: Workstream): Step | undefined 
 export const childGate = (step: Step): Gate | undefined => step.gates.find((g) => g.kind === "workflow");
 
 // The child's slug for one pass of the step: the gate's template with the
-// parent's slug and the step id filled in, and -<pass> from the second pass on.
-export function childSlug(gate: Gate, parent: string, step: string, pass: number): string {
-  const base = (gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{slug}", parent).replaceAll("{step}", step);
+// parent's slug, the step id and, for a for_each gate, the item filled in,
+// and -<pass> from the second pass on.
+export function childSlug(gate: Gate, parent: string, step: string, pass: number, item?: string): string {
+  const template = gate.slug ?? (gate.for_each !== undefined ? DEFAULT_CHILD_SLUG_PER_ITEM : DEFAULT_CHILD_SLUG);
+  const base = template.replaceAll("{slug}", parent).replaceAll("{step}", step).replaceAll("{item}", item ?? "{item}");
   return pass > 1 ? `${base}-${pass}` : base;
+}
+
+// One item of a for_each gate: the file's name without its extension, and
+// the file itself, relative to the repository root.
+export type Item = { item: string; file: string };
+
+const ITEM_ID = /^[a-z0-9][a-z0-9-]*$/;
+const hidden = (name: string) => name.startsWith(".");
+const stemOf = (name: string) => name.replace(/\.[^.]*$/, "");
+
+// The items of a for_each gate: the folder's direct, non-hidden files, as
+// the producing step recorded them, else listed. Only names are read, never
+// content, and every refusal is a FlowError the step block can print.
+export function itemsOf(root: string, parentSlug: string, step: Step, gate: Gate): Item[] {
+  const id = gate.for_each!;
+  const refuse = (why: string) => new FlowError(`step ${step.id} cannot create its child workstreams: ${why}`);
+  let folder = documentOf(root, parentSlug, id, step.id);
+  if (folder === undefined) throw refuse(`${id} was not recorded by an earlier step or given as an input`);
+  const records = recordsOf(root, parentSlug, id, step.id);
+  const fileRecords = records.length > 0 && records.every((r) => !r.endsWith("/"));
+  // Files recorded one by one stand for their folder, also when there is one
+  // of them, where documentOf names the file itself.
+  if (fileRecords) folder = recordedFolder(records.map((path) => ({ path })), folder.endsWith("/") ? folder : "");
+  const dir = folder.replace(/\/+$/, "");
+  const direct = (p: string) => posix.dirname(p) === (dir === "" ? "." : dir);
+  let files: string[];
+  if (fileRecords) {
+    files = records.filter((r) => direct(r) && !hidden(posix.basename(r)));
+  } else {
+    const full = resolve(root, dir);
+    let entries: Dirent[];
+    try {
+      if (statSync(full).isFile()) throw refuse(`${folder} is a file, not a folder`);
+      entries = readdirSync(full, { withFileTypes: true });
+    } catch (e) {
+      if (e instanceof FlowError) throw e;
+      throw refuse(`${folder} cannot be read: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`);
+    }
+    files = entries
+      .filter((d) => d.isFile() && !hidden(d.name))
+      .map((d) => posix.join(dir, d.name))
+      .sort();
+  }
+  if (!files.length) throw refuse(`${folder} holds no item: no file to make a child for`);
+  const items = new Map<string, string>();
+  for (const file of files) {
+    const stem = stemOf(posix.basename(file));
+    if (!ITEM_ID.test(stem)) {
+      throw refuse(`${file}: its name without the extension, ${JSON.stringify(stem)}, is not an item id (lowercase letters, digits and hyphens); rename the file`);
+    }
+    const other = items.get(stem);
+    if (other !== undefined) throw refuse(`${other} and ${file} give the same item ${stem}; one file per item`);
+    items.set(stem, file);
+  }
+  return [...items.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([item, file]) => ({ item, file }));
+}
+
+// The paths recorded for the document `id`, by the same search as documentOf:
+// the latest step before `before` that recorded it, following a returned id
+// into the child that returned it; none for an input.
+function recordsOf(root: string, slug: string, id: string, before?: string, seen = new Set<string>()): string[] {
+  if (seen.has(slug) || !workstreamExists(root, slug)) return [];
+  seen.add(slug);
+  const ws = readWorkstream(root, slug);
+  const wf = workflowOf(root, ws);
+  const end = before === undefined ? wf.steps.length : wf.steps.findIndex((s) => s.id === before);
+  for (const step of wf.steps.slice(0, end < 0 ? wf.steps.length : end).reverse()) {
+    const state = stateOf(ws, step.id);
+    const returned = own(childGate(step)?.returns, id);
+    if (state.status !== "COMPLETED" && state.status !== "AWAITING_OWNER") {
+      if (returned !== undefined) return [];
+      continue;
+    }
+    const records = state.artifacts.filter((a) => a.artifact === id).map((a) => a.path);
+    if (records.length) return records;
+    if (returned !== undefined) {
+      const child = childGate(step)!.for_each === undefined ? state.children?.at(-1)?.slug : undefined;
+      return child ? recordsOf(root, child, returned, undefined, seen) : [];
+    }
+  }
+  return [];
 }
 
 const workflowOf = (root: string, ws: Workstream) => loadWorkflow(findWorkflow(root, ws.workflow));
@@ -94,8 +177,31 @@ export function parentGone(root: string, slug: string, parent: { slug: string; s
   if (state.status === "SKIPPED") return `step ${step.id} was skipped (${state.skip_reason ?? "no reason recorded"})`;
   if (state.status === "COMPLETED") return `step ${step.id} is complete`;
   const pass = state.pass ?? 1;
-  const current = state.children?.find((ch) => ch.pass === pass)?.slug ?? childSlug(gate, parent.slug, step.id, pass);
+  const entries = (state.children ?? []).filter((ch) => ch.pass === pass);
+  const recorded = entries.map((ch) => ch.slug);
+  // Children recorded for a gate of the other shape are held, not replaced,
+  // until the owner sends the work back; no child of the pass is "current".
+  const perItem = entries.some((ch) => ch.item !== undefined);
+  if (entries.length && perItem !== (gate.for_each !== undefined)) {
+    return `the gate of step ${step.id} was edited to wait for ${perItem ? "one child" : "one child per item"}, so the children recorded for its pass cannot be used until the owner sends the work back to it`;
+  }
+  if (gate.for_each !== undefined) {
+    // The set is recorded before any child is created, so a child that is not
+    // in it belongs to an earlier pass.
+    if (recorded.includes(slug)) return undefined;
+    return recorded.length
+      ? `the owner sent the work back, and the step's new pass waits for workstreams ${recorded.join(", ")}`
+      : "the owner sent the work back, and the step's new pass waits for a new set of child workstreams, recorded when the step is handed out";
+  }
+  const current = recorded[0] ?? childSlug(gate, parent.slug, step.id, pass);
   return current === slug ? undefined : `the owner sent the work back, and the step's new pass waits for workstream ${current}`;
+}
+
+// The children of the newest pass of a step, the ones it waits for or waited for.
+export function newestChildren(state: StepState): { slug: string; item?: string; file?: string }[] {
+  const children = state.children ?? [];
+  const newest = Math.max(0, ...children.map((ch) => ch.pass));
+  return children.filter((ch) => ch.pass === newest);
 }
 
 // The folder that holds the files a step recorded for one artifact: the
@@ -141,12 +247,25 @@ export function documentOf(root: string, slug: string, id: string, before?: stri
     }
     // A returned id stops the search here: the newest child decides, even
     // when it recorded nothing, so an older document of that id never stands in.
+    // A for_each gate returns one document per item, which is not one path.
     if (returned !== undefined) {
+      if (childGate(step)!.for_each !== undefined) return undefined;
       const child = state.children?.at(-1)?.slug;
       return child ? documentOf(root, child, returned, undefined, seen) : undefined;
     }
   }
   return own(ws.inputs, id);
+}
+
+// What each child of a for_each step's newest pass returned under the
+// child's id `childId`: the path once the child is complete and recorded
+// it; `complete` says whether it is.
+export function returnedDocuments(root: string, state: StepState, childId: string): { slug: string; item?: string; complete: boolean; path?: string }[] {
+  return newestChildren(state).map(({ slug, item }) => {
+    const complete = isComplete(root, slug);
+    const path = complete ? documentOf(root, slug, childId) : undefined;
+    return { slug, ...(item !== undefined ? { item } : {}), complete, ...(path !== undefined ? { path } : {}) };
+  });
 }
 
 // The workstreams in the chain of parents above `slug`, `slug` first.

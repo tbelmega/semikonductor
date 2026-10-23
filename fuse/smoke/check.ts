@@ -198,21 +198,30 @@ function checkWorkstream(slug: string, workstream: Workstream, workflow: Workflo
       else runGate(slug, at, step.id, `check ${gate.text}`, binding.command);
     }
 
-    // The child of the step's current pass, as fuse-flow records it.
+    // The children of the step's current pass, as fuse-flow records them: one,
+    // or one per item under a for_each gate.
     const gate = childGate(step);
     if (!gate || state.status !== "COMPLETED") continue;
     const pass = state.pass ?? 1;
-    const child = state.children?.find((ch) => ch.pass === pass)?.slug ?? childSlug(gate, slug, step.id, pass);
-    const found = all.find((w) => w.slug === child);
-    if (!found || found.ws.parent?.slug !== slug || found.ws.parent.step !== step.id) {
-      failures.push(`${at}${step.id}: child workstream ${child} is missing`);
-      continue;
+    const recorded = (state.children ?? []).filter((ch) => ch.pass === pass).map((ch) => ({ slug: ch.slug, item: ch.item }));
+    const children = recorded.length ? recorded : gate.for_each !== undefined ? [] : [{ slug: childSlug(gate, slug, step.id, pass), item: undefined }];
+    if (!children.length) failures.push(`${at}${step.id}: no child workstreams are recorded for its pass`);
+    for (const { slug: child, item } of children) {
+      const found = all.find((w) => w.slug === child);
+      if (!found || found.ws.parent?.slug !== slug || found.ws.parent.step !== step.id) {
+        failures.push(`${at}${step.id}: child workstream ${child} is missing`);
+        continue;
+      }
+      if (found.ws.parent.item !== item) {
+        failures.push(`${at}${step.id}: child workstream ${child} was recorded for item ${item ?? "(none)"} but was created for item ${found.ws.parent.item ?? "(none)"}`);
+        continue;
+      }
+      if (checked.has(child)) continue;
+      const file = resolve(project, findWorkflow(project, found.ws.workflow));
+      notes.push(`workstream ${child} (${startedBy(found.ws)}) follows ${file}`);
+      const own = harnessCopy(child, gate.text, file);
+      if (own !== undefined) checkWorkstream(child, found.ws, loadWorkflow(own), `${child}: `);
     }
-    if (checked.has(child)) continue;
-    const file = resolve(project, findWorkflow(project, found.ws.workflow));
-    notes.push(`workstream ${child} (${startedBy(found.ws)}) follows ${file}`);
-    const own = harnessCopy(child, gate.text, file);
-    if (own !== undefined) checkWorkstream(child, found.ws, loadWorkflow(own), `${child}: `);
   }
 }
 

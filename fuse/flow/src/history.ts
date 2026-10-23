@@ -34,6 +34,7 @@ export const EVENT = {
   sentBack: (from: string, to: string, note?: string) => `owner sent the work back from ${from} to ${to}${withNote(note)}`,
   approved: (note?: string) => `owner approved${withNote(note)}`,
   childCreated: (slug: string) => `created child workstream ${slug}`,
+  childrenRecorded: (children: string[]) => `recorded ${children.length} child workstream${children.length === 1 ? "" : "s"} to create: ${children.join(", ")}`,
 };
 
 // The skip reasons the owner's own commands give. They are written as
