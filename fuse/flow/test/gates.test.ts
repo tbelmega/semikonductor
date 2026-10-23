@@ -51,16 +51,16 @@ function approveDesign() {
 test("an owner gate holds the step and prints the pre-filled hand-over block until the owner approves", () => {
   repo.write("design.md");
   const recorded = repo.ok("continue", "feat");
-  expect(recorded).toStartWith("design: work recorded; the step awaits the owner's action\n\nOWNER'S TURN: end your message with this hand-over block.");
-  expect(recorded).toContain("SUMMARY: <the task you worked on, in a sentence>. Workstream feat, step design, 1 of 3.\n");
+  expect(recorded).toStartWith("design: work recorded; the step awaits the owner's action\n\nOWNER'S TURN: end your message with this hand-over block; a report another rule asks for may follow it.");
+  expect(recorded).toContain("\n- SUMMARY: <the task you worked on, in a sentence>. Workstream feat, step design, 1 of 3.\n- STATUS: awaiting owner action.");
   expect(recorded).toContain("STATUS: awaiting owner action. The owner is asked to approve the design.\n");
   expect(recorded).toContain("PRODUCED: design.md (new)\n");
   expect(recorded).toContain("VERIFICATION: none\n");
   // The owner sees the options in plain words; the commands come after the block, for the agent only.
-  expect(recorded).toContain("NEXT STEP:\n  - Approve the design.\n  - Send the work back to redo this step, with what to change.\nDECISIONS: ");
+  expect(recorded).toContain("- NEXT STEP:\n  - Approve the design.\n  - Send the work back to redo this step, with what to change.\n- DECISIONS: ");
   expect(recorded).toContain("so its checks and reviews run again.\n\nFOR YOU, NOT FOR THE OWNER:");
   const block = recorded.slice(0, recorded.indexOf("FOR YOU, NOT FOR THE OWNER:"));
-  expect(block.split("\n").filter((l) => /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|  - )/.test(l)).join("\n")).not.toContain("fuse-flow");
+  expect(block.split("\n").filter((l) => /^(- (SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|DECISIONS)|  - )/.test(l)).join("\n")).not.toContain("fuse-flow");
   expect(recorded).toContain(
     '\n  - The owner does what the step asks (approve the design): run `fuse-flow continue feat --owner-approved --note "<what the owner said>"`.\n',
   );

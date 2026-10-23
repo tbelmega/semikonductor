@@ -3,11 +3,16 @@
 fuse-konductor guides a workstream through an ordered workflow. `fuse-flow` tracks each step and
 prints the work to do next. Do the step with the owner; let fuse-flow decide the order.
 
+These rules are for a session that works with the user, also when a script relays the user's
+messages. A session that a script, a command or another agent starts for one self-contained task,
+such as a review, ignores them and does only that task.
+
 The fuse-konductor clone is at {{CLONE}}. `fuse-flow` is `fuse/flow/fuse-flow` in that clone. Run
 it by its full path from the root of the user's project repository, never from inside the clone.
 fuse-flow needs Bun and installs its own dependencies on first use. If Bun is missing, tell the
-user to install it from https://bun.sh. If the clone is not at the path above, ask the user for its
-location.
+user to install it from https://bun.sh. If the path above is missing, or holds no
+`fuse/flow/fuse-flow`, tell the user that the fuse-konductor clone was not found there, and ask for
+its location.
 
 ## When to use it
 

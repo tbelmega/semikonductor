@@ -54,6 +54,9 @@ script installs plain skills and an always-on instruction block that every suppo
     round's fixes added as a P2, so a document review converges. A launch command must return
     once the findings are written; `fuse/flow/workflows/schemas/launch-once.sh` is an example
     wrapper that makes any agent task's command return once its output file is written.
+  - The labelled lines of a hand-over print as Markdown list items, so a chat that renders
+    Markdown shows each on its own line. A report another rule asks for, such as the debug-mode
+    report, may follow the block.
   - A file a step without an owner gate records is `done`, and becomes `approved` only at a
     later owner gate that approves it.
   - When the workflow of a running workstream is edited, an owner's acceptance or block of a
@@ -214,13 +217,16 @@ script installs plain skills and an always-on instruction block that every suppo
   the agent follows the owner's ruling, else the house rule when it clearly applies, and asks when
   it is unclear. A value set in a fuse-flow policy file is the deterministic form and always wins;
   without one, the step block's default defers to the house rules, as for how a reviewer is
-  started.
+  started. A session that a script, a command or another agent starts for one self-contained task,
+  such as a review, ignores the block; a session that relays the user's messages follows it. When the clone is not where the block says, the agent tells the user.
 - **`install.sh` and `INSTALL.md`.** `--project <dir>` copies the skills into the project's
   `.agents/skills/`, links `.claude/skills` and `.kiro/skills` to it, and adds the block to the
   project's `AGENTS.md`, for the team to commit. `--global <file>...` adds the block to each
   harness's user-level instruction file and copies the skills next to it; `--link` links them into
   the clone instead, for people who edit the skills. `--uninstall` reverses either. The script
   changes only what it installed and keeps the rest of each instruction file byte for byte.
+  Every install prints the clone's commit, and names uncommitted changes, so an install from an
+  outdated checkout is noticed; a project install records the commit in the project's manifest.
   Supported harnesses: Claude Code, Codex, Cursor (project install only), OpenCode and Kiro CLI.
 - A smoke-test harness in `fuse/smoke/`: an orchestrating agent plays the user, has a separate
   fuse agent build a trivial program with a workflow, and judges whether an engineer who knows

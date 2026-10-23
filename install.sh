@@ -47,7 +47,8 @@
 #      harness entries listed there: ".claude" or ".kiro" for a .claude/skills
 #      or .kiro/skills link this script created, ".claude/<name>" or
 #      ".kiro/<name>" for a per-skill link or marked copy it created in a real
-#      .claude/skills or .kiro/skills directory.
+#      .claude/skills or .kiro/skills directory. A ".commit <sha>" line
+#      records the clone commit the project's copies came from.
 #    Anything else with the same name is reported and skipped.
 # 2. It never works through a symlinked directory in a project (.agents,
 #    .agents/skills, .claude, .kiro) or a symlinked manifest, and every name it
@@ -235,6 +236,23 @@ case $0 in */*) self_dir=${0%/*} ;; *) self_dir=. ;; esac
 REPO=$(cd -P -- "$self_dir" && pwd -P)
 SKILLS_SRC=$REPO/skills
 FAILED=0
+
+# The clone's commit, printed by every install so that an install from an
+# outdated checkout is noticed, and recorded by a project install. Empty when
+# the clone is not a git checkout of its own, such as an unpacked archive.
+# Uncommitted means a changed tracked file anywhere, or an untracked file in
+# what the install copies: the skills and the block's source.
+CLONE_COMMIT=
+CLONE_DIRTY=
+if command -v git > /dev/null 2>&1 &&
+  [ "$(git -C "$REPO" rev-parse --show-toplevel 2> /dev/null)" = "$REPO" ]; then
+  CLONE_COMMIT=$(git -C "$REPO" rev-parse --verify -q HEAD 2> /dev/null) || CLONE_COMMIT=
+  if [ -n "$CLONE_COMMIT" ] &&
+    { [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no 2> /dev/null)" ] ||
+      [ -n "$(git -C "$REPO" ls-files --others --exclude-standard -- skills AGENTS.fuse.md 2> /dev/null)" ]; }; then
+    CLONE_DIRTY=1
+  fi
+fi
 
 # A skill name is one path component: letters, digits, dots, hyphens and
 # underscores, not starting with a dot.
@@ -754,6 +772,9 @@ project_paths() {
     case $_line in *' '*) _hash=${_line#* }; _line=${_line%% *} ;; esac
     if [ -z "$_hash" ] && harness_record "$_line"; then
       OLD_LINKS=$OLD_LINKS$_line$NL
+    elif [ "$_line" = .commit ] && [ -n "$_hash" ] && case $_hash in *[!0-9a-f]*) false ;; *) true ;; esac; then
+      # Replaced by this install's commit, or dropped when it has none.
+      :
     elif valid_name "$_line" && case $_hash in *[!0-9]*) false ;; *) true ;; esac; then
       OLD=$OLD$_line$NL
       set_record "$_line" "$_hash"
@@ -1007,7 +1028,7 @@ project_install() {
   for _hd in $HARNESS_DIRS; do IFS=$OIFS; set +f; link_harness "$_hd"; done > "$_links"
   IFS=$OIFS; set +f
   tmpfile _final
-  { cat "$_links"; printf '%s' "$RECORDS"; } > "$_final"
+  { cat "$_links"; printf '%s' "$RECORDS"; [ -z "$CLONE_COMMIT" ] || printf '.commit %s\n' "$CLONE_COMMIT"; } > "$_final"
   write_manifest "$_final"
   INSTALLING=
   say "  .claude/skills and .kiro/skills point at .agents/skills"
@@ -1061,6 +1082,15 @@ project_uninstall() {
 
 # Skills that cannot be placed are warnings; the refusals that set the exit
 # status (an instruction file left untouched) happen in this shell.
+if [ "$uninstall" -eq 0 ]; then
+  if [ -z "$CLONE_COMMIT" ]; then
+    say "Installing from $REPO, which is not a git checkout, so its commit is unknown."
+  elif [ -n "$CLONE_DIRTY" ]; then
+    say "Installing from $REPO at commit $CLONE_COMMIT, with uncommitted changes."
+  else
+    say "Installing from $REPO at commit $CLONE_COMMIT."
+  fi
+fi
 if [ "$mode" = project ]; then
   if [ "$uninstall" -eq 1 ]; then project_uninstall; else project_install; fi
 else

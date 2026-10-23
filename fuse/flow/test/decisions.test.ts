@@ -30,7 +30,7 @@ steps:
       - owner-action: approve the end
 `;
 
-const decisionsLine = (out: string) => out.split("\n").filter((l) => l.startsWith("DECISIONS:"));
+const decisionsLine = (out: string) => out.split("\n").filter((l) => l.startsWith("- DECISIONS:")).map((l) => l.slice(2));
 
 describe("the MODE line", () => {
   test("validate accepts attended, unattended and no mode, and refuses any other value", () => {

@@ -454,7 +454,9 @@ When the owner acts next, `continue` first prints a line with what it recorded, 
 `build: COMPLETED`. Then come `OWNER'S TURN`, with what the agent does with the block, and the
 pre-filled hand-over block. The agent replaces placeholders, preserves the order, and ends its
 own message with these five lines, and a sixth when the agent has finished work since the
-owner's last decision:
+owner's last decision. Each line is a Markdown list item, so a chat that renders Markdown shows
+them on separate lines. A report another rule asks for, such as the debug-mode report, may follow
+the block.
 
 - `SUMMARY:` the task, workstream slug and step position.
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or

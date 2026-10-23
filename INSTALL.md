@@ -37,6 +37,10 @@ The script also writes the path of your clone to `~/.konductor/fuse-konductor-cl
 `clone=<path>` in your home directory, so the agent can find `fuse-flow` from any project.
 `--uninstall` leaves the file, because other projects use it.
 
+Every install prints the commit of the clone it runs from, and says when the clone has uncommitted
+changes. A project install also records that commit in `.agents/skills/.fuse-konductor`, as a
+`.commit <sha>` line, so the team can see which version of fuse the committed skills came from.
+
 Each teammate needs that file too, pointing at their own clone. The simplest way to write it, without
 touching the project, is from their clone:
 

@@ -1541,13 +1541,14 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
 function stopEarly(c: Ctx, ws: Workstream, step: Step, otherwise = "If you cannot finish the step at all, report it blocked instead."): string[] {
   const reviews = step.gates.filter((g) => g.kind === "agent").length > 0;
   return [
-    `IF YOU STOP BEFORE THE STEP IS DONE: end your message with these five lines, written for the owner, with each <...> part replaced. ${otherwise}`,
-    `  SUMMARY: <the task, in a sentence>. Workstream ${c.slug}, step ${step.id}, ${position(c, step)}.${skippedSteps(c, ws)}`,
-    "  STATUS: <needs input, when you need an answer or a decision from the owner; paused, when the work only " +
+    "IF YOU STOP BEFORE THE STEP IS DONE: end your message with these five lines, written for the owner as a list, with each <...> part " +
+      `replaced; a report another rule asks for may follow them. ${otherwise}`,
+    `  - SUMMARY: <the task, in a sentence>. Workstream ${c.slug}, step ${step.id}, ${position(c, step)}.${skippedSteps(c, ws)}`,
+    "  - STATUS: <needs input, when you need an answer or a decision from the owner; paused, when the work only " +
       "waits for the owner's request to continue>",
-    "  PRODUCED: <the files written or changed so far, and why any artifact will not be written; or none>",
-    `  VERIFICATION: <the check results so far${reviews ? ", the review rounds used of the cap, and any required fix still open" : ""}; or none>`,
-    "  NEXT STEP: <two to four options for the owner, your recommendation first, with its reason>",
+    "  - PRODUCED: <the files written or changed so far, and why any artifact will not be written; or none>",
+    `  - VERIFICATION: <the check results so far${reviews ? ", the review rounds used of the cap, and any required fix still open" : ""}; or none>`,
+    "  - NEXT STEP: <two to four options for the owner, your recommendation first, with its reason>",
   ];
 }
 
@@ -2130,11 +2131,22 @@ function notRunOnWork(c: Ctx, step: Step, state: StepState): string[] {
 // with every gate.
 const redo = (c: Ctx, step: Step) => `run \`${FUSE_FLOW} continue ${c.slug} --back-to ${step.id} --note "<the owner's decision>"\``;
 
+// The labelled lines of a hand-over, printed as list items so that a chat
+// that renders Markdown shows each on its own line instead of joining them
+// into one paragraph. The owner's options under NEXT STEP nest below it.
+const HANDOVER_LABEL = /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|DECISIONS):/;
+const asListItems = (lines: string[]) => lines.map((l) => (HANDOVER_LABEL.test(l) ? `- ${l}` : l));
+
 // When it is the owner's turn: the hand-over block, pre-filled.
 function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
+  return asListItems(handOverLines(c, ws, step));
+}
+
+function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
   const skipped = skippedSteps(c, ws);
   const intro =
-    "OWNER'S TURN: end your message with this hand-over block. Replace each <...> part, keep the lines in this " +
+    "OWNER'S TURN: end your message with this hand-over block; a report another rule asks for may follow it. " +
+    "Replace each <...> part, keep the lines in this " +
     "order, and give the owner's options with your recommendation first, with its reason. Write the block for " +
     "the owner: name steps, phases and artifacts in plain words, and leave out fuse-flow, its commands and the " +
     "workstream's state file unless the owner asks how the workflow works.";

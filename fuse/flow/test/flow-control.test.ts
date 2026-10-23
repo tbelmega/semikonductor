@@ -41,7 +41,7 @@ test("a check condition runs the command the policy binds; an unbound kind holds
   expect(repo.status("feat", "research")).toBe("PENDING");
   // Binding the check needs the owner's confirmation, so the agent is told how to hand back meanwhile.
   expect(out).toContain("IF YOU STOP BEFORE THE STEP IS DONE:");
-  expect(out).toContain("  SUMMARY: <the task, in a sentence>. Workstream feat, step research, 1 of 3.\n");
+  expect(out).toContain("  - SUMMARY: <the task, in a sentence>. Workstream feat, step research, 1 of 3.\n");
   expect(repo.refused("continue", "feat")).toContain("cannot be handed out yet");
   // A step not handed out cannot be reported blocked, so the block does not offer it.
   expect(out).not.toContain("report it blocked");
@@ -112,7 +112,7 @@ test("--forward-to jumps forward; the current step and those before the target a
 test("a step after skipped steps names them, with their reasons, in the lines for stopping early", () => {
   const out = repo.start("feat", flow("    condition:\n      script: test -f nothing-here"));
   expect(out).toContain(
-    "  SUMMARY: <the task, in a sentence>. Workstream feat, step build, 2 of 3. Skipped steps: research (condition `test -f nothing-here` exited 1).\n",
+    "  - SUMMARY: <the task, in a sentence>. Workstream feat, step build, 2 of 3. Skipped steps: research (condition `test -f nothing-here` exited 1).\n",
   );
 });
 

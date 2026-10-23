@@ -17,7 +17,8 @@ explained by what fuse-flow prints.
 
 - **Find fuse-flow.** The fuse-konductor always-on rules give its path. Otherwise it is
   `<clone>/fuse/flow/fuse-flow`, where `<clone>` is the `clone=` line of
-  `~/.konductor/fuse-konductor-clone`; if neither exists, ask the user where the clone is.
+  `~/.konductor/fuse-konductor-clone`. If that file is missing, has no `clone=` line, or names a
+  directory without `fuse/flow/fuse-flow`, tell the user what you found and ask where the clone is.
 - **Run it from the root of the user's project repository,** never from inside the clone. A
   workstream's state is saved in `.konductor/workstreams/<slug>.yml` of that repository, after every
   command, and everything the steps produce belongs in that repository too.

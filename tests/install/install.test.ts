@@ -238,9 +238,53 @@ describe("--project", () => {
     expect(output).toMatch(/skip/i);
   });
 
+  test("an install prints the clone's commit, and a project install records it in the manifest", () => {
+    const git = (...args: string[]) => {
+      const r = spawnSync("git", ["-C", sb.clone, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { encoding: "utf8" });
+      expect(r.status).toBe(0);
+      return r.stdout.trim();
+    };
+    const list = join(sb.project, ".agents", "skills", ".fuse-konductor");
+    // Not a git checkout: the commit is unknown and nothing is recorded.
+    expect(sb.ok("--project", sb.project)).toContain(`Installing from ${sb.clone}, which is not a git checkout, so its commit is unknown.`);
+    expect(sb.read(list)).not.toContain(".commit");
+
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-q", "-m", "first");
+    const first = git("rev-parse", "HEAD");
+    expect(sb.ok("--project", sb.project)).toContain(`Installing from ${sb.clone} at commit ${first}.\n`);
+    expect(sb.read(list)).toContain(`.commit ${first}\n`);
+    expect(listed(list)).toBe(`.claude\n.commit ${first}\n.kiro\nalpha\nbeta\n`.replace(/ \d+$/gm, ""));
+
+    // A newer commit replaces the record; a change not committed is named.
+    sb.write(join(sb.clone, "skills", "alpha", "SKILL.md"), "changed\n");
+    git("commit", "-q", "-am", "second");
+    const second = git("rev-parse", "HEAD");
+    sb.write(join(sb.clone, "skills", "beta", "SKILL.md"), "not committed\n");
+    expect(sb.ok("--global", join(sb.home, ".claude", "CLAUDE.md"))).toContain(
+      `Installing from ${sb.clone} at commit ${second}, with uncommitted changes.\n`,
+    );
+    sb.ok("--project", sb.project);
+    expect(sb.read(list).match(/^\.commit .*$/gm)).toEqual([`.commit ${second}`]);
+
+    // An untracked file the install copies counts as uncommitted too.
+    git("checkout", "-q", "--", "skills/beta/SKILL.md");
+    expect(sb.ok("--project", sb.project)).toContain(`at commit ${second}.\n`);
+    sb.write(join(sb.clone, "skills", "alpha", "helper.md"), "new\n");
+    const untracked = sb.ok("--project", sb.project);
+    expect(untracked).toContain(`at commit ${second}, with uncommitted changes.\n`);
+    expect(sb.read(join(sb.project, ".agents", "skills", "alpha", "helper.md"))).toBe("new\n");
+
+    // Uninstall prints no commit and removes the manifest with the record.
+    const removed = sb.ok("--project", sb.project, "--uninstall");
+    expect(removed).not.toContain("Installing from");
+    expect(exists(list)).toBe(false);
+  });
+
   test("a manifest line that is not a skill name is refused before anything changes", () => {
     sb.write(join(sb.root, "victim", "data"), "important\n");
-    for (const line of ["../../../victim", "..", "a/b", ".hidden"]) {
+    for (const line of ["../../../victim", "..", "a/b", ".hidden", ".commit", ".commit not-a-sha"]) {
       sb.write(join(sb.project, ".agents", "skills", ".fuse-konductor"), `${line}\n`);
       const before = snapshot(sb.root);
       for (const args of [["--project", sb.project], ["--project", sb.project, "--uninstall"]]) {

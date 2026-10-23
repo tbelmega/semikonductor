@@ -69,15 +69,15 @@ If progress would require one of these prohibited actions, stop and fail Guidanc
 
 ## Required hand-over behavior
 
-Every time the agent hands work back to you, including pauses and completion, its message must end with this block in this order:
+Every time the agent hands work back to you, including pauses and completion, its message must end with this block in this order, each line a list item. A report another rule asks for, such as the debug-mode report, may follow it:
 
 ```
-SUMMARY: <the task, workstream slug, and step position>
-STATUS: <awaiting owner action, blocked, needs input, paused, or workflow complete>
-PRODUCED: <new and updated files, plus not-produced and unchanged reasons>
-VERIFICATION: <mechanical results, review rounds used and cap, and open required fixes>
-NEXT STEP: <two to four owner options, recommendation first with its reason>
-DECISIONS: <open decisions, or none recorded, and the decisions files they are in>
+- SUMMARY: <the task, workstream slug, and step position>
+- STATUS: <awaiting owner action, blocked, needs input, paused, or workflow complete>
+- PRODUCED: <new and updated files, plus not-produced and unchanged reasons>
+- VERIFICATION: <mechanical results, review rounds used and cap, and open required fixes>
+- NEXT STEP: <two to four owner options, recommendation first with its reason>
+- DECISIONS: <open decisions, or none recorded, and the decisions files they are in>
 ```
 
 The `DECISIONS:` line is present only when the engine printed it, which it does at an owner's turn or completion after finished work you have not yet reviewed. Its absence elsewhere is correct. The engine pre-fills this block when an owner-action gate waits or a step is blocked. The agent writes it when pausing inside a step or announcing completion. Missing, malformed, or non-terminal hand-over blocks are Guidance friction when the process remains understandable, and Guidance failure when they hide the required owner action or let the agent bypass the process.
