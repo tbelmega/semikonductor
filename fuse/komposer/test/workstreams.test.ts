@@ -252,7 +252,7 @@ describe("a workstream as fuse-flow reads it", () => {
     const second = { ...w, children: [...w.children!, { step: "deleg", pass: 2, slug: "ws-next-deleg-2" }] };
     second.summary = { ...w.summary, steps: { deleg: { status: "IN_PROGRESS" } } };
     expect(currentChildSlug(second, "deleg", "ws-next-deleg")).toBe("ws-next-deleg-2");
-    expect(stepChildren(second, "deleg", "ws-next-deleg")).toEqual({ waitsFor: "ws-next-deleg-2", others: ["ws-next-deleg"] });
+    expect(stepChildren(second, "deleg", "ws-next-deleg")).toEqual({ waitsFor: ["ws-next-deleg-2"], others: ["ws-next-deleg"] });
     const done = { ...second, summary: { ...second.summary, steps: { deleg: { status: "COMPLETED" } } } };
     expect(stepChildren(done, "deleg", "ws-next-deleg")).toEqual({ others: ["ws-next-deleg", "ws-next-deleg-2"] });
     // A step whose state names no pass is in its first.
@@ -267,7 +267,7 @@ describe("a workstream as fuse-flow reads it", () => {
       steps: { deleg: { status: "IN_PROGRESS", pass: 2 } },
     });
     w.summary = { ...w.summary!, steps: { deleg: { status: "IN_PROGRESS" } } };
-    expect(stepChildren(w, "deleg", "parent-run-deleg")).toEqual({ waitsFor: "parent-run-deleg-2", others: ["parent-run-deleg"] });
+    expect(stepChildren(w, "deleg", "parent-run-deleg")).toEqual({ waitsFor: ["parent-run-deleg-2"], others: ["parent-run-deleg"] });
   });
 
   test("a step whose workflow gate was removed waits for no child and lists its children", () => {
@@ -275,7 +275,44 @@ describe("a workstream as fuse-flow reads it", () => {
     w.summary = { ...w.summary!, steps: { deleg: { status: "IN_PROGRESS" } } };
     expect(stepChildren(w, "deleg", undefined)).toEqual({ others: ["removed-gate-run-deleg"] });
     // A handed-out step with a gate and no child recorded yet waits for its first.
-    expect(stepChildren({ ...w, children: [] }, "deleg", "removed-gate-run-deleg")).toEqual({ waitsFor: "removed-gate-run-deleg", others: [] });
+    expect(stepChildren({ ...w, children: [] }, "deleg", "removed-gate-run-deleg")).toEqual({ waitsFor: ["removed-gate-run-deleg"], others: [] });
+  });
+
+  test("a handed-out step whose current pass has children per item waits for every one of them", () => {
+    const w = ws("/p", "vuln", {
+      children: [
+        { step: "patch", pass: 1, slug: "vuln-patch", item: undefined },
+        { step: "patch", pass: 2, slug: "vuln-patch-a-2", item: "a" },
+        { step: "patch", pass: 2, slug: "vuln-patch-b-2", item: "b" },
+        { step: "patch", pass: 2, slug: "vuln-patch-c-2", item: "c" },
+      ],
+      steps: { patch: { status: "IN_PROGRESS", pass: 2 } },
+    });
+    w.summary = { ...w.summary!, steps: { patch: { status: "IN_PROGRESS" } } };
+    expect(stepChildren(w, "patch", "vuln-patch-{item}")).toEqual({
+      waitsFor: ["vuln-patch-a-2", "vuln-patch-b-2", "vuln-patch-c-2"],
+      others: ["vuln-patch"],
+    });
+    const done = { ...w, summary: { ...w.summary, steps: { patch: { status: "COMPLETED" } } } };
+    expect(stepChildren(done, "patch", "vuln-patch-{item}")).toEqual({ others: ["vuln-patch", "vuln-patch-a-2", "vuln-patch-b-2", "vuln-patch-c-2"] });
+    // The set is recorded before any child exists, so a pass with no entry yet
+    // waits for the template, as a plain gate does.
+    const fresh = { ...w, children: [] };
+    expect(stepChildren(fresh, "patch", "vuln-patch-{item}")).toEqual({ waitsFor: ["vuln-patch-{item}-2"], others: [] });
+  });
+
+  test("a child carried over into the next pass is waited for once, under the pass it is recorded in again", () => {
+    const w = ws("/p", "vuln", {
+      children: [
+        { step: "patch", pass: 1, slug: "vuln-patch-a", item: "a" },
+        { step: "patch", pass: 1, slug: "vuln-patch-b", item: "b" },
+        { step: "patch", pass: 2, slug: "vuln-patch-a", item: "a" },
+        { step: "patch", pass: 2, slug: "vuln-patch-b-2", item: "b" },
+      ],
+      steps: { patch: { status: "IN_PROGRESS", pass: 2 } },
+    });
+    w.summary = { ...w.summary!, steps: { patch: { status: "IN_PROGRESS" } } };
+    expect(stepChildren(w, "patch", "vuln-patch-{item}")).toEqual({ waitsFor: ["vuln-patch-a", "vuln-patch-b-2"], others: ["vuln-patch-b"] });
   });
 
   // rvk-views-3: a send-back that resets every step to PENDING keeps the

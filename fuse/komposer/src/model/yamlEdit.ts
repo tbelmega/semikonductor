@@ -53,10 +53,10 @@ export type GateKind = "owner-action" | "check" | "script" | "agent" | "workflow
 // is read too wherever a condition is, so a file that wrongly uses one as a
 // condition can still be edited; the engine reports it.
 const GATE_KINDS: readonly GateKind[] = ["owner-action", "check", "script", "agent", "workflow"];
-// The keys only a workflow gate has. Komposer edits the child's slug and a
-// returns list; it keeps the rest as written, and removes them all when the
-// gate becomes another kind.
-const WORKFLOW_GATE_KEYS = ["slug", "inputs", "returns"] as const;
+// The keys only a workflow gate has, removed together when the gate becomes another kind.
+const WORKFLOW_GATE_KEYS = ["slug", "for_each", "inputs", "returns", "accept", "rerun", "rerun_override", "retries"] as const;
+// The engine's default for each setting that has one; writing it removes the key.
+const WORKFLOW_GATE_DEFAULTS = { accept: "finished", rerun: "all", rerun_override: true, retries: 0 } as const;
 
 export interface ConditionValue {
   kind: GateKind;
@@ -71,10 +71,16 @@ export interface GateFields {
   max_rounds?: number | null;
   guide?: string | null;
   route_back_to?: string[];
-  // A workflow gate's child slug, and the ids its child returns, written as a
-  // list (each id maps to itself). null or an empty list removes the key.
+  // A workflow gate's settings: null, an empty list or the engine's default removes the key,
+  // as the engine reads a missing key as that default.
   slug?: string | null;
   returns?: string[] | null;
+  for_each?: string | null;
+  inputs?: [string, string][] | null;
+  accept?: "finished" | "succeeded" | null;
+  rerun?: "all" | "failed" | null;
+  rerun_override?: boolean | null;
+  retries?: number | null;
 }
 
 export interface OutputFields {
@@ -320,6 +326,12 @@ interface GateItem {
   route_back_to: string[];
   slug?: unknown;
   returns?: unknown;
+  for_each?: unknown;
+  inputs?: unknown;
+  accept?: unknown;
+  rerun?: unknown;
+  rerun_override?: unknown;
+  retries?: unknown;
 }
 
 function readGateItem(item: unknown): GateItem {
@@ -333,8 +345,7 @@ function readGateItem(item: unknown): GateItem {
     if (optional("description") !== undefined) gate.description = optional("description");
     if (optional("guide") !== undefined) gate.guide = optional("guide");
     if (typeof item.max_rounds === "number") gate.max_rounds = item.max_rounds;
-    if (item.slug !== undefined) gate.slug = item.slug;
-    if (item.returns !== undefined) gate.returns = item.returns;
+    for (const key of WORKFLOW_GATE_KEYS) if (item[key] !== undefined) gate[key] = item[key];
     return gate;
   }
   const read = typeof item === "string" ? readStringGate(item) : null;
@@ -367,13 +378,23 @@ function patchGate(current: GateItem, fields: GateFields): GateItem {
     set("guide", undefined);
   }
   if (next.kind !== "workflow") {
-    set("slug", undefined);
-    set("returns", undefined);
+    for (const key of WORKFLOW_GATE_KEYS) set(key, undefined);
   } else {
     if ("slug" in fields) set("slug", fields.slug || undefined);
     if ("returns" in fields) {
       const list = fields.returns ?? [];
       set("returns", list.length === 0 ? undefined : sameReturns(current.returns, list) ? current.returns : [...list]);
+    }
+    if ("for_each" in fields) set("for_each", fields.for_each || undefined);
+    if ("inputs" in fields) {
+      const pairs = fields.inputs ?? [];
+      const mapping = Object.fromEntries(pairs);
+      set("inputs", pairs.length === 0 ? undefined : deepEqual(current.inputs, mapping) ? current.inputs : mapping);
+    }
+    for (const key of ["accept", "rerun", "rerun_override", "retries"] as const) {
+      if (!(key in fields)) continue;
+      const value = fields[key];
+      set(key, value === null || value === undefined || value === WORKFLOW_GATE_DEFAULTS[key] ? undefined : value);
     }
   }
   return next;
@@ -385,8 +406,7 @@ function writeGate(item: unknown, current: GateItem, next: GateItem): Obj {
   const routeBack = (targets: string[]) => (targets.length === 1 ? targets[0] : targets);
   if (!isObj(item)) {
     const gate: Obj = { [next.kind]: next.text };
-    if (next.slug !== undefined) gate.slug = next.slug;
-    if (next.returns !== undefined) gate.returns = next.returns;
+    for (const key of WORKFLOW_GATE_KEYS) if (next[key] !== undefined) gate[key] = next[key];
     if (next.description !== undefined) gate.description = next.description;
     if (next.guide !== undefined) gate.guide = next.guide;
     if (next.max_rounds !== undefined) gate.max_rounds = next.max_rounds;
@@ -396,7 +416,7 @@ function writeGate(item: unknown, current: GateItem, next: GateItem): Obj {
   let gate = item;
   if (next.kind !== current.kind || next.text !== current.text) gate = renamedKey(gate, current.kind, next.kind, next.text);
   if (next.kind !== "workflow") for (const key of WORKFLOW_GATE_KEYS) gate = withoutKey(gate, key);
-  for (const key of ["slug", "returns", "description", "guide", "max_rounds"] as const) {
+  for (const key of [...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds"] as const) {
     if (deepEqual(next[key], current[key])) continue;
     gate = next[key] === undefined ? withoutKey(gate, key) : withKey(gate, key, next[key], GATE_KEY_ORDER);
   }

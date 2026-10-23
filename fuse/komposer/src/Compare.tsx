@@ -14,7 +14,8 @@ import { createPortal } from "react-dom";
 import type { Gate } from "../../flow/src/schemas/gate.ts";
 import { resolveLibrary, type LibraryEntry } from "./api.ts";
 import { wordDiff, type WordRun } from "./diff.ts";
-import { childSlug, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { compareGateExtra, isPerItem } from "./model/delegation.ts";
 import { tabTarget } from "./focusTrap.ts";
 import {
   alignSteps,
@@ -542,8 +543,7 @@ function Card({
   const gates = { left: d?.gatesLeft ?? [], right: d?.gatesRight ?? [] };
   // A gate that runs in another order on the other side is changed too.
   const gatesChanged = [...(d?.gatesChanged ?? []), ...(d?.gatesReordered ?? []).flatMap((r) => r.pairs)].map((pair) => pair[side]);
-  const gateExtra = (g: Gate) =>
-    g.route_back_to.length ? `↩ ${g.route_back_to.join(", ")}` : g.kind === "workflow" ? `↳ ${childSlug(g, step.id)}` : "";
+  const gateExtra = (g: Gate) => compareGateExtra(g, step.id);
   return (
     <div
       className={`compare-card is-${row.kind}${onSelect ? " is-editable" : ""}${selected ? " is-selected" : ""}${problem ? " has-problems" : ""}`}
@@ -636,7 +636,7 @@ function Card({
                 className={`compare-gate${mark(side, k, gates, gatesChanged)}`}
                 style={{ background: style.bg, color: style.fg }}
               >
-                <GateKindLabel kind={g.kind} className="compare-gate-kind" />
+                <GateKindLabel kind={g.kind} perItem={isPerItem(g)} className="compare-gate-kind" />
                 <span className="compare-gate-text">{g.text}</span>
                 {extra && <span className="compare-gate-extra">{extra}</span>}
               </span>

@@ -7,13 +7,15 @@
 // leave, and next to a second diagram in one scroll area.
 
 import { useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Bot, Cog, User, X, type LucideIcon } from "lucide-react";
-import { DEFAULT_CHILD_SLUG, type Gate } from "../../flow/src/schemas/gate.ts";
+import { ArrowDown, ArrowUp, Bot, Cog, Layers, User, X, type LucideIcon } from "lucide-react";
+import type { Gate } from "../../flow/src/schemas/gate.ts";
+import { childSlugFor, forEachChip, isPerItem, iteratedArtifact } from "./model/delegation.ts";
 import type { HandOff, WorkflowInput } from "../../flow/src/schemas/workflow.ts";
 import type { LibraryEntry } from "./api.ts";
 import { ARTIFACT_DRAG, resolveLibrary } from "./api.ts";
 import { gatesInRunOrder, modeBadge, type ArtifactRole, type ModeGlyph, type StepView, type WorkflowLink } from "./workflowView.ts";
 import { drawnBuses, layoutEdges } from "./layout.ts";
+import { delegationTip } from "./delegationTip.ts";
 import { WorkflowLinkButton } from "./Links.tsx";
 import type { Problem } from "./validate.ts";
 import { ALL_SHOWN, legendEntries, type FlowShow } from "./model/present.ts";
@@ -35,13 +37,8 @@ export const GATE_STYLE: Record<Gate["kind"], { label: string; bg: string; fg: s
 
 // The slug a workflow gate's child gets in its first pass, with the step
 // filled in, and the parent workstream's slug when there is one.
-export const childSlug = (gate: Gate, stepId: string, parent?: string) => {
-  const withStep = (gate.slug ?? DEFAULT_CHILD_SLUG).replaceAll("{step}", stepId);
-  return parent ? withStep.replaceAll("{slug}", parent) : withStep;
-};
+export const childSlug = childSlugFor;
 
-// What a workflow gate does, for its pill's tooltip: the child's workflow,
-// its slug, what it is given and what it returns.
 // A gate kind's glyph, in the gate's own colour: the owner, the agent, or a
 // cog for the mechanical kinds. A workflow gate has none.
 export const GATE_ICON: Record<Gate["kind"], LucideIcon | undefined> = {
@@ -53,8 +50,9 @@ export const GATE_ICON: Record<Gate["kind"], LucideIcon | undefined> = {
 };
 
 // A gate or condition kind as its pill shows it: the glyph, then the keyword.
-export function GateKindLabel({ kind, className = "gate-kind" }: { kind: Gate["kind"]; className?: string }) {
-  const Icon = GATE_ICON[kind];
+// A per-item gate shows Layers, the glyph its folder's consumes chip carries too.
+export function GateKindLabel({ kind, perItem, className = "gate-kind" }: { kind: Gate["kind"]; perItem?: boolean; className?: string }) {
+  const Icon = perItem ? Layers : GATE_ICON[kind];
   return (
     <span className={`${className} kind-label`.trim()}>
       {Icon && <Icon className="kind-icon" aria-hidden="true" />}
@@ -62,6 +60,13 @@ export function GateKindLabel({ kind, className = "gate-kind" }: { kind: Gate["k
     </span>
   );
 }
+
+export function ForEachChip({ gate }: { gate: Gate }) {
+  const chip = forEachChip(gate);
+  return chip ? <span className="gate-foreach">{chip}</span> : null;
+}
+
+export const IteratedGlyph = () => <Layers className="chip-icon" aria-hidden="true" />;
 
 // A step card's mode badge, on every page that draws step cards: one glyph
 // segment per actor, coloured like that actor's gates, and no words; the
@@ -90,20 +95,7 @@ export function ModeBadge({ mode, changed, decorative }: { mode: string | undefi
   );
 }
 
-export function delegationTip(gate: Gate, link: WorkflowLink): string {
-  const pairs = (map: Record<string, string> | undefined, arrow: string) =>
-    Object.entries(map ?? {}).map(([a, b]) => (a === b ? a : `${a} ${arrow} ${b}`)).join(", ");
-  return [
-    `workflow: ${gate.text}`,
-    link.ok ? `opens ${link.path}` : link.reason,
-    `child slug: ${gate.slug ?? DEFAULT_CHILD_SLUG}`,
-    gate.inputs && `gives: ${pairs(gate.inputs, "←")}`,
-    gate.returns && `returns: ${pairs(gate.returns, "←")}`,
-    gate.route_back_to.length ? `route back to: ${gate.route_back_to.join(", ")}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
+export { delegationTip };
 
 const ROLE_PREFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "", updates: "~" };
 const ROLE_SUFFIX: Record<ArtifactRole, string> = { produces: "", optional_produces: "?", updates: "" };
@@ -480,17 +472,19 @@ function StepCard({
             {step.consumes.map((id) => {
               const bad = badConsumes.has(id);
               const hovered = hoveredArtifact === id;
+              const iterated = iteratedArtifact(step) === id;
               return (
                 <span
                   key={id}
                   className={`chip chip-consumes${bad ? " is-bad" : ""}${hovered ? " is-hovered" : ""}`}
-                  data-tip={
+                  data-tip={`${
                     bad ? "Not produced by an earlier step" : inputIds.includes(id) ? `consumes ${id}, an input of the workflow` : `consumes ${id}`
-                  }
+                  }${iterated ? "; one child per file in it" : ""}`}
                   onMouseEnter={() => onHoverArtifact(id)}
                   onMouseLeave={() => onHoverArtifact(null)}
                 >
                   <span className="chip-arrow">←</span>
+                  {iterated && <IteratedGlyph />}
                   {id}
                 </span>
               );
@@ -546,8 +540,9 @@ function StepCard({
                     }}
                   >
                     <span className="gate-num">{k + 1}</span>
-                    <GateKindLabel kind={gate.kind} />
+                    <GateKindLabel kind={gate.kind} perItem={isPerItem(gate)} />
                     <span className="gate-text">{gate.text}</span>
+                    <ForEachChip gate={gate} />
                     <span className="gate-extra">{link.ok ? `↳ ${childSlug(gate, step.id)}` : link.unavailable ? "unavailable" : "not found"}</span>
                     {gate.route_back_to.length > 0 && (
                       <span className="gate-route">↩ {gate.route_back_to.join(", ")}</span>

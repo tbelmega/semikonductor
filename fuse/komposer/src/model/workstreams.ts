@@ -20,7 +20,7 @@ export interface WorkstreamSummary {
   after?: string;
   parent?: { slug: string; step: string };
   startedAfter?: string[];
-  children?: { step: string; pass: number; slug: string }[];
+  children?: { step: string; pass: number; slug: string; item?: string }[];
   // The state file's steps as recorded.
   steps?: Record<string, unknown>;
   events?: { kind: string; backFrom?: string; backTo?: string; detail: string }[];
@@ -358,22 +358,25 @@ export function currentChildSlug(w: WorkstreamSummary, stepId: string, firstPass
   return recorded?.slug ?? (pass > 1 ? `${firstPass}-${pass}` : firstPass);
 }
 
-// A step's child workstreams as fuse-flow status lists them. While the step
-// has a workflow gate and is handed out and not finished, it waits for the
-// child of its current pass (currentChildSlug), which may not exist yet; its
-// other children are earlier passes. Otherwise it waits for none, and all its
-// children are listed. `firstPass` is the gate's slug template filled in, as
-// for currentChildSlug, or undefined when the step has no workflow gate.
-// Children are in pass order. Null when there is nothing to list.
+// A step's child workstreams as fuse-flow status lists them: while the step
+// is handed out, the children of its current pass are what it waits for (all
+// of them under a for_each gate) and the rest are earlier passes; otherwise
+// every child is listed. `firstPass` is the gate's slug template filled in,
+// or undefined when the step has no workflow gate. Null when nothing to list.
 export function stepChildren(
   w: WorkstreamSummary,
   stepId: string,
   firstPass?: string,
-): { waitsFor?: string; others: string[] } | null {
+): { waitsFor?: string[]; others: string[] } | null {
   const own = (w.children ?? []).filter((c) => c.step === stepId).sort((a, b) => a.pass - b.pass);
   const state = runState(w.summary?.steps?.[stepId]?.status);
   const handedOut = state === "IN_PROGRESS" || state === "AWAITING_OWNER" || state === "BLOCKED";
-  const waitsFor = firstPass !== undefined && handedOut ? currentChildSlug(w, stepId, firstPass) : undefined;
-  const others = [...new Set(own.map((c) => c.slug))].filter((slug) => slug !== waitsFor);
+  let waitsFor: string[] | undefined;
+  if (firstPass !== undefined && handedOut) {
+    const pass = recordedPass(w, stepId) ?? 1;
+    const current = own.filter((c) => c.pass === pass);
+    waitsFor = current.some((c) => c.item !== undefined) ? current.map((c) => c.slug) : [currentChildSlug(w, stepId, firstPass)];
+  }
+  const others = [...new Set(own.map((c) => c.slug))].filter((slug) => !waitsFor?.includes(slug));
   return waitsFor || others.length ? { ...(waitsFor ? { waitsFor } : {}), others } : null;
 }

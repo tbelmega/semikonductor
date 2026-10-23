@@ -1528,6 +1528,129 @@ steps:
     const out = applyEdit(text, { op: "setWorkflowField", key: "description", value: "Reviews a diff." });
     expect(out.startsWith("version: 1\nname: parent\ndescription: Reviews a diff.\ninputs:\n")).toBe(true);
   });
+
+  test("a workflow gate's for_each is kept as written by every edit and removed when the gate becomes another kind", () => {
+    const perItem = text
+      .replace('        slug: "{slug}-adv"\n', '        slug: "{slug}-adv-{item}"\n        for_each: diff\n')
+      .replace("    produces: { artifact: diff, path: \"diffs/{slug}.diff\" }", "    produces: { artifact: diff, path: \"diffs/{slug}/\" }");
+    expect(rawOf(perItem).gate).toMatchObject({ for_each: "diff", slug: "{slug}-adv-{item}" });
+    for (const edit of [
+      { op: "setGate", step: 1, index: 1, fields: { text: "deep-review" } } as Edit,
+      { op: "setGate", step: 1, index: 1, fields: { description: "one child per unit" } } as Edit,
+      { op: "setStepField", step: 1, key: "title", value: "Adversarial review" } as Edit,
+      { op: "moveStep", from: 1, to: 2 } as Edit,
+    ]) {
+      const out = applyEdit(perItem, edit);
+      expect(rawOf(out).gate).toMatchObject({ for_each: "diff", slug: "{slug}-adv-{item}", inputs: { "given-diff": "diff" } });
+      expect(out).toContain("        for_each: diff\n");
+    }
+    const parsed = parseWorkflowText(applyEdit(perItem, { op: "setGate", step: 1, index: 1, fields: { text: "deep-review" } }));
+    expect(parsed.ok).toBe(true);
+    const asAgent = applyEdit(perItem, { op: "setGate", step: 1, index: 1, fields: { kind: "agent", text: "review the diff" } });
+    expect(asAgent).not.toContain("for_each");
+    expect(asAgent).toContain("      - agent: review the diff\n        route_back_to: intake\n");
+  });
+
+  test("a workflow gate's accept, rerun, rerun_override and retries are kept by every edit and removed when the gate becomes another kind", () => {
+    const keys = "        accept: succeeded\n        rerun: failed\n        rerun_override: false\n        retries: 2\n";
+    const perItem = text
+      .replace('        slug: "{slug}-adv"\n', `        slug: "{slug}-adv-{item}"\n        for_each: diff\n${keys}`)
+      .replace("    produces: { artifact: diff, path: \"diffs/{slug}.diff\" }", "    produces: { artifact: diff, path: \"diffs/{slug}/\" }");
+    for (const edit of [
+      { op: "setGate", step: 1, index: 1, fields: { text: "deep-review" } } as Edit,
+      { op: "setStepField", step: 1, key: "title", value: "Adversarial review" } as Edit,
+    ]) {
+      const out = applyEdit(perItem, edit);
+      expect(rawOf(out).gate).toMatchObject({ accept: "succeeded", rerun: "failed", rerun_override: false, retries: 2 });
+    }
+    const asAgent = applyEdit(perItem, { op: "setGate", step: 1, index: 1, fields: { kind: "agent", text: "review the diff" } });
+    for (const key of ["accept", "rerun", "retries"]) expect(asAgent).not.toContain(`${key}:`);
+  });
+
+  const perItemText = text
+    .replace('        slug: "{slug}-adv"\n', '        slug: "{slug}-adv-{item}"\n        for_each: diff\n')
+    .replace('    produces: { artifact: diff, path: "diffs/{slug}.diff" }', '    produces: { artifact: diff, path: "diffs/{slug}/" }');
+
+  test("setGate writes for_each, accept, rerun, rerun_override and retries in the engine's key order", () => {
+    const out = applyEdit(text, {
+      op: "setGate",
+      step: 1,
+      index: 1,
+      fields: { slug: "{slug}-adv-{item}", for_each: "diff", accept: "succeeded", rerun: "failed", rerun_override: false, retries: 2 },
+    });
+    expect(out).toContain(
+      "      - workflow: child\n        slug: '{slug}-adv-{item}'\n        for_each: diff\n        inputs:\n          given-diff: diff\n        returns: [report]\n" +
+        "        accept: succeeded\n        rerun: failed\n        rerun_override: false\n        retries: 2\n        route_back_to: intake\n",
+    );
+    expect(out).toContain("      # the child does the review\n");
+    expect(gateOf(out).gate).toMatchObject({ for_each: "diff", accept: "succeeded", rerun: "failed", rerun_override: false, retries: 2 });
+  });
+
+  test("a setting written at its engine default removes the key, and leaves a file without it unchanged", () => {
+    const keys = "        accept: succeeded\n        rerun: failed\n        rerun_override: false\n        retries: 2\n";
+    const full = perItemText.replace("        returns: [report]\n", `        returns: [report]\n${keys}`);
+    const defaults = applyEdit(full, { op: "setGate", step: 1, index: 1, fields: { accept: "finished", rerun: "all", rerun_override: true, retries: 0 } });
+    for (const key of ["accept:", "rerun:", "rerun_override:", "retries:"]) expect(defaults).not.toContain(key);
+    expect(defaults).toBe(perItemText);
+    expect(applyEdit(perItemText, { op: "setGate", step: 1, index: 1, fields: { accept: "finished", rerun: "all", rerun_override: true, retries: 0 } })).toBe(
+      perItemText,
+    );
+    const nulls = applyEdit(full, { op: "setGate", step: 1, index: 1, fields: { accept: null, rerun: null, rerun_override: null, retries: null } });
+    expect(nulls).toBe(perItemText);
+  });
+
+  test("a non-default setting already in the file is replaced in place, keeping the gate's other keys and comments", () => {
+    const full = perItemText.replace("        returns: [report]\n", "        returns: [report]\n        rerun: failed # carry the successes\n        retries: 1\n");
+    const out = applyEdit(full, { op: "setGate", step: 1, index: 1, fields: { retries: 2 } });
+    expect(out).toBe(full.replace("        retries: 1\n", "        retries: 2\n"));
+  });
+
+  test("for_each is set and removed through setGate", () => {
+    const removed = applyEdit(perItemText, { op: "setGate", step: 1, index: 1, fields: { for_each: null, slug: null } });
+    expect(removed).not.toContain("for_each");
+    expect(removed).not.toContain("slug:");
+    expect(parseWorkflowText(removed).ok).toBe(true);
+  });
+
+  test("inputs are written entry by entry: a rename keeps its position and its siblings' comments", () => {
+    const two = text.replace("        inputs:\n          given-diff: diff\n", "        inputs:\n          given-diff: diff # the diff to review\n          brief-in: brief\n");
+    const renamed = applyEdit(two, { op: "setGate", step: 1, index: 1, fields: { inputs: [["given-diff", "diff"], ["context", "brief"]] } });
+    expect(renamed).toContain("        inputs:\n          given-diff: diff # the diff to review\n          context: brief\n");
+    const first = applyEdit(two, { op: "setGate", step: 1, index: 1, fields: { inputs: [["the-diff", "diff"], ["brief-in", "brief"]] } });
+    expect(first).toContain("        inputs:\n          the-diff: diff # the diff to review\n          brief-in: brief\n");
+    const added = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { inputs: [["given-diff", "diff"], ["brief-in", "brief"]] } });
+    expect(added).toContain("        inputs:\n          given-diff: diff\n          brief-in: brief\n        returns: [report]\n");
+    const rebound = applyEdit(two, { op: "setGate", step: 1, index: 1, fields: { inputs: [["given-diff", "diff"], ["brief-in", "diff"]] } });
+    expect(rebound).toBe(two.replace("          brief-in: brief\n", "          brief-in: diff\n"));
+    const emptied = applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { inputs: [] } });
+    expect(emptied).not.toContain("        inputs:");
+    expect(applyEdit(text, { op: "setGate", step: 1, index: 1, fields: { inputs: null } })).toBe(emptied);
+    expect(applyEdit(two, { op: "setGate", step: 1, index: 1, fields: { inputs: [["given-diff", "diff"], ["brief-in", "brief"]] } })).toBe(two);
+  });
+
+  test("a gate given another kind ignores the workflow settings it is sent and loses every workflow key", () => {
+    const out = applyEdit(perItemText, {
+      op: "setGate",
+      step: 1,
+      index: 1,
+      fields: { kind: "agent", text: "review the diff", for_each: "diff", accept: "succeeded", inputs: [["given-diff", "diff"]] },
+    });
+    for (const key of ["for_each", "accept", "        inputs:", "slug:", "returns:"]) expect(out).not.toContain(key);
+  });
+
+  test("a workflow gate written as a string becomes a mapping in the engine's key order when given per-item settings", () => {
+    const stringForm = text
+      .replace(/      # the child does the review\n      - workflow: child\n[\s\S]*?route_back_to: intake\n/, '      - "workflow: child"\n')
+      .replace("    consumes: [report]\n", "");
+    expect(gateOf(stringForm).gate).toMatchObject({ kind: "workflow", text: "child" });
+    const out = applyEdit(stringForm, {
+      op: "setGate",
+      step: 1,
+      index: 1,
+      fields: { slug: "{slug}-c-{item}", for_each: "diff", inputs: [["given-diff", "diff"]], rerun: "failed" },
+    });
+    expect(out).toContain("      - workflow: child\n        slug: '{slug}-c-{item}'\n        for_each: diff\n        inputs:\n          given-diff: diff\n        rerun: failed\n");
+  });
 });
 
 describe("replacing a block value keeps the line after it", () => {
@@ -2251,5 +2374,16 @@ describe("setHandOff", () => {
     expect(() => applyEdit(`version: 1\nname: h\nsteps:\n  - id: a\n    instruction: Do it.\n`, { op: "setHandOff", index: 0, workflow: "x" })).toThrow(
       "hand-off index 0 is out of range",
     );
+  });
+});
+
+describe("switching a gate with a malformed per-item key back to one child", () => {
+  test("removes the malformed key too, so the gate parses again", () => {
+    const text = `version: 1\nname: x\nsteps:\n  - id: a\n    instruction: Units.\n    produces: { artifact: units, path: "units/" }\n  - id: b\n    instruction: Fan out.\n    gates:\n      - workflow: child\n        for_each: units\n        inputs: { spec: units }\n        rerun: some\n`;
+    expect(parseWorkflowText(text).ok).toBe(false);
+    const out = applyEdit(text, { op: "setGate", step: 1, index: 0, fields: { for_each: null, rerun: null, rerun_override: null, retries: null } });
+    expect(out).not.toContain("rerun");
+    expect(out).not.toContain("for_each");
+    expect(parseWorkflowText(out).ok).toBe(true);
   });
 });

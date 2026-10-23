@@ -332,7 +332,8 @@ function guessCondition(raw: unknown): StepView["condition"] | null {
 
 function looseGate(raw: unknown): Gate | null {
   if (!raw || typeof raw !== "object") return null;
-  const { max_rounds, guide, route_back_to, description, slug, inputs, returns, ...rest } = raw as Record<string, unknown>;
+  const { max_rounds, guide, route_back_to, description, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, ...rest } =
+    raw as Record<string, unknown>;
   const entries = Object.entries(rest).filter(([k]) => k !== "description");
   if (entries.length !== 1) return null;
   const [kind, text] = entries[0];
@@ -355,6 +356,19 @@ function looseGate(raw: unknown): Gate | null {
     ...(kind === "workflow" && typeof slug === "string" ? { slug } : {}),
     ...(inputMap ? { inputs: inputMap } : {}),
     ...(returnMap ? { returns: returnMap } : {}),
+    // A refused per-item gate still draws as one; a value outside the
+    // engine's domain is left out, and the engine's error names it.
+    ...(kind === "workflow" ? perItemKeys({ for_each, accept, rerun, rerun_override, retries }) : {}),
+  };
+}
+
+function perItemKeys(v: Record<string, unknown>): Partial<Gate> {
+  return {
+    ...(typeof v.for_each === "string" && v.for_each !== "" ? { for_each: v.for_each } : {}),
+    ...(v.accept === "finished" || v.accept === "succeeded" ? { accept: v.accept } : {}),
+    ...(v.rerun === "all" || v.rerun === "failed" ? { rerun: v.rerun } : {}),
+    ...(typeof v.rerun_override === "boolean" ? { rerun_override: v.rerun_override } : {}),
+    ...(Number.isInteger(v.retries) && (v.retries as number) >= 0 ? { retries: v.retries as number } : {}),
   };
 }
 

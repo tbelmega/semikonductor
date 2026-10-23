@@ -41,7 +41,8 @@ import {
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import { ProjectList, workflowStem } from "./ProjectList.tsx";
 import { WorkflowLinkButton, WorkstreamLinkButton } from "./Links.tsx";
-import { childSlug, delegationTip, GateKindLabel, GATE_STYLE, ModeBadge } from "./Flow.tsx";
+import { childSlug, delegationTip, ForEachChip, GateKindLabel, GATE_STYLE, IteratedGlyph, ModeBadge } from "./Flow.tsx";
+import { isPerItem, iteratedArtifact } from "./model/delegation.ts";
 import { useFolderState } from "./folders.ts";
 import { Chevron } from "./WorkflowList.tsx";
 
@@ -600,6 +601,7 @@ function WorkstreamDiagram({
                     {step.consumes.map((id) => (
                       <span key={`in-${id}`} className="chip chip-consumes">
                         <span className="chip-arrow">←</span>
+                        {iteratedArtifact(step) === id && <IteratedGlyph />}
                         {id}
                       </span>
                     ))}
@@ -628,8 +630,9 @@ function WorkstreamDiagram({
                             style={{ background: style.bg, color: style.fg }}
                             onClick={() => link.ok && onOpenWorkflow(link.key)}
                           >
-                            <GateKindLabel kind={gate.kind} />
+                            <GateKindLabel kind={gate.kind} perItem={isPerItem(gate)} />
                             <span className="gate-text">{gate.text}</span>
+                            <ForEachChip gate={gate} />
                             <span className="gate-extra">
                               {link.ok
                                 ? `↳ ${currentChildSlug(workstream, step.id, childSlug(gate, step.id, workstream.slug))}`
@@ -650,13 +653,16 @@ function WorkstreamDiagram({
                   </div>
                 )}
                 {/* As fuse-flow status says it: while the step is handed out it
-                    waits for its current child; otherwise its children are listed. */}
+                    waits for its current children, one or one per item;
+                    otherwise its children are listed. */}
                 {children && (
                   <div className="ws-step-children">
                     {children.waitsFor && (
                       <>
                         <span className="ws-link-label">waits for</span>
-                        <WorkstreamLinkButton slug={children.waitsFor} found={found(children.waitsFor)} onOpen={onOpenLinked} />
+                        {children.waitsFor.map((slug) => (
+                          <WorkstreamLinkButton key={slug} slug={slug} found={found(slug)} onOpen={onOpenLinked} />
+                        ))}
                       </>
                     )}
                     {children.others.length > 0 && (

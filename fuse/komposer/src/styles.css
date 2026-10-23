@@ -1630,7 +1630,22 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   gap: 4px 10px;
   align-items: center;
 }
-.delegation-inputs { grid-column: 1 / -1; display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.delegation-fields { display: flex; flex-direction: column; gap: 10px; }
+.delegation-children { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.delegation-select { width: auto; max-width: 100%; min-width: 0; }
+.delegation-inputs { display: flex; flex-direction: column; gap: 4px; align-items: stretch; font-size: 12px; }
+.delegation-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 4px 6px;
+  align-items: center;
+}
+.delegation-input-row .delegation-select { width: 100%; }
+.delegation-arrow { color: var(--text-faint); }
+.delegation-row-note { grid-column: 1 / -1; }
+.delegation-inputs > .text-button { align-self: flex-start; }
+.delegation-check { flex-direction: row; align-items: center; gap: 6px; grid-column: 1 / -1; }
+.field-hint { font: 400 11px "IBM Plex Sans", sans-serif; color: var(--text-muted); }
 .delegation-written { font-size: 12px; color: var(--text-body); overflow-wrap: anywhere; }
 .delegation-open {
   grid-column: 1 / -1;
@@ -2309,3 +2324,17 @@ button.compare-card-title:focus-visible { outline: 2px solid var(--ring); outlin
   cursor: pointer;
 }
 .show-actions button:hover { border-color: var(--border-strong); }
+/* A per-item workflow gate: the chip naming its folder, and the glyph on that folder's consumes chip. */
+.gate-foreach {
+  white-space: nowrap;
+  font-weight: 600;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.chip .chip-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}

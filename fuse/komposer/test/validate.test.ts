@@ -162,3 +162,21 @@ steps:
     expect(problemsForText(broken, answer).map((p) => p.field)).toEqual(["id"]);
   });
 });
+
+describe("a for_each gate's missing folder binding is reported on that gate", () => {
+  const text = (inputs: string, forEach = "        for_each: units\n") =>
+    `version: 1\nname: x\nsteps:\n  - id: a\n    instruction: Units.\n    produces: { artifact: units, path: "units/" }\n  - id: b\n    instruction: Fan out.\n    gates:\n      - owner-action: approve\n      - workflow: child\n        slug: "{slug}-b${forEach ? "-{item}" : ""}"\n${forEach}${inputs}`;
+
+  test("a for_each gate with no input bound to the folder gets the problem on its own gate", () => {
+    const problems = problemsForText(text("        inputs: { spec: other }\n"));
+    expect(problems.some((p) => p.stepIndex === 1 && p.field === "gate" && p.itemIndex === 1 && /gives "units" to no input/.test(p.message))).toBe(true);
+  });
+
+  test("with the binding there is no such problem", () => {
+    expect(problemsForText(text("        inputs: { spec: units }\n"))).toEqual([]);
+  });
+
+  test("a single-child gate needs no binding", () => {
+    expect(problemsForText(text("        inputs: { spec: units }\n", ""))).toEqual([]);
+  });
+});

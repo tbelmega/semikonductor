@@ -634,7 +634,7 @@ steps:
     const [d] = differences(steps(a)[0], steps(b)[0], 0);
     expect(d.label).toBe("gate workflow: child");
     expect(d.edits).toEqual([]);
-    expect(d.refused).toMatch(/slug, inputs or returns/);
+    expect(d.refused).toMatch(/slug, inputs, returns, for_each, accept, rerun, rerun_override or retries/);
   });
 
   test("a workflow gate whose slug, inputs or returns differ is refused; its other settings apply", () => {
@@ -646,6 +646,30 @@ steps:
     const [described] = differences(steps(left)[0], steps(right)[0], 0);
     expect(described.refused).toBeUndefined();
     expect(hasDifferences(stepDiff(steps(run(left, described.edits))[0], steps(right)[0]))).toBe(false);
+  });
+
+  test("a workflow gate's for_each is a difference Compare sees and refuses to copy", () => {
+    const gate = (extra: string) => `version: 1\nname: a\nsteps:\n  - id: p\n    instruction: x\n    produces: { artifact: units, path: "units/" }\n  - id: s\n    instruction: x\n    gates:\n      - workflow: child\n        inputs: { given: units }\n${extra}`;
+    const plain = steps(gate(""))[1];
+    const perItem = steps(gate("        for_each: units\n"))[1];
+    expect(hasDifferences(stepDiff(plain, perItem))).toBe(true);
+    const [d] = differences(plain, perItem, 1);
+    expect(d.label).toBe("gate workflow: child (settings)");
+    expect(d.edits).toEqual([]);
+    expect(d.refused).toMatch(/slug, inputs, returns, for_each, accept, rerun, rerun_override or retries/);
+    const bare = (extra: string) => `version: 1\nname: a\nsteps:\n  - id: s\n    instruction: x\n    gates:\n      - workflow: child\n${extra}`;
+    const [added] = differences(steps(bare(""))[0], steps(bare("        for_each: units\n"))[0], 0);
+    expect(added.refused).toMatch(/slug, inputs, returns, for_each, accept, rerun, rerun_override or retries/);
+  });
+
+  test("a workflow gate's accept, rerun, rerun_override and retries are differences Compare sees and refuses to copy", () => {
+    const gate = (extra: string) =>
+      `version: 1\nname: a\nsteps:\n  - id: p\n    instruction: x\n    produces: { artifact: units, path: "units/" }\n  - id: s\n    instruction: x\n    gates:\n      - workflow: child\n        inputs: { given: units }\n        for_each: units\n${extra}`;
+    for (const extra of ["        accept: succeeded\n", "        rerun: failed\n", "        rerun_override: false\n", "        rerun: failed\n        retries: 2\n"]) {
+      const [d] = differences(steps(gate(""))[1], steps(gate(extra))[1], 1);
+      expect(d.label).toBe("gate workflow: child (settings)");
+      expect(d.refused).toMatch(/accept, rerun, rerun_override or retries/);
+    }
   });
 });
 

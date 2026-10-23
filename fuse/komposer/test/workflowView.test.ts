@@ -112,3 +112,33 @@ describe("differenceCaveats", () => {
     expect(differenceCaveats(open(SAVED, edited), other(SAVED, edited)).edited).toEqual(["x.yml", "y.yml"]);
   });
 });
+
+describe("a workflow gate the engine refuses keeps its per-item settings when well-typed", () => {
+  // The folder is produced by no earlier step, so the engine refuses the
+  // workflow and Komposer reads its gates loosely.
+  const refused = (keys: string) =>
+    open(`version: 1\nname: x\nsteps:\n  - id: a\n    instruction: Fan out.\n    gates:\n      - workflow: child\n        inputs: { spec: units }\n${keys}`);
+  const gate = (keys: string) => {
+    const w = refused(keys);
+    expect(w.parsed).toBeNull();
+    return stepViews(w)[0].gates[0];
+  };
+
+  test("for_each is kept as a string and dropped otherwise", () => {
+    expect(gate("        for_each: units\n").for_each).toBe("units");
+    expect(gate("        for_each: 3\n")).not.toHaveProperty("for_each");
+    expect(gate("        for_each: \"\"\n")).not.toHaveProperty("for_each");
+    expect(gate("        for_each: 3\n")).toMatchObject({ kind: "workflow", text: "child" });
+  });
+
+  test("accept, rerun, rerun_override and retries are kept in their domain and dropped outside it", () => {
+    expect(gate("        for_each: units\n        accept: succeeded\n").accept).toBe("succeeded");
+    expect(gate("        for_each: units\n        accept: maybe\n")).not.toHaveProperty("accept");
+    expect(gate("        for_each: units\n        rerun: failed\n").rerun).toBe("failed");
+    expect(gate("        for_each: units\n        rerun: some\n")).not.toHaveProperty("rerun");
+    expect(gate("        for_each: units\n        rerun_override: false\n").rerun_override).toBe(false);
+    expect(gate('        for_each: units\n        rerun_override: "no"\n')).not.toHaveProperty("rerun_override");
+    expect(gate("        for_each: units\n        retries: 2\n").retries).toBe(2);
+    for (const bad of ["-1", "1.5", '"2"']) expect(gate(`        for_each: units\n        retries: ${bad}\n`)).not.toHaveProperty("retries");
+  });
+});
