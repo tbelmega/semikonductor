@@ -176,10 +176,11 @@ export const WorkflowSchema = z
         }
         if (g?.kind !== "workflow") return;
         // The child is created when the step is handed out, so it is given
-        // only what exists before the step, and one document at a time. A
-        // value that is one of this gate's own returns ids binds the item's
-        // previous attempt's document, so it needs no earlier writer.
-        const ownReturns = new Set(Object.keys(g.returns ?? {}));
+        // only what exists before the step, and one document at a time. On a
+        // for_each gate, a value that is one of the gate's own returns ids
+        // binds the item's previous attempt's document, so it needs no
+        // earlier writer. A plain gate reads such a value as any other.
+        const ownReturns = new Set(g.for_each !== undefined ? Object.keys(g.returns ?? {}) : []);
         for (const [child, parent] of Object.entries(g.inputs ?? {})) {
           if (ownReturns.has(parent)) {
             if (artifactsSoFar.has(parent)) {

@@ -179,7 +179,7 @@ export const StepStateSchema = z
           description:
             "With a for_each gate, after a send-back to this step: the items that get a new child in the next pass, " +
             "chosen by the owner with --rerun or by the engine for an automatic retry; every other item keeps its " +
-            "previous child. Consumed when the pass's set is recorded.",
+            "previous child while that child still fits the gate. Consumed when the pass's set is recorded.",
         }),
         retries_used: z.number().int().min(0).optional().meta({
           description:

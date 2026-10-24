@@ -41,6 +41,7 @@ import {
 import { debugLog, decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
 import { type Artifact, type Condition, describeGate, type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
 import {
+  bindsPreviousAttempt,
   childGate,
   childSlug,
   crossCheck,
@@ -576,6 +577,15 @@ function childrenOf(c: Ctx, state: StepState, step: Step): Child[] {
   const recorded = (state.children ?? []).filter((ch) => ch.pass === pass);
   if (recorded.length) return recorded.map(asChild);
   if (gate.for_each === undefined) return [{ slug: childSlug(gate, c.slug, step.id, pass) }];
+  // An automatic retry re-runs the pass it came from, so its items are that
+  // pass's recorded ones: a file added to the folder since is no item, and a
+  // file removed since keeps its item. Only the owner's send-back reads the
+  // folder again.
+  if (openedBy(state) === "retry") {
+    return (state.children ?? [])
+      .filter((ch) => ch.pass === pass - 1 && ch.item !== undefined)
+      .map((ch) => ({ slug: childSlug(gate, c.slug, step.id, pass, ch.item), item: ch.item!, ...(ch.file !== undefined ? { file: ch.file } : {}) }));
+  }
   return itemsOf(c.root, c.slug, step, gate).map(({ item, file }) => ({ slug: childSlug(gate, c.slug, step.id, pass, item), item, file }));
 }
 
@@ -656,7 +666,9 @@ function checkChild(c: Ctx, step: Step, gate: Gate, { slug, item }: Child): void
     // says now, so only a new pass gives the step a new child.
     const state = stateOf(readWorkstream(c.root, c.slug), step.id);
     if (state.children?.some((ch) => ch.pass === (state.pass ?? 1) && ch.slug === slug)) {
-      const rerun = item !== undefined ? ` --rerun ${item}` : "";
+      // Under rerun_override: false a plain send-back gives the item a new
+      // child, since a child that follows another workflow is not carried over.
+      const rerun = item !== undefined && gate.rerun_override !== false ? ` --rerun ${item}` : "";
       throw new FlowError(
         `step ${step.id} waits for a child workstream ${slug} that follows ${refName(c, gate.text)}, but workstream ${slug} was ` +
           `created for this pass of the step and follows ${refName(c, child.workflow)}. To give the step a new child that follows ` +
@@ -681,6 +693,20 @@ function checkChild(c: Ctx, step: Step, gate: Gate, { slug, item }: Child): void
       `step ${step.id} waits for a child workstream ${slug}${item !== undefined ? ` for item ${item}` : ""}, but workstream ${slug} exists and was created ` +
         `${child.parent.item !== undefined ? `for item ${child.parent.item}` : "for the step as a whole"}. Rename that workstream's state file, or give the gate a slug of its own`,
     );
+  }
+  // A child carried over from an earlier pass must still be given what the
+  // gate gives its item now; an edit of the gate's inputs after the pass was
+  // recorded makes it unusable, and its item gets a new child.
+  if (item !== undefined) {
+    const state = stateOf(readWorkstream(c.root, c.slug), step.id);
+    const entry = (state.children ?? []).find((ch) => ch.pass === (state.pass ?? 1) && ch.slug === slug);
+    if (entry && firstPass(state, slug) < (state.pass ?? 1) && !inputsFit(c, step, gate, child, entry.file)) {
+      const rerun = gate.rerun_override !== false ? ` --rerun ${item}` : "";
+      throw new FlowError(
+        `step ${step.id} waits for workstream ${slug}, carried over for item ${item}, but the gate now gives that item other documents than the child was given. ` +
+          `To give the item a new child, the owner sends the work back to it: \`${FUSE_FLOW} continue ${c.slug} --back-to ${step.id}${rerun}\``,
+      );
+    }
   }
   // A closed child that did not finish never will.
   if (child.closed && !isComplete(c.root, slug)) {
@@ -791,17 +817,25 @@ function openRetryPass(c: Ctx, step: Step, gate: Gate, pass: number): string | u
 }
 
 // The owner's send-back that gives the failed items new children: a rerun of
-// those items under a for_each gate, a fresh child under a plain one.
+// those items under a for_each gate, a fresh child under a plain one. Under
+// rerun_override: false the gate's rerun setting picks the items, so the
+// command is a plain send-back, which gives a failed item a new child under
+// either setting.
 function rerunCommand(c: Ctx, step: Step, failed: { item?: string }[]): string {
+  const gate = childGate(step);
   const items = failed.map((f) => f.item).filter((i): i is string => i !== undefined);
-  const rerun = childGate(step)?.for_each !== undefined && items.length ? ` --rerun ${items.join(",")}` : "";
+  const rerun = gate?.for_each !== undefined && gate.rerun_override !== false && items.length ? ` --rerun ${items.join(",")}` : "";
   return `${FUSE_FLOW} continue ${c.slug} --back-to ${step.id}${rerun} --note "<the owner's decision>"`;
 }
 
-// What a rerun of the failed items leaves to the unfinished siblings, which it carries over.
-function carriedUnfinished(each: { slug: string; kind: Pending["kind"] }[]): string {
+// What a rerun of the failed items leaves to the unfinished siblings. The
+// printed send-back carries them over, unless it is a plain one under
+// rerun_override: false and rerun: all, which gives every item a new child.
+function carriedUnfinished(step: Step, each: { slug: string; kind: Pending["kind"] }[]): string {
   const unfinished = each.filter((p) => p.kind === "unfinished").map((p) => p.slug);
   if (!unfinished.length) return "";
+  const gate = childGate(step);
+  if (gate?.rerun_override === false && gate.rerun !== "failed") return "; the send-back gives every item a new child, the unfinished ones too";
   return `; ${unfinished.length === 1 ? `workstream ${unfinished[0]} is` : `workstreams ${unfinished.join(", ")} are`} carried over unfinished and still ${unfinished.length === 1 ? "runs to its" : "run to their"} end`;
 }
 
@@ -870,8 +904,9 @@ function newChild(c: Ctx, step: Step, gate: Gate, { slug, item, file }: Child): 
   const inputs: Record<string, string> = {};
   const state = stateOf(readWorkstream(c.root, c.slug), step.id);
   for (const [childId, parentId] of Object.entries(gate.inputs ?? {})) {
-    // A returns id names the item's previous attempt's document, read by its child-side id.
-    const returned = own(gate.returns, parentId);
+    // On a for_each gate, a returns id names the item's previous attempt's
+    // document, read by its child-side id.
+    const returned = bindsPreviousAttempt(gate, parentId) ? own(gate.returns, parentId) : undefined;
     if (returned !== undefined) {
       const path = previousDocument(c, state, item, slug, returned);
       if (path !== undefined) inputs[childId] = path;
@@ -944,7 +979,7 @@ function attemptNote(c: Ctx, state: StepState, gate: Gate, ch: Child): string {
   if (firstPass(state, ch.slug) < pass) return "";
   const prev = previousEntry(state, pass, ch.item);
   if (!prev || prev.slug === ch.slug) return "";
-  const bound = Object.entries(gate.inputs ?? {}).filter(([, from]) => has(gate.returns, from)).map(([id]) => id);
+  const bound = Object.entries(gate.inputs ?? {}).filter(([, from]) => bindsPreviousAttempt(gate, from)).map(([id]) => id);
   const opened = openedBy(state);
   if (opened === "send-back" && !bound.length && gate.rerun === undefined) return "";
   const inputs = workstreamExists(c.root, ch.slug) ? (readWorkstream(c.root, ch.slug).inputs ?? {}) : {};
@@ -971,15 +1006,70 @@ function previousState(root: string, slug: string): "succeeded" | "failed" | "un
   }
 }
 
+// Whether the step's current pass was opened by the owner sending the work
+// back to an earlier step. The item files may then have been rewritten, so the
+// gate's rerun setting does not carry earlier children over.
+function sentBackPast(state: StepState, stepId: string): boolean {
+  if (openedBy(state) !== "send-back") return false;
+  for (const h of [...state.history].reverse()) {
+    const m = / owner sent the work back from [a-z0-9-]+ to ([a-z0-9][a-z0-9-]*)/.exec(h);
+    if (m) return m[1] !== stepId;
+  }
+  return false;
+}
+
+// Whether an earlier pass's child still fits the gate as it is now, so it can
+// be carried over: it follows the gate's workflow and was given the documents
+// the gate gives its item now. A previous-attempt binding is left out of the
+// comparison, since the earlier child is itself an attempt.
+// A closed child that did not finish is not carried over either: the owner gave it up.
+function stillFits(c: Ctx, step: Step, gate: Gate, prev: Entry, file: string | undefined): boolean {
+  try {
+    const child = readWorkstream(c.root, prev.slug);
+    if (workflowFile(c.root, child.workflow) !== workflowFile(c.root, gate.text)) return false;
+    if (child.closed && !isComplete(c.root, prev.slug)) return false;
+    return inputsFit(c, step, gate, child, file);
+  } catch (e) {
+    if (!(e instanceof FlowError)) throw e;
+    return false;
+  }
+}
+
+// Whether a child was given the documents the gate gives its item now.
+function inputsFit(c: Ctx, step: Step, gate: Gate, child: Workstream, file: string | undefined): boolean {
+  try {
+    const skipped = new Set<string>();
+    const want: Record<string, string> = {};
+    for (const [childId, parentId] of Object.entries(gate.inputs ?? {})) {
+      if (bindsPreviousAttempt(gate, parentId)) {
+        skipped.add(childId);
+        continue;
+      }
+      const path = parentId === gate.for_each && file !== undefined ? file : documentOf(c.root, c.slug, parentId, step.id);
+      if (path !== undefined) want[childId] = path;
+    }
+    const given = child.inputs ?? {};
+    const ids = new Set([...Object.keys(given), ...Object.keys(want)].filter((id) => !skipped.has(id)));
+    return [...ids].every((id) => own(given, id) === own(want, id));
+  } catch (e) {
+    if (!(e instanceof FlowError)) throw e;
+    return false;
+  }
+}
+
 // Which items of a new pass get new children. The owner's --rerun list wins,
-// then the gate's rerun setting; every other item with an earlier child keeps it.
-function selectChildren(c: Ctx, gate: Gate, s: StepState, pass: number, derived: Child[]) {
+// then the gate's rerun setting, which applies when the owner sent the work
+// back to this step or the engine retries it; every other item with an earlier
+// child keeps it, as long as that child still fits the gate.
+function selectChildren(c: Ctx, step: Step, gate: Gate, s: StepState, pass: number, derived: Child[]) {
   const carried: { child: Child; from: number; state: string }[] = [];
   const fresh: Child[] = [];
+  const all = sentBackPast(s, step.id);
   for (const ch of derived) {
     const prev = previousEntry(s, pass, ch.item);
     const state = prev ? previousState(c.root, prev.slug) : undefined;
-    const selected = !prev || (s.rerun ? s.rerun.includes(ch.item!) : gate.rerun === "failed" ? state !== "succeeded" && state !== "unfinished" : true);
+    const keep = s.rerun ? !s.rerun.includes(ch.item!) : !all && gate.rerun === "failed" && (state === "succeeded" || state === "unfinished");
+    const selected = !prev || !keep || !stillFits(c, step, gate, prev, ch.file);
     if (selected) fresh.push(ch);
     else carried.push({ child: { slug: prev.slug, item: prev.item, file: prev.file }, from: firstPass(s, prev.slug), state: state! });
   }
@@ -1026,7 +1116,7 @@ function ensureChild(c: Ctx, step: Step): void {
         return;
       }
       const derived = childrenOf(c, s, step);
-      const { carried, fresh } = selectChildren(c, gate, s, pass, derived);
+      const { carried, fresh } = selectChildren(c, step, gate, s, pass, derived);
       // An item that ends in -<n> can give a slug an earlier pass's child
       // already has; adopting or overwriting that child would mix the passes.
       for (const ch of fresh) {
@@ -2260,7 +2350,7 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
         const others = pending.each.filter((p) => p.kind === "missing" || p.kind === "unusable").map((p) => p.slug);
         lines.push(
           `  - ${failedGroups(c, failedToo)}, and ${others.length === 1 ? `workstream ${others[0]}` : `workstreams ${others.join(", ")}`} cannot be used as ${others.length === 1 ? "it is" : "they are"}. ` +
-            `Send the work back to this step for new child workstreams for them${carriedUnfinished(pending.each)}, then ${asks}.`,
+            `Send the work back to this step for new child workstreams for them${carriedUnfinished(step, pending.each)}, then ${asks}.`,
         );
         commands.push(`  - The owner has those items re-run: run \`${rerunCommand(c, step, replace)}\`.`);
       } else if (pending.child === "unfinished") {
@@ -2288,7 +2378,7 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
         );
       } else if (pending.child === "failed") {
         const failed = pending.each.filter((p) => p.kind === "failed");
-        lines.push(`  - ${failedGroups(c, failed)}. Send the work back to this step for new child workstreams for them${carriedUnfinished(pending.each)}, then ${asks}.`);
+        lines.push(`  - ${failedGroups(c, failed)}. Send the work back to this step for new child workstreams for them${carriedUnfinished(step, pending.each)}, then ${asks}.`);
         commands.push(`  - The owner has the failed items re-run: run \`${rerunCommand(c, step, failed)}\`.`);
       } else {
         lines.push(`  - Correct what holds the approval back, as the status says, then ${asks}.`);
@@ -2319,7 +2409,7 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
       const failed = pending.each.filter((p) => p.kind === "failed");
       if (failed.length) {
         const replace = pending.each.filter((p) => p.item !== undefined && p.kind !== "unfinished");
-        lines.push(`  - ${failedGroups(c, failed)}. Send the work back to this step for new child workstreams for them${carriedUnfinished(pending.each)}.`);
+        lines.push(`  - ${failedGroups(c, failed)}. Send the work back to this step for new child workstreams for them${carriedUnfinished(step, pending.each)}.`);
         commands.push(`  - The owner has the failed items re-run: run \`${rerunCommand(c, step, replace)}\`.`);
       }
       lines.push(`  - Skip this step, without what ${pending.label} would return.`);

@@ -576,3 +576,47 @@ ${FOR_EACH}`;
     expect(repo.ok("continue", "p")).toContain("READ reports/p-patch-a.md (reports, returned by workstream p-patch-a for item a, the child of step patch). It does not exist, for example because earlier steps were skipped.");
   });
 });
+
+describe("forms that worked before for_each", () => {
+  test("a folder artifact declared without a trailing slash gives one child per file", () => {
+    repo.start("p", parent(FOR_EACH).replace('path: "units/"', 'path: "units"'));
+    repo.write("units/a.json", "{}\n");
+    repo.write("units/b.json", "{}\n");
+    const out = repo.ok("continue", "p");
+    expect(out).toContain("p-patch-a (item a, given unit-spec)");
+    expect(out).toContain("p-patch-b (item b, given unit-spec)");
+    expect(repo.state("p-patch-a").inputs["unit-spec"]).toBe("units/a.json");
+  });
+
+  test("a plain gate's input that names one of its own returns binds the earlier document of that id, as before", () => {
+    const plain = `version: 1
+name: parent
+steps:
+  - id: write
+    instruction: Write the spec.
+    produces: { artifact: doc, path: "doc.md" }
+  - id: patch
+    instruction: Patch.
+    gates:
+      - workflow: unit
+        inputs: { unit-spec: doc }
+        returns: { doc: patch-report }
+  - id: consolidate
+    instruction: Consolidate.
+    consumes: [doc]
+`;
+    repo.write("plain.yml", plain);
+    expect(repo.ok("validate", "plain.yml")).toContain("valid:");
+    repo.start("p", plain);
+    repo.write("doc.md");
+    repo.ok("continue", "p");
+    expect(repo.state("p-patch").inputs["unit-spec"]).toBe("doc.md");
+    // A send-back gives the next child the earlier document again, not the previous child's report.
+    repo.ok("start", "p-patch");
+    repo.write("reports/p-patch.md");
+    repo.ok("continue", "p-patch");
+    expect(repo.ok("continue", "p")).toContain("READ reports/p-patch.md");
+    repo.ok("continue", "p", "--back-to", "patch");
+    expect(repo.state("p-patch-2").inputs["unit-spec"]).toBe("doc.md");
+  });
+});

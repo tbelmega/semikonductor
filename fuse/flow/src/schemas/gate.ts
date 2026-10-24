@@ -304,7 +304,7 @@ const SHAPES = [
             "The child's documents later steps of this workflow may consume: a list of ids, or a mapping of " +
             "id in this workflow -> id in the child, to rename one. Engine effect: a later step's `consumes` " +
             "resolves each to the newest child's recorded document, or with for_each to one document per child. " +
-            "An `inputs` value that names one of these ids binds the item's previous attempt's document to the new child.",
+            "On a for_each gate, an `inputs` value that names one of these ids binds the item's previous attempt's document to the new child.",
           examples: [["adversarial-review-report"], { "system-design": "design" }],
         }),
       accept: z.enum(["finished", "succeeded"]).optional().meta({
@@ -319,7 +319,9 @@ const SHAPES = [
           "With for_each: which items get a new child when the step is sent back to: `all` (the default), every " +
           "item, as today; or `failed`, only the items whose child ended as failed, is missing or cannot be read. " +
           "Engine effect: an item not selected keeps its previous child, recorded again in the new pass under the " +
-          "same slug, so its result stays in what later steps read.",
+          "same slug, so its result stays in what later steps read, as long as that child still fits the gate: it " +
+          "follows the gate's workflow, was given the documents the gate gives its item now, and was not closed " +
+          "unfinished. A send-back to an earlier step gives every item a new child.",
       }),
       rerun_override: z.boolean().optional().meta({
         description:

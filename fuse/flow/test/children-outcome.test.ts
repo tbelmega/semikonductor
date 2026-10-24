@@ -652,3 +652,230 @@ describe("limits of reruns, retries and finish", () => {
     expect(repo.refused("finish", "p-patch-a-2", "--outcome", "failed", "--reason", "x")).toContain("no longer waits for this workstream");
   });
 });
+
+const slugsOf = (pass: number) =>
+  repo
+    .state("p")
+    .steps.patch.children.filter((ch: { pass: number }) => ch.pass === pass)
+    .map((ch: { slug: string }) => ch.slug);
+
+describe("the set a new pass works on", () => {
+  test("an automatic retry re-runs the pass it came from: a file added since is no item, and a failed item whose file is gone is still retried", () => {
+    repo.start("p", parent(gate("        rerun: failed\n        retries: 1\n        accept: succeeded\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    repo.ok("start", "p-patch-b");
+    repo.ok("finish", "p-patch-b", "--outcome", "failed", "--reason", "the API is gone");
+    rmSync(join(repo.root, "units/b.json"));
+    repo.write("units/c.json", "{}\n");
+
+    const retry = repo.refused("continue", "p");
+    expect(retry).toContain("Automatic retry 1 of 1");
+    expect(slugsOf(2)).toEqual(["p-patch-a", "p-patch-b-2"]);
+    expect(retry).not.toContain("p-patch-c");
+    expect(repo.state("p-patch-b-2").inputs["unit-spec"]).toBe("units/b.json");
+    // Under accept: succeeded the step still waits for the retried item.
+    expect(repo.refused("continue", "p")).toContain("workstream p-patch-b-2 (item b)");
+    repo.write("units/b.json", "{}\n");
+    complete("p-patch-b-2");
+    expect(repo.ok("continue", "p")).toContain("STEP consolidate");
+  });
+
+  test("a send-back past the step under rerun: failed gives every item a new child, since the item files may have been rewritten", () => {
+    mixedPass("        rerun: failed\n");
+    repo.ok("continue", "p", "--back-to", "approve", "--note", "the unit files were wrong");
+    repo.write("units/a.json", '{"unit":"a","fixed":true}\n');
+    const out = repo.ok("continue", "p");
+    expect(slugsOf(2)).toEqual(["p-patch-a-2", "p-patch-b-2", "p-patch-c-2"]);
+    expect(out).not.toContain("carried over");
+    expect(repo.state("p").steps.patch.history.some((h: string) => h.includes("carried over"))).toBe(false);
+  });
+
+  test("a send-back to the step itself under rerun: failed still carries the succeeded and unfinished children over", () => {
+    mixedPass("        rerun: failed\n");
+    repo.ok("continue", "p", "--back-to", "approve");
+    repo.ok("continue", "p");
+    complete("p-patch-a-2");
+    repo.ok("start", "p-patch-b-2");
+    repo.ok("finish", "p-patch-b-2", "--outcome", "failed", "--reason", "still gone");
+    repo.ok("continue", "p", "--back-to", "patch");
+    expect(slugsOf(3)).toEqual(["p-patch-a-2", "p-patch-b-3", "p-patch-c-2"]);
+  });
+
+  test("a child given other documents than the edited gate gives its item now is not carried over", () => {
+    repo.write(
+      ".konductor/workflows/unit.yml",
+      repo.read(".konductor/workflows/unit.yml").replace("  - artifact: previous-verdict\n", "  - artifact: previous-verdict\n  - artifact: notes\n"),
+    );
+    const withNotes = (g: string) =>
+      parent(g).replace(
+        '    produces: { artifact: units, path: "units/" }\n',
+        '    produces:\n      - { artifact: units, path: "units/" }\n      - { artifact: notes, path: "notes.md" }\n',
+      );
+    repo.start("p", withNotes(gate("        rerun: failed\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.write("notes.md");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    repo.ok("start", "p-patch-b");
+    repo.ok("finish", "p-patch-b", "--outcome", "failed", "--reason", "no");
+    // The owner binds the notes to the children, then sends the work back.
+    repo.write("workflow-source.yml", withNotes(gate("        rerun: failed\n").replace("inputs: { unit-spec: units }", "inputs: { unit-spec: units, notes: notes }")));
+    const out = repo.ok("continue", "p", "--back-to", "patch");
+    expect(slugsOf(2)).toEqual(["p-patch-a-2", "p-patch-b-2"]);
+    expect(out).not.toContain("carried over");
+    expect(repo.state("p-patch-a-2").inputs.notes).toBe("notes.md");
+  });
+});
+
+describe("rerun_override: false", () => {
+  test("the printed send-back has no --rerun, and running it re-runs the failed item", () => {
+    repo.start("p", parent(gate("        rerun: failed\n        rerun_override: false\n        accept: succeeded\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    repo.ok("start", "p-patch-b");
+    repo.ok("finish", "p-patch-b", "--outcome", "failed", "--reason", "the API is gone");
+    const refused = repo.refused("continue", "p");
+    expect(refused).toContain("`fuse-flow continue p --back-to patch --note");
+    expect(refused).not.toContain("--rerun");
+    const blocked = repo.ok("continue", "p", "--blocked", "b failed");
+    expect(blocked).not.toContain("--rerun");
+    repo.ok("continue", "p", "--back-to", "patch", "--note", "retry b");
+    expect(slugsOf(2)).toEqual(["p-patch-a", "p-patch-b-2"]);
+  });
+
+  test("a carried child that follows another workflow now is reported with a plain send-back, which gives its item a new child", () => {
+    repo.write(".konductor/workflows/unit2.yml", repo.read(".konductor/workflows/unit.yml").replace("name: unit", "name: unit2"));
+    mixedPass("        rerun: failed\n        rerun_override: false\n");
+    repo.ok("continue", "p", "--back-to", "patch");
+    const edited = gate("        rerun: failed\n        rerun_override: false\n").replace("workflow: unit\n", "workflow: unit2\n");
+    repo.write("workflow-source.yml", parent(edited));
+    const out = repo.refused("continue", "p");
+    expect(out).toContain("continue p --back-to patch`");
+    expect(out).not.toContain("--rerun");
+    repo.ok("continue", "p", "--back-to", "patch");
+    expect(slugsOf(3)).toEqual(["p-patch-a-3", "p-patch-b-3", "p-patch-c-3"]);
+  });
+});
+
+describe("claimed behaviours of retries and returns", () => {
+  test("retries: 2 runs two automatic retries, each bound to the latest attempt's verdict, then the budget is spent", () => {
+    repo.start("p", parent(bindingGate("        rerun: failed\n        retries: 2\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    failAtVerify("p-patch-b", "first");
+    expect(repo.refused("continue", "p")).toContain("Automatic retry 1 of 2");
+    expect(repo.state("p-patch-b-2").inputs["previous-verdict"]).toBe("verdicts/p-patch-b.md");
+    failAtVerify("p-patch-b-2", "second");
+    const second = repo.refused("continue", "p");
+    expect(second).toContain("Automatic retry 2 of 2");
+    expect(second).toContain("retry 2 of 2 for item b: previous attempt p-patch-b-2 ended as failed at step verify: second; previous-verdict at verdicts/p-patch-b-2.md");
+    expect(slugsOf(3)).toEqual(["p-patch-a", "p-patch-b-3"]);
+    expect(repo.state("p-patch-b-3").inputs["previous-verdict"]).toBe("verdicts/p-patch-b-2.md");
+    failAtVerify("p-patch-b-3", "third");
+    const done = repo.ok("continue", "p");
+    expect(done).not.toContain("Automatic retry");
+    expect(done).toContain("STEP consolidate");
+    expect(repo.state("p").steps.patch).toMatchObject({ status: "COMPLETED", pass: 3, retries_used: 2 });
+  });
+
+  test("after a rerun, a later step reads the carried child's result next to the fresh child's", () => {
+    repo.start("p", parent(gate("        rerun: failed\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    repo.ok("start", "p-patch-b");
+    repo.ok("finish", "p-patch-b", "--outcome", "failed", "--reason", "no");
+    repo.ok("continue", "p", "--back-to", "patch");
+    complete("p-patch-b-2");
+    const next = repo.ok("continue", "p");
+    expect(next).toContain("STEP consolidate");
+    expect(next).toContain("READ reports/p-patch-a.md (reports, returned by workstream p-patch-a for item a, the child of step patch).");
+    expect(next).toContain("READ reports/p-patch-b-2.md (reports, returned by workstream p-patch-b-2 for item b, the child of step patch).");
+    expect(next).not.toContain("reports/p-patch-b.md");
+  });
+
+  test("a later plain step that writes the per-item id makes it one document again at run time", () => {
+    const yaml = parent(gate(), "").concat(
+      '  - id: merge\n    instruction: Merge the reports.\n    produces: { artifact: reports, path: "merged.md" }\n  - id: publish\n    instruction: Publish.\n    consumes: [reports]\n',
+    );
+    repo.start("p", yaml);
+    repo.write("units/a.json", "{}\n");
+    repo.write("units/b.json", "{}\n");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    complete("p-patch-b");
+    repo.ok("continue", "p");
+    repo.ok("continue", "p");
+    repo.write("merged.md");
+    const publish = repo.ok("continue", "p");
+    expect(publish).toContain("STEP publish");
+    expect(publish).toContain("READ merged.md");
+    expect(publish).not.toContain("returned by workstream");
+  });
+});
+
+describe("carry-over after the pass is recorded", () => {
+  test("a gate edit that gives a carried child's item other documents makes the child unusable, with the send-back that replaces it", () => {
+    repo.write(
+      ".konductor/workflows/unit.yml",
+      repo.read(".konductor/workflows/unit.yml").replace("  - artifact: previous-verdict\n", "  - artifact: previous-verdict\n  - artifact: notes\n"),
+    );
+    const withNotes = (g: string) =>
+      parent(g).replace(
+        '    produces: { artifact: units, path: "units/" }\n',
+        '    produces:\n      - { artifact: units, path: "units/" }\n      - { artifact: notes, path: "notes.md" }\n',
+      );
+    repo.start("p", withNotes(gate("        rerun: failed\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.write("notes.md");
+    repo.ok("continue", "p");
+    complete("p-patch-a");
+    repo.ok("start", "p-patch-b");
+    repo.ok("finish", "p-patch-b", "--outcome", "failed", "--reason", "no");
+    repo.ok("continue", "p", "--back-to", "patch");
+    expect(slugsOf(2)).toEqual(["p-patch-a", "p-patch-b-2"]);
+    // The owner binds the notes after the pass recorded a as carried over.
+    repo.write("workflow-source.yml", withNotes(gate("        rerun: failed\n").replace("inputs: { unit-spec: units }", "inputs: { unit-spec: units, notes: notes }")));
+    complete("p-patch-b-2");
+    const out = repo.refused("continue", "p");
+    expect(out).toContain("waits for workstream p-patch-a, carried over for item a, but the gate now gives that item other documents than the child was given");
+    expect(out).toContain("continue p --back-to patch --rerun a`");
+    repo.ok("continue", "p", "--back-to", "patch", "--rerun", "a");
+    // b-2 was created before the edit too, so it no longer fits and is replaced as well.
+    expect(slugsOf(3)).toEqual(["p-patch-a-3", "p-patch-b-3"]);
+    expect(repo.state("p-patch-a-3").inputs.notes).toBe("notes.md");
+  });
+
+  test("a child the owner closed unfinished is not carried over by the send-back its refusal prints", () => {
+    repo.start("p", parent(gate("        rerun: failed\n        rerun_override: false\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.ok("continue", "p");
+    complete("p-patch-b");
+    repo.ok("start", "p-patch-a");
+    repo.ok("close", "p-patch-a", "--note", "abandoned");
+    const out = repo.refused("continue", "p");
+    expect(out).toContain("which the owner closed on");
+    expect(out).toContain("continue p --back-to patch --note");
+    repo.ok("continue", "p", "--back-to", "patch", "--note", "replace a");
+    expect(slugsOf(2)).toEqual(["p-patch-a-2", "p-patch-b"]);
+  });
+
+  test("under rerun_override: false and rerun: all, the hand-over says the plain send-back replaces the unfinished children too", () => {
+    repo.start("p", parent(gate("        rerun_override: false\n        accept: succeeded\n")));
+    for (const f of ["a", "b"]) repo.write(`units/${f}.json`, "{}\n");
+    repo.ok("continue", "p");
+    repo.ok("start", "p-patch-a");
+    repo.ok("start", "p-patch-b");
+    repo.ok("finish", "p-patch-b", "--outcome", "failed", "--reason", "no");
+    const blocked = repo.ok("continue", "p", "--blocked", "b failed");
+    expect(blocked).toContain("the send-back gives every item a new child, the unfinished ones too");
+    expect(blocked).not.toContain("carried over unfinished");
+    expect(blocked).toContain("continue p --back-to patch --note");
+    repo.ok("continue", "p", "--back-to", "patch", "--note", "redo");
+    expect(slugsOf(2)).toEqual(["p-patch-a-2", "p-patch-b-2"]);
+  });
+});

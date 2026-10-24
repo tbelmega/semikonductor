@@ -10,7 +10,7 @@ import { posix, resolve } from "node:path";
 import { FlowError } from "./errors.ts";
 import { has, own } from "./own.ts";
 import { artifactPath, loadProject, reviewGuideProblems } from "./policy.ts";
-import { findWorkflow } from "./project.ts";
+import { findWorkflow, isDirectory } from "./project.ts";
 import { DEFAULT_CHILD_SLUG, DEFAULT_CHILD_SLUG_PER_ITEM } from "./schemas/gate.ts";
 import { type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
 import { listWorkstreams, readWorkstream, startedOn, stateOf, type StepState, type Workstream, workstreamExists } from "./workstream.ts";
@@ -24,6 +24,11 @@ export function firstUnfinished(wf: Workflow, ws: Workstream): Step | undefined 
 
 // The step's workflow gate; a step has at most one.
 export const childGate = (step: Step): Gate | undefined => step.gates.find((g) => g.kind === "workflow");
+
+// Whether a gate's inputs value names the item's previous attempt's document:
+// one of the gate's own returns ids, on a for_each gate only. On a plain gate
+// the value names a document of the workflow, as it did before for_each.
+export const bindsPreviousAttempt = (gate: Gate, source: string): boolean => gate.for_each !== undefined && has(gate.returns, source);
 
 // The child's slug for one pass of the step: the gate's template with the
 // parent's slug, the step id and, for a for_each gate, the item filled in,
@@ -51,7 +56,9 @@ export function itemsOf(root: string, parentSlug: string, step: Step, gate: Gate
   let folder = documentOf(root, parentSlug, id, step.id);
   if (folder === undefined) throw refuse(`${id} was not recorded by an earlier step or given as an input`);
   const records = recordsOf(root, parentSlug, id, step.id);
-  const fileRecords = records.length > 0 && records.every((r) => !r.endsWith("/"));
+  // A record is a folder when it ends in a slash or is a directory on disk,
+  // as a folder artifact declared without the slash records it.
+  const fileRecords = records.length > 0 && records.every((r) => !r.endsWith("/") && !isDirectory(resolve(root, r)));
   // Files recorded one by one stand for their folder, also when there is one
   // of them, where documentOf names the file itself.
   if (fileRecords) folder = recordedFolder(records.map((path) => ({ path })), folder.endsWith("/") ? folder : "");
@@ -408,7 +415,7 @@ export function crossCheck(root: string, file: string, wf: Workflow, only: (step
     for (const [id, source] of Object.entries(gate.inputs ?? {})) {
       if (!declared.has(id)) errors.push(`${at}: inputs names "${id}", which ${target.wf.name} does not declare as an input`);
       // A first attempt has no previous attempt to read, so the input must be optional.
-      else if (has(gate.returns, source) && declared.get(id)!.required) {
+      else if (bindsPreviousAttempt(gate, source) && declared.get(id)!.required) {
         errors.push(`${at}: inputs binds "${id}" from the gate's own return "${source}", the item's previous attempt, which a first attempt does not have; ${target.wf.name} must not require that input`);
       }
     }
