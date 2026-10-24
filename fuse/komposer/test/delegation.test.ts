@@ -68,6 +68,13 @@ describe("Compare's gate extra", () => {
     expect(compareGateExtra(wf(), "p")).toBe("↳ {slug}-p");
   });
 
+  test("the rerun settings show with their values, so gates differing only in them read differently", () => {
+    expect(compareGateExtra(perItem({ accept: "succeeded", rerun: "failed", rerun_override: false, retries: 2 }), "p")).toBe(
+      "for-each units · ↳ {slug}-p-{item} · accept succeeded · rerun failed · rerun_override false · retries 2",
+    );
+    expect(compareGateExtra(wf({ accept: "succeeded" }), "p")).toBe("↳ {slug}-p · accept succeeded");
+  });
+
   test("a non-workflow gate shows only its routes", () => {
     expect(compareGateExtra({ kind: "agent", text: "x", route_back_to: ["a"] }, "p")).toBe("↩ a");
     expect(compareGateExtra({ kind: "agent", text: "x", route_back_to: [] }, "p")).toBe("");
@@ -151,6 +158,11 @@ describe("the artifacts a gate may name", () => {
     const own = at([step("a", { artifacts: [produces("doc")] }), step("c", { gates: [perItem({ returns: { v: "v", doc: "d" } })] })]);
     expect(own.forEach).toEqual(["doc"]);
     expect(own.inputs).toEqual(["doc", "v"]);
+  });
+
+  test("a single-child gate's own return is no retry binding, so it is not offered", () => {
+    const own = at([step("a", { artifacts: [produces("doc")] }), step("c", { gates: [wf({ returns: { v: "v" } })] })]);
+    expect(own.inputs).toEqual(["doc"]);
   });
 
   test("the nearest writer decides: single-child then for_each is per-item, for_each then a plain writer is not", () => {

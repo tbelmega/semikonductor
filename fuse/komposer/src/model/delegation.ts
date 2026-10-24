@@ -31,13 +31,19 @@ export function compareGateExtra(gate: Gate, stepId: string): string {
     const chip = forEachChip(gate);
     if (chip) parts.push(chip);
     parts.push(`↳ ${childSlugFor(gate, stepId)}`);
+    // The settings the gate writes, so two gates that differ only in them read differently.
+    if (gate.accept !== undefined) parts.push(`accept ${gate.accept}`);
+    if (gate.rerun !== undefined) parts.push(`rerun ${gate.rerun}`);
+    if (gate.rerun_override !== undefined) parts.push(`rerun_override ${gate.rerun_override}`);
+    if (gate.retries !== undefined) parts.push(`retries ${gate.retries}`);
   }
   if (gate.route_back_to.length) parts.push(`↩ ${gate.route_back_to.join(", ")}`);
   return parts.join(" · ");
 }
 
 // Replays writers in the engine's order, as the nearest writer decides whether an id is per-item,
-// which the engine refuses in both pickers; own returns are retry bindings, so inputs only.
+// which the engine refuses in both pickers; a for_each gate's own returns are retry bindings, so
+// inputs only, and a plain gate has none.
 export function gateArtifacts(workflowInputs: string[], steps: StepView[], index: number): { forEach: string[]; inputs: string[] } {
   const known = new Set<string>(workflowInputs);
   const perItem = new Set<string>();
@@ -55,7 +61,8 @@ export function gateArtifacts(workflowInputs: string[], steps: StepView[], index
     }
   }
   const forEach = [...known].filter((id) => !perItem.has(id));
-  const own = Object.keys(steps[index]?.gates.find((g) => g.kind === "workflow")?.returns ?? {}).filter((id) => !known.has(id));
+  const gate = steps[index]?.gates.find((g) => g.kind === "workflow");
+  const own = gate && isPerItem(gate) ? Object.keys(gate.returns ?? {}).filter((id) => !known.has(id)) : [];
   return { forEach, inputs: [...forEach, ...own] };
 }
 
