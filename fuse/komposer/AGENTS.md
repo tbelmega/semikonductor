@@ -26,6 +26,12 @@ in `test/uiRules.test.ts` enforce the parts that can be checked mechanically. Ru
    field's label. The schema descriptions in `fuse/flow/src/schemas/` are written for the
    engine; where one reads poorly as a tooltip, give the field Komposer's own text in
    `src/docs.ts`.
+6. **Telling the user to ask their agent comes with the prompt.** Komposer does not run an agent
+   itself, so wherever the interface tells the user to ask their agent for something, it should
+   offer a ready-to-copy prompt: clicking the link or button copies the prompt to the clipboard.
+   The prompt names the files and paths the agent needs, so it can be pasted into any chat as it
+   is. Where the clipboard is not available, show the prompt in a read-only field the user can
+   copy from. The Ask your agent button on Compare (`src/Compare.tsx`) does both.
 
 ## Checks
 
