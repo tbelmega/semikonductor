@@ -138,6 +138,7 @@ export function createKanvas(dir: string): Kanvas {
   const state = (): KanvasState => ({
     hasDesign: existsSync(design),
     root,
+    example: resolve(import.meta.dir, "..", "..", "example-design"),
     boards: existsSync(design) ? readBoards(root, optionFrame) : [],
     build,
     comments: readComments().comments,

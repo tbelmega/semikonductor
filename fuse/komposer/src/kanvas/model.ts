@@ -76,6 +76,9 @@ export interface KanvasState {
   // False when the project has no design/ folder.
   hasDesign: boolean;
   root: string;
+  // The hand-made example design that ships with Komposer, the folder that
+  // holds its design/; the prompt to start a board points to it.
+  example: string;
   boards: Board[];
   build: BuildState;
   comments: KanvasComment[];
@@ -109,6 +112,23 @@ export interface ShowMessage {
   pins: FramePin[];
   selected: { selector: string; src: string } | null;
 }
+
+// The prompt the empty Kanvas page copies for the owner's agent: start an
+// exploration board in `root` in the format Kanvas reads, after the example.
+export const startBoardPrompt = (root: string, example: string) =>
+  [
+    `Start a design exploration board in ${root}, to look at in Komposer's Kanvas page.`,
+    ``,
+    `Kanvas reads boards from ${root}/design/apps/<app>/boards/<feature>/:`,
+    `- board.md: "# <title>", then per round "## Round <n>" with "Question: ...", "Fidelity: ..." and an optional "Outcome: ...", then per option "### <label>: <title>" and "Direction: ...".`,
+    `- round-<n>/<label>/Option.tsx: a React component as the default export, with its own CSS imported beside it. Options use labels such as 1a, 1b and 1c.`,
+    `- design/system/tokens/tokens.css, when present, is loaded into every option.`,
+    `Follow the example design in ${example}/design/ for the format, and add .cache/ and .kanvas/ to ${root}/design/.gitignore.`,
+    ``,
+    `First ask me which app and feature to explore and what the first round's question is. Then build three options in distinctly different directions. Use no real customer or personal data.`,
+    ``,
+    `Comments I pin in Kanvas are saved in ${root}/design/.kanvas/comments.json, with the file, line and column of the element. When I tell you I have commented, read the open ones, change only the element each one names, and mark it "addressed" with a short "note" in that file.`,
+  ].join("\n");
 
 // "design/apps/x/y.tsx:12:5", the value of an element's data-kanvas-src.
 export const anchorSrc = (a: Pick<Anchor, "file" | "line" | "column">) => `${a.file}:${a.line}:${a.column}`;

@@ -130,6 +130,8 @@ test("Kanvas lists the --kanvas folder and the Workstreams page's projects, and 
   expect(first.boards[0].app).toBe("streaks");
   const plain = (await (await api(`/api/kanvas?project=${encodeURIComponent(project)}`)).json()) as KanvasState;
   expect(plain).toMatchObject({ hasDesign: false, root: project, boards: [] });
+  // The empty page's prompt points the agent to the example design.
+  expect(readFileSync(join(plain.example, "design", "apps", "streaks", "boards", "onboarding", "board.md"), "utf8")).toContain("## Round 1");
   const empty = (await (await api(`/api/kanvas?project=${encodeURIComponent(other)}`)).json()) as KanvasState;
   expect(empty).toMatchObject({ hasDesign: true, root: other, boards: [] });
 

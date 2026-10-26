@@ -253,16 +253,22 @@ function AskAgent({ left, right }: { left: OpenWorkflow; right: OpenWorkflow | n
   );
 }
 
-function AskDialog({
+// Also used by Kanvas, with its own `noun` and `about`.
+export function AskDialog({
   prompt,
   copied,
   edited,
   returnFocus,
   onClose,
+  noun = "question",
+  about = "it names both workflow files, so the agent can read them.",
 }: {
   prompt: string;
   copied: boolean;
   edited: string[];
+  // What the prompt is ("question", "prompt"), and what it gives the agent.
+  noun?: string;
+  about?: string;
   // Where focus goes when the dialog closes: the button that opened it.
   returnFocus: HTMLElement | null;
   onClose: () => void;
@@ -308,17 +314,17 @@ function AskDialog({
     <div className="modal-backdrop" onClick={onClose}>
       <div ref={dialog} className="save-modal" role="dialog" aria-modal="true" aria-labelledby="ask-agent-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title-row">
-          <h2 id="ask-agent-title">{copied ? "Question copied" : "Copy this question"}</h2>
+          <h2 id="ask-agent-title">{copied ? `${noun[0].toUpperCase()}${noun.slice(1)} copied` : `Copy this ${noun}`}</h2>
           <button className="icon-mini" data-tip="Close" aria-label="Close" onClick={onClose}>
             <X />
           </button>
         </div>
         <p className="modal-text">
           {copied
-            ? "Komposer does not run an agent itself. Paste this question into a chat with your agent; it names both workflow files, so the agent can read them."
-            : "Komposer could not copy to your clipboard. Copy the question below, then paste it into a chat with your agent; it names both workflow files, so the agent can read them."}
+            ? `Komposer does not run an agent itself. Paste this ${noun} into a chat with your agent; ${about}`
+            : `Komposer could not copy to your clipboard. Copy the ${noun} below, then paste it into a chat with your agent; ${about}`}
         </p>
-        <textarea ref={text} className="field-textarea compare-ask-prompt" readOnly rows={8} value={prompt} aria-label="Question for your agent" />
+        <textarea ref={text} className="field-textarea compare-ask-prompt" readOnly rows={8} value={prompt} aria-label={`${noun[0].toUpperCase()}${noun.slice(1)} for your agent`} />
         {edited.length > 0 && (
           <p className="modal-text">
             Your agent reads {edited.join(" and ")} as saved, without the unsaved edits shown here.

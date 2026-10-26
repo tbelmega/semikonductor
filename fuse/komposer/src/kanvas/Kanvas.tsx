@@ -12,11 +12,13 @@
 //
 // Prototype (workstream kanvas): the board view and comments only.
 
-import { Check, ChevronDown, ChevronRight, MessageSquarePlus, MousePointerClick, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, ChevronRight, MessageSquarePlus, MousePointerClick, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { AskDialog } from "../Compare.tsx";
 import { projectName } from "../runView.ts";
 import { kanvasApi } from "./api.ts";
-import { anchorSrc, type Anchor, type Board, type BoardOption, type BuildState, type CommentState, type FrameMessage, type KanvasComment, type KanvasProjects, type KanvasState, type ShowMessage } from "./model.ts";
+import { anchorSrc, type Anchor, type Board, type BoardOption, type BuildState, type CommentState, type FrameMessage, type KanvasComment, type KanvasProjects, type KanvasState, type ShowMessage, startBoardPrompt } from "./model.ts";
 import "./kanvas.css";
 
 const WIDTHS = [375, 768, 1280] as const;
@@ -251,9 +253,12 @@ function KanvasProject({ project, picker, onMessage }: { project: string; picker
       <div className="screen is-kanvas">
         <section className="kv-main">
           <div className="toolbar kv-toolbar">{picker}</div>
-          <div className="center center-empty">
-            {state.hasDesign ? `No exploration board in ${state.root}/design/apps/ yet.` : `${projectName(state.root)} has no design/ folder yet.`} Pick another project, or ask
-            your agent to start a design in this one.
+          <div className="center center-empty kv-empty-state">
+            <p>
+              {state.hasDesign ? `No exploration board in ${state.root}/design/apps/ yet.` : `${projectName(state.root)} has no design/ folder yet.`} Pick another
+              project, or ask your agent to start a board in this one.
+            </p>
+            <StartBoard root={state.root} example={state.example} />
           </div>
         </section>
       </div>
@@ -427,6 +432,43 @@ function KanvasProject({ project, picker, onMessage }: { project: string; picker
         </p>
       </aside>
     </div>
+  );
+}
+
+// Copies a prompt that has the owner's agent start a board in this project,
+// and shows it in a dialog that says so.
+function StartBoard({ root, example }: { root: string; example: string }) {
+  const [shown, setShown] = useState<{ prompt: string; copied: boolean } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const ask = async () => {
+    const prompt = startBoardPrompt(root, example);
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(prompt);
+      copied = true;
+    } catch {
+      // No clipboard access: the dialog shows the prompt selected, to copy by hand.
+    }
+    setShown({ prompt, copied });
+  };
+  return (
+    <>
+      <button ref={button} type="button" className="kv-btn is-primary" data-tip="Copy a prompt that has your agent start a board here" onClick={ask}>
+        <Copy size={14} aria-hidden="true" /> Ask your agent
+      </button>
+      {shown &&
+        createPortal(
+          <AskDialog
+            {...shown}
+            edited={[]}
+            noun="prompt"
+            about="it names this project's folder and the format Kanvas reads, so the agent can start the board."
+            returnFocus={button.current}
+            onClose={() => setShown(null)}
+          />,
+          document.body,
+        )}
+    </>
   );
 }
 
