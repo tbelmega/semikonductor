@@ -72,7 +72,10 @@ steps:
       keep the prototype runnable, commit, tell the owner in two or three lines how to try it and
       what to look at, and ask for their feedback and any feedback from the team or customers.
       After each piece of feedback, propose a few candidates for the next iteration, including one
-      the owner did not ask for, with your recommended pick; the owner chooses. Record every
+      the owner did not ask for, with your recommended pick; the owner chooses. Among the
+      candidates, always offer ending the exploration too, with one line on whether ending now
+      seems early or due, so the owner never has to remember that the loop can end. The owner may
+      also ask for any change at any time; build it as the next iteration. Record every
       iteration in the iteration log: what changed, the feedback and who gave it, and what was
       decided. Keep the brief's ranked feature list current: build next, later, and dropped with
       the reason. Favor speed over code quality: no review loop, no architecture work, and tests
@@ -82,10 +85,11 @@ steps:
       than solving them. Three rules hold even here: use no real customer or personal data, keep
       secrets out of the code, and do not make the prototype reachable outside the owner's
       machine until the owner has decided who may reach it and how access is restricted. A tunnel
-      that only the owner uses, such as SSH to a development host, counts as the owner's machine. Suggest
-      ending the exploration when the feedback has stopped changing what to build, when the next
-      idea needs real users, real data or real scale, or when the prototype has become hard to
-      change; the owner decides when it ends. The step's check gate runs the project's default
+      that only the owner uses, such as SSH to a development host, counts as the owner's machine.
+      Recommend ending the exploration, rather than only offering it, when the feedback has
+      stopped changing what to build, when the next idea needs real users, real data or real
+      scale, or when the prototype has become hard to change; the owner decides when it ends, and
+      the step has no limit on iterations. The step's check gate runs the project's default
       check, which here shows that the prototype still builds and starts. If the project's policy
       binds no command to it yet, agree one with the owner that does, and record it in
       .konductor/policy-overrides.yml as `checks: { default: <command> }`.
