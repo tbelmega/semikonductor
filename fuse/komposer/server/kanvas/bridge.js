@@ -6,7 +6,10 @@
 // postMessage; the frame's origin is opaque, so messages go to "*" and
 // Kanvas checks that a message comes from a frame it created.
 //
-// Hold Alt to use the design normally (clicks pass through, no outline).
+// Hold Alt to use the design normally (clicks pass through, no outline, the
+// wheel scrolls it). Otherwise the wheel and Space go to Kanvas's canvas,
+// which zooms and pans, and the frame reports the design's height so Kanvas
+// can show it whole.
 //
 // Prototype: plain script, fixed overlay colours inside the design's frame.
 
@@ -166,9 +169,44 @@
     draw();
   });
 
+  document.addEventListener(
+    "wheel",
+    function (event) {
+      if (event.altKey) return;
+      event.preventDefault();
+      send({ type: "kanvas:wheel", x: event.clientX, y: event.clientY, dy: event.deltaY, mode: event.deltaMode });
+    },
+    { capture: true, passive: false },
+  );
+
+  var typing = function (el) {
+    return el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  };
+  var space = function (event) {
+    if (event.key !== " " || event.altKey || typing(event.target)) return;
+    event.preventDefault();
+    if (!event.repeat) send({ type: "kanvas:space", down: event.type === "keydown" });
+  };
+  document.addEventListener("keydown", space, true);
+  document.addEventListener("keyup", space, true);
+
+  // The design's height. It never drops below the frame's own height, so a
+  // design shorter than the frame keeps it, and one that fills the viewport
+  // stays as it is.
+  var lastHeight = 0;
+  var reportSize = function () {
+    var h = Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
+    if (Math.abs(h - lastHeight) <= 2) return;
+    lastHeight = h;
+    send({ type: "kanvas:size", height: h });
+  };
+  if (window.ResizeObserver) new ResizeObserver(reportSize).observe(document.documentElement);
+
   window.addEventListener("resize", draw);
   var ready = function () {
     send({ type: "kanvas:ready" });
+    reportSize();
+    setTimeout(reportSize, 300);
     // Layout can settle after fonts load.
     setTimeout(draw, 200);
   };

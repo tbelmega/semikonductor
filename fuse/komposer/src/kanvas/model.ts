@@ -92,12 +92,17 @@ export interface KanvasProjects {
   projects: { path: string; hasDesign: boolean }[];
 }
 
-// Messages between Kanvas and a design's frame. The frame sends the first
-// three; Kanvas sends "kanvas:show".
+// Messages between Kanvas and a design's frame. The frame sends these;
+// Kanvas sends "kanvas:show". The last three drive the round's canvas: the
+// design's height, a wheel event at a point of the frame (to zoom), and
+// Space pressed or released (to pan).
 export type FrameMessage =
   | { type: "kanvas:ready" }
   | { type: "kanvas:select"; anchor: Anchor }
-  | { type: "kanvas:pin"; id: number };
+  | { type: "kanvas:pin"; id: number }
+  | { type: "kanvas:size"; height: number }
+  | { type: "kanvas:wheel"; x: number; y: number; dy: number; mode: number }
+  | { type: "kanvas:space"; down: boolean };
 
 export interface FramePin {
   id: number;

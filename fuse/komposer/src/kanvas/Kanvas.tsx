@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Kanvas page: the exploration board of a project's design/ folder,
-// each option of a round framed side by side at a chosen width, and the
+// each round a row that opens on a canvas of its own (RoundCanvas.tsx), with
+// the round's options framed side by side at a chosen width, and the
 // comments the owner pins to elements of the options. A click in a frame
 // selects the element under the pointer with its source location; a comment
 // is written against it. The agent reads the comments from
@@ -18,13 +19,16 @@ import { createPortal } from "react-dom";
 import { AskDialog } from "../Compare.tsx";
 import { projectName } from "../runView.ts";
 import { kanvasApi } from "./api.ts";
-import { anchorSrc, type Anchor, type Board, type BoardOption, type BuildState, type CommentState, type FrameMessage, type KanvasComment, type KanvasProjects, type KanvasState, type ShowMessage, startBoardPrompt } from "./model.ts";
+import { RoundCanvas } from "./RoundCanvas.tsx";
+import { anchorSrc, type Anchor, type Board, type BuildState, type CommentState, type FrameMessage, type KanvasComment, type KanvasProjects, type KanvasState, type ShowMessage, startBoardPrompt } from "./model.ts";
 import "./kanvas.css";
 
-// "fit" gives each frame its column's own width, unscaled.
-const WIDTHS = ["fit", 375, 768, 1280] as const;
-type Width = (typeof WIDTHS)[number];
-const FRAME_HEIGHT = 760;
+const WIDTHS = [375, 768, 1280] as const;
+const WIDTH_KEY = "komposer-kanvas-width";
+const savedWidth = (): number => {
+  const kept = Number(localStorage.getItem(WIDTH_KEY));
+  return (WIDTHS as readonly number[]).includes(kept) ? kept : 1280;
+};
 
 type Filter = CommentState | "all";
 const FILTERS: { id: Filter; label: string }[] = [
@@ -98,7 +102,11 @@ function KanvasProject({ project, picker, onMessage }: { project: string; picker
   const [comments, setComments] = useState<KanvasComment[]>([]);
   const [build, setBuild] = useState<BuildState | null>(null);
   const [reloads, setReloads] = useState<Record<string, number>>({});
-  const [width, setWidth] = useState<Width>("fit");
+  const [width, setWidthState] = useState<number>(savedWidth);
+  const setWidth = (w: number) => {
+    localStorage.setItem(WIDTH_KEY, String(w));
+    setWidthState(w);
+  };
   const [filter, setFilter] = useState<Filter>("open");
   const [selection, setSelection] = useState<{ target: string; anchor: Anchor } | null>(null);
   const [draft, setDraft] = useState("");
@@ -278,7 +286,7 @@ function KanvasProject({ project, picker, onMessage }: { project: string; picker
           <div className="segmented" role="group" aria-label="Frame width">
             {WIDTHS.map((w) => (
               <button key={w} type="button" className={`segmented-opt${width === w ? " is-active" : ""}`} aria-pressed={width === w} onClick={() => setWidth(w)}>
-                {w === "fit" ? "Fit" : `${w}px`}
+                {w}px
               </button>
             ))}
           </div>
@@ -303,21 +311,29 @@ function KanvasProject({ project, picker, onMessage }: { project: string; picker
                 </button>
                 {round.outcome && <p className="kv-outcome">Outcome: {round.outcome}</p>}
                 {open && (
-                  <div className="kv-options">
-                    {round.options.map((option) => (
-                      <OptionFrame
-                        key={option.target}
-                        option={option}
-                        width={width}
-                        reload={reloads[option.target] ?? 0}
-                        openCount={comments.filter((c) => c.target === option.target && c.state === "open").length}
-                        register={(el) => {
-                          if (el) frames.current.set(option.target, el);
-                          else frames.current.delete(option.target);
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <>
+                    <div className="kv-options">
+                      {round.options.map((option) => (
+                        <article key={option.target} className="kv-option">
+                          <header className="kv-option-head">
+                            <span className="kv-label-chip is-large mono">{option.label}</span>
+                            <span className="kv-option-title">{option.title}</span>
+                          </header>
+                          <p className="kv-direction">{option.direction}</p>
+                        </article>
+                      ))}
+                    </div>
+                    <RoundCanvas
+                      round={round}
+                      width={width}
+                      reloads={reloads}
+                      openCount={(target) => comments.filter((c) => c.target === target && c.state === "open").length}
+                      register={(target, el) => {
+                        if (el) frames.current.set(target, el);
+                        else frames.current.delete(target);
+                      }}
+                    />
+                  </>
                 )}
               </section>
             );
@@ -482,60 +498,5 @@ function BuildStatus({ build }: { build: BuildState | null }) {
     <span className="kv-build" data-tip="Time from the first file change to the finished build; the frames reload after it">
       Updated {at}, {build.ms} ms after the change
     </span>
-  );
-}
-
-function OptionFrame({
-  option,
-  width,
-  reload,
-  openCount,
-  register,
-}: {
-  option: BoardOption;
-  width: Width;
-  reload: number;
-  openCount: number;
-  register: (el: HTMLIFrameElement | null) => void;
-}) {
-  const box = useRef<HTMLDivElement>(null);
-  const [room, setRoom] = useState(0);
-  useEffect(() => {
-    if (!box.current) return;
-    const observer = new ResizeObserver(([entry]) => setRoom(entry.contentRect.width));
-    observer.observe(box.current);
-    return () => observer.disconnect();
-  }, []);
-  // A fixed width wider than the column is scaled down to fit it; a
-  // narrower one is centred in it.
-  const px = width === "fit" ? Math.max(room, 1) : width;
-  const scale = room > 0 ? Math.min(1, room / px) : 1;
-  const left = Math.max(0, (room - px * scale) / 2);
-  return (
-    <article className="kv-option">
-      <header className="kv-option-head">
-        <span className="kv-label-chip is-large mono">{option.label}</span>
-        <span className="kv-option-title">{option.title}</span>
-        {openCount > 0 && <span className="kv-open-count" data-tip="Open comments on this option">{openCount} open</span>}
-      </header>
-      <p className="kv-direction">{option.direction}</p>
-      <div className="kv-frame-box" ref={box} style={{ height: FRAME_HEIGHT * scale }}>
-        {option.frame ? (
-          <iframe
-            ref={register}
-            className="kv-frame"
-            src={`${option.frame}?b=${reload}`}
-            sandbox="allow-scripts"
-            aria-label={`Option ${option.label}: ${option.title}`}
-            style={{ width: px, height: FRAME_HEIGHT, marginLeft: left, transform: `scale(${scale})` }}
-          />
-        ) : (
-          <div className="kv-frame-missing">No Option.tsx for {option.label} yet.</div>
-        )}
-      </div>
-      <div className="kv-scale mono">
-        {width === "fit" ? `${Math.round(room)}px, the column's width` : scale < 1 ? `${Math.round(scale * 100)}% of ${px}px` : `${px}px`}
-      </div>
-    </article>
   );
 }

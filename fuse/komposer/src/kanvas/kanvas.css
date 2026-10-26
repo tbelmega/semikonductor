@@ -140,27 +140,93 @@
   line-height: 1.45;
   color: var(--text-muted);
 }
-.kv-frame-box {
+/* A round's canvas: a viewport the stage pans and zooms in. */
+.kv-canvas-wrap {
   position: relative;
+  margin-top: 10px;
+}
+.kv-canvas {
+  position: relative;
+  height: 68vh;
+  min-height: 360px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-sunken);
+  border-radius: 10px;
+  background-color: var(--surface-sunken);
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 20px 20px;
+  color: var(--text-body);
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.kv-canvas:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.kv-canvas.is-dragging {
+  cursor: grabbing;
+}
+/* While panning, frames must not take the pointer. */
+.kv-canvas.is-space .kv-frame,
+.kv-canvas.is-dragging .kv-frame {
+  pointer-events: none;
+}
+.kv-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.kv-node {
+  position: absolute;
+  top: 0;
+}
+.kv-node-head {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  transform-origin: 0 100%;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.kv-node-title {
+  font-weight: 600;
+  color: var(--text-strong);
 }
 .kv-frame {
   display: block;
   border: 0;
-  transform-origin: 0 0;
+  border-radius: 4px;
   background: var(--gray-0);
+  box-shadow: 0 0 0 1px var(--border);
 }
 .kv-frame-missing {
   padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
   color: var(--text-faint);
 }
-.kv-scale {
-  font-size: 11px;
-  color: var(--text-faint);
-  text-align: right;
+.kv-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-body);
+}
+.kv-zoom-value {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
 }
 .kv-label-chip {
   display: inline-flex;
