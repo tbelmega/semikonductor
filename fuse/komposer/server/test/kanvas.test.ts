@@ -3,16 +3,18 @@
 // a copy of the example design, nothing of our own mocked.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { KanvasState } from "../../src/kanvas/model.ts";
+import { registerProject } from "../../../flow/src/registry.ts";
+import type { KanvasProjects, KanvasState } from "../../src/kanvas/model.ts";
 import { type KomposerServer, startServer } from "../app.ts";
 
 const EXAMPLE = resolve(import.meta.dir, "..", "..", "example-design");
 const TOKEN = "test-token";
 let dir: string;
 let server: KomposerServer;
+let savedHome: string | undefined;
 
 const api = (path: string, init: RequestInit = {}) =>
   fetch(`${server.url}${path}`, {
@@ -21,13 +23,18 @@ const api = (path: string, init: RequestInit = {}) =>
   });
 
 beforeEach(() => {
-  dir = mkdtempSync(join(process.env.KIROCREW_SCRATCH ?? tmpdir(), "kanvas-"));
+  // The real path, as the projects list stores one.
+  dir = realpathSync(mkdtempSync(join(process.env.KIROCREW_SCRATCH ?? tmpdir(), "kanvas-")));
+  // The projects list lives in ~/.konductor/; each test gets its own.
+  savedHome = process.env.HOME;
+  process.env.HOME = join(dir, "home");
   cpSync(join(EXAMPLE, "design"), join(dir, "design"), { recursive: true, filter: (src) => !/\.(cache|kanvas)/.test(src) });
   server = startServer({ root: dir, port: 0, token: TOKEN, kanvasDir: dir });
 });
 
 afterEach(() => {
   server.stop();
+  process.env.HOME = savedHome;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -100,4 +107,42 @@ test("the app's own /kanvas/... routes are the app's, and only frame paths are K
   expect(await (await fetch(`${server.url}/kanvas/personal/flows/x.yml`)).text()).toContain("<title>app</title>");
   expect((await fetch(`${server.url}/kanvas/frame/wrong/apps/`)).status).toBe(404);
   expect((await fetch(`${server.url}/kanvas/bridge.js`)).headers.get("content-type")).toContain("javascript");
+});
+
+test("Kanvas lists the --kanvas folder and the Workstreams page's projects, and shows the one a request names", async () => {
+  server.stop();
+  const project = join(dir, "project");
+  const other = join(dir, "other");
+  mkdirSync(project);
+  mkdirSync(join(other, "design", "apps"), { recursive: true });
+  registerProject(other);
+  server = startServer({ root: project, port: 0, token: TOKEN, kanvasDir: dir });
+
+  const listed = (await (await api("/api/kanvas/projects")).json()) as KanvasProjects;
+  expect(listed.first).toBe(dir);
+  expect(listed.projects).toEqual([
+    { path: dir, hasDesign: true },
+    { path: project, hasDesign: false },
+    { path: other, hasDesign: true },
+  ]);
+
+  const first = (await (await api("/api/kanvas")).json()) as KanvasState;
+  expect(first.boards[0].app).toBe("streaks");
+  const plain = (await (await api(`/api/kanvas?project=${encodeURIComponent(project)}`)).json()) as KanvasState;
+  expect(plain).toMatchObject({ hasDesign: false, root: project, boards: [] });
+  const empty = (await (await api(`/api/kanvas?project=${encodeURIComponent(other)}`)).json()) as KanvasState;
+  expect(empty).toMatchObject({ hasDesign: true, root: other, boards: [] });
+
+  // A comment goes to the named project's design/.kanvas/ only.
+  const anchor = { file: "design/apps/x/Page.tsx", line: 1, column: 1, tag: "h1", selector: "h1", text: "x" };
+  const made = await api(`/api/kanvas/comments?project=${encodeURIComponent(other)}`, { method: "POST", body: JSON.stringify({ target: "x/y/1a", anchor, body: "here" }) });
+  expect(made.status).toBe(200);
+  expect(JSON.parse(readFileSync(join(other, "design", ".kanvas", "comments.json"), "utf8")).comments[0].body).toBe("here");
+  expect(first.comments).toEqual([]);
+
+  // The first board's frames are still served once another project is open.
+  expect((await fetch(`${server.url}${first.boards[0].rounds[0].options[0].frame}`)).status).toBe(200);
+
+  const elsewhere = await api(`/api/kanvas?project=${encodeURIComponent(join(dir, "nowhere"))}`);
+  expect(elsewhere.status).toBe(400);
 });

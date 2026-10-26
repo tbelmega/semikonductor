@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-// The Kanvas page: the exploration board of the project's design/ folder,
+// The Kanvas page: the exploration board of a project's design/ folder,
 // each option of a round framed side by side at a chosen width, and the
 // comments the owner pins to elements of the options. A click in a frame
 // selects the element under the pointer with its source location; a comment
 // is written against it. The agent reads the comments from
 // design/.kanvas/comments.json and may mark them addressed there.
 //
+// The project picker lists the projects of the Workstreams page, after the
+// --kanvas folder when Komposer was started with one; the choice is kept in
+// localStorage.
+//
 // Prototype (workstream kanvas): the board view and comments only.
 
 import { Check, ChevronDown, ChevronRight, MessageSquarePlus, MousePointerClick, RotateCcw, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { projectName } from "../runView.ts";
 import { kanvasApi } from "./api.ts";
-import { anchorSrc, type Anchor, type Board, type BoardOption, type BuildState, type CommentState, type FrameMessage, type KanvasComment, type KanvasState, type ShowMessage } from "./model.ts";
+import { anchorSrc, type Anchor, type Board, type BoardOption, type BuildState, type CommentState, type FrameMessage, type KanvasComment, type KanvasProjects, type KanvasState, type ShowMessage } from "./model.ts";
 import "./kanvas.css";
 
 const WIDTHS = [375, 768, 1280] as const;
@@ -41,7 +46,49 @@ function changedTargets(board: Board | undefined, changed: string[] | undefined)
   return targets;
 }
 
+const PROJECT_KEY = "komposer-kanvas-project";
+
 export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) {
+  const [projects, setProjects] = useState<KanvasProjects | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [project, setProject] = useState<string | null>(null);
+
+  useEffect(() => {
+    kanvasApi
+      .projects()
+      .then((p) => {
+        setProjects(p);
+        const kept = localStorage.getItem(PROJECT_KEY);
+        setProject(kept && p.projects.some((x) => x.path === kept) ? kept : p.first);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  if (error) return <div className="screen is-kanvas"><div className="center center-empty">Kanvas could not load: {error}</div></div>;
+  if (!projects || !project) return <div className="screen is-kanvas"><div className="center center-empty">Loading Kanvas…</div></div>;
+
+  const pick = (path: string) => {
+    localStorage.setItem(PROJECT_KEY, path);
+    setProject(path);
+  };
+  const picker = (
+    <label className="kv-project">
+      <span className="kv-project-label">Project</span>
+      <select aria-label="Project" data-tip={project} value={project} onChange={(e) => pick(e.target.value)}>
+        {projects.projects.map((p) => (
+          <option key={p.path} value={p.path}>
+            {projectName(p.path)}
+            {p.hasDesign ? "" : " (no design folder)"}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  // A new key starts the project's page afresh: its comments, frames and events.
+  return <KanvasProject key={project} project={project} picker={picker} onMessage={onMessage} />;
+}
+
+function KanvasProject({ project, picker, onMessage }: { project: string; picker: ReactNode; onMessage: (message: string) => void }) {
   const [state, setState] = useState<KanvasState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [comments, setComments] = useState<KanvasComment[]>([]);
@@ -62,7 +109,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
 
   const load = () =>
     kanvasApi
-      .state()
+      .state(project)
       .then((s) => {
         setState(s);
         setComments(s.comments);
@@ -73,7 +120,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
 
   useEffect(() => {
     void load();
-    const source = new EventSource(kanvasApi.eventsUrl());
+    const source = new EventSource(kanvasApi.eventsUrl(project));
     source.addEventListener("build", (event) => {
       const next = JSON.parse((event as MessageEvent).data) as BuildState;
       setBuild(next);
@@ -102,7 +149,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
       else if (data.type === "kanvas:select") {
         setSelection({ target, anchor: data.anchor });
         setActive(null);
-        void kanvasApi.select(target, data.anchor).catch(() => {});
+        void kanvasApi.select(project, target, data.anchor).catch(() => {});
         setTimeout(() => draftBox.current?.focus(), 0);
       } else if (data.type === "kanvas:pin") {
         setActive(data.id);
@@ -150,7 +197,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
       if (event.key === "Escape" && (selection || active !== null)) {
         setSelection(null);
         setActive(null);
-        void kanvasApi.select(null, null).catch(() => {});
+        void kanvasApi.select(project, null, null).catch(() => {});
       }
     };
     window.addEventListener("keydown", onKey);
@@ -160,7 +207,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
   const submit = async () => {
     if (!selection || !draft.trim()) return;
     try {
-      const comment = await kanvasApi.addComment(selection.target, selection.anchor, draft);
+      const comment = await kanvasApi.addComment(project, selection.target, selection.anchor, draft);
       setComments((cs) => (cs.some((c) => c.id === comment.id) ? cs : [...cs, comment]));
       setDraft("");
       setSelection(null);
@@ -173,7 +220,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
 
   const changeState = async (id: number, next: CommentState) => {
     try {
-      const updated = await kanvasApi.setState(id, next);
+      const updated = await kanvasApi.setState(project, id, next);
       setComments((cs) => cs.map((c) => (c.id === id ? updated : c)));
     } catch (e) {
       onMessage((e as Error).message);
@@ -182,7 +229,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
 
   const remove = async (id: number) => {
     try {
-      await kanvasApi.deleteComment(id);
+      await kanvasApi.deleteComment(project, id);
       setComments((cs) => cs.filter((c) => c.id !== id));
       if (active === id) setActive(null);
     } catch (e) {
@@ -202,9 +249,13 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
   if (!state.hasDesign || !board)
     return (
       <div className="screen is-kanvas">
-        <div className="center center-empty">
-          No exploration board in {state.root}/design/apps/. Start Komposer with --kanvas &lt;folder with a design/ folder&gt;.
-        </div>
+        <section className="kv-main">
+          <div className="toolbar kv-toolbar">{picker}</div>
+          <div className="center center-empty">
+            {state.hasDesign ? `No exploration board in ${state.root}/design/apps/ yet.` : `${projectName(state.root)} has no design/ folder yet.`} Pick another project, or ask
+            your agent to start a design in this one.
+          </div>
+        </section>
       </div>
     );
 
@@ -212,6 +263,7 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
     <div className="screen is-kanvas">
       <section className="kv-main">
         <div className="toolbar kv-toolbar">
+          {picker}
           <div className="kv-heading">
             <span className="kv-app mono">{board.app}</span>
             <span className="kv-title">{board.title}</span>
@@ -370,7 +422,8 @@ export function Kanvas({ onMessage }: { onMessage: (message: string) => void }) 
           ))}
         </ol>
         <p className="kv-footnote">
-          The agent reads these from <span className="mono">design/.kanvas/comments.json</span>. Tell it in the chat when you have commented.
+          The agent reads these from <span className="mono" data-tip={`${state.root}/design/.kanvas/comments.json`}>design/.kanvas/comments.json</span> in{" "}
+          {projectName(state.root)}. Tell it in the chat when you have commented.
         </p>
       </aside>
     </div>

@@ -14,6 +14,19 @@
 .kv-toolbar {
   gap: 16px;
 }
+.kv-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kv-project-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.kv-project > select {
+  width: auto;
+  max-width: 240px;
+}
 .kv-heading {
   display: flex;
   align-items: baseline;

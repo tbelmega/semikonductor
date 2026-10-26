@@ -28,14 +28,15 @@ import { display, libraryEntry, listLibrary, loadProject, reviewGuideProblems, r
 import { findRepoRoot, findWorkflow, isDirectory, isWorkflowPath, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
 import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
 import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
-import { createKanvas } from "./kanvas/routes.ts";
+import { createKanvasSet } from "./kanvas/routes.ts";
 
 export interface ServerOptions {
   root: string;
   port: number;
   // The built app (dist/); not served when absent.
   appDir?: string;
-  // The folder whose design/ folder Kanvas shows; the project by default.
+  // A folder with a design/ folder that Kanvas shows first, before the
+  // projects of the Workstreams page; this project first by default.
   kanvasDir?: string;
 }
 
@@ -1137,7 +1138,7 @@ export function startServer(options: ServerOptions): KomposerServer {
       return Response.json({ error: "JSON body expected" }, { status: 415 });
     }
     const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
-    const kanvasAnswer = kanvas.api(req.method, url.pathname, body, req.signal);
+    const kanvasAnswer = kanvas.api(req.method, url.pathname, body, req.signal, url.searchParams);
     if (kanvasAnswer) return kanvasAnswer;
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
@@ -1174,7 +1175,10 @@ export function startServer(options: ServerOptions): KomposerServer {
     }
   };
 
-  const kanvas = createKanvas(options.kanvasDir ?? root);
+  const kanvas = createKanvasSet({
+    list: () => [...(options.kanvasDir ? [options.kanvasDir] : []), ...projects().paths],
+    first: options.kanvasDir ?? root,
+  });
 
   const server = Bun.serve({
     hostname: "127.0.0.1",

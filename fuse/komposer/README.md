@@ -91,7 +91,11 @@ bun run build
 bun run start -- --kanvas example-design --port 4817
 ```
 
-`--kanvas` names the folder that holds `design/`; without it, Kanvas uses the project's own.
+The Project picker at the top of Kanvas switches between the projects of the Workstreams page, and
+remembers the choice in the browser. A project is added there as it is on the Workstreams page:
+by fuse-flow when it writes a workstream, or with Add projects. `--kanvas` names an extra folder
+that holds `design/`, listed first and shown first; without it, Kanvas starts on the project's
+own.
 
 ## What to know
 

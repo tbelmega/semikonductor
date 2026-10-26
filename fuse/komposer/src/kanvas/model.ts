@@ -81,6 +81,14 @@ export interface KanvasState {
   comments: KanvasComment[];
 }
 
+// The folders Kanvas can show: the --kanvas folder when Komposer was started
+// with one, then the projects of the Workstreams page. `first` is shown
+// until the owner picks another.
+export interface KanvasProjects {
+  first: string;
+  projects: { path: string; hasDesign: boolean }[];
+}
+
 // Messages between Kanvas and a design's frame. The frame sends the first
 // three; Kanvas sends "kanvas:show".
 export type FrameMessage =
