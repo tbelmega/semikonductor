@@ -1,0 +1,15 @@
+/* Komposer's own design tokens, imported from the app so the options use
+   the same colours, type scale, spacing and radii. The webfonts
+   (tokens/fonts.css) are left out: they come from Komposer's node_modules,
+   which a design folder cannot resolve, so the options fall back to the
+   system fonts. */
+@import "../../../fuse/komposer/src/tokens/colors.css";
+@import "../../../fuse/komposer/src/tokens/typography.css";
+@import "../../../fuse/komposer/src/tokens/spacing.css";
+@import "../../../fuse/komposer/src/tokens/effects.css";
+@import "../../../fuse/komposer/src/tokens/base.css";
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
