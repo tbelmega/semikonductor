@@ -279,8 +279,9 @@ select {
   gap: 12px;
 }
 .center-header-main {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 120px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -300,7 +301,10 @@ select {
   white-space: nowrap;
 }
 .center-header-status {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 500;
   color: var(--text-faint);
 }
@@ -2214,6 +2218,9 @@ button.compare-card-title:focus-visible { outline: 2px solid var(--ring); outlin
    main column's side padding keeps the cards clear of the 20px strips. */
 .screen.is-present { position: relative; overflow: hidden; }
 .present-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 0 20px; }
+.screen.is-present.has-left-open .present-main { padding-left: 276px; }
+.screen.is-present.has-right-open .present-main { padding-right: 276px; }
+.present-main { transition: padding 180ms var(--ease-out); }
 .present-main > .center-empty { display: flex; flex: 1; }
 .present-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; padding: 36px 0 24px; }
 .present-scroll.has-second { gap: 28px; padding: 36px 12px 24px; }

@@ -222,7 +222,7 @@ export function Present({
   );
 
   return (
-    <div className="screen is-present">
+    <div className={`screen is-present${left.open ? " has-left-open" : ""}${right.open ? " has-right-open" : ""}`}>
       <div
         ref={left.ref}
         className={`present-drawer is-left${left.open ? " is-open" : ""}`}
@@ -280,7 +280,11 @@ export function Present({
               <select
                 data-tip="Show a second workflow next to this one"
                 value={second ? workflowKey(second) : ""}
-                onChange={(event) => onSecond(event.target.value || null)}
+                onChange={(event) => {
+                  onSecond(event.target.value || null);
+                  // The choice is made; the select must not hold the drawer open.
+                  event.target.blur();
+                }}
               >
                 <option value="">none</option>
                 {secondOptions.map((w) => (
