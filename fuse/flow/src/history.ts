@@ -53,6 +53,17 @@ export const SKIP_REASON = {
   endedFailed: (reason: string) => `ended as failed: ${reason}`,
 };
 
+// The condition a history line says ran, as handedOut and skipped write it,
+// with its result: the command in backticks, which may span lines and hold
+// backticks, or the label of a check kind bound to none.
+export function conditionRun(line: string): { what: string; result: string } | undefined {
+  const text = body(line);
+  const run = /condition (`[\s\S]*`) (exited (?:-?\d+|without a code, killed by a signal))$/.exec(text);
+  if (run) return { what: run[1], result: run[2] };
+  const none = /condition ([\s\S]+) (is not configured in this project)$/.exec(text);
+  return none ? { what: none[1], result: none[2] } : undefined;
+}
+
 export function stamp(event: string, now = new Date()): string {
   return `${now.toISOString()} ${event}`;
 }

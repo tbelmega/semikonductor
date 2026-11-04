@@ -30,14 +30,20 @@ explained by what fuse-flow prints.
 
 ## 1. Resume or start
 
-Run `fuse-flow list`. It prints the project's workstreams with their workflow and current step, and
-every workflow a new workstream can follow, with its description.
+Run `fuse-flow list`. It prints the project's unfinished workstreams with their workflow and
+current step, and every workflow a new workstream can follow, with its description. Complete and
+closed workstreams are left out and counted; `fuse-flow list --all` shows them too.
 
 - **The user names a workstream,** or one clearly matches the request by its slug, its workflow or
   its current step: resume it with `fuse-flow start <slug>`. If several may match, ask which one,
-  naming each by what it is about.
+  naming each by what it is about. A workstream the user names that `list` does not show may be
+  complete or closed: look it up with `fuse-flow list --all` or `fuse-flow status <slug>`.
 - **A workstream that is complete is not resumed.** If the user wants to change that work, it is a
-  new workstream.
+  new workstream, started with `--after <slug>` so it gets the earlier one's documents.
+- **`list` marks a workstream idle** when nothing has been recorded on it for a while and it does
+  not wait for the user. Once per session, name the idle workstreams by what they are about and
+  ask whether to resume one, close any of them, or leave them. Close one only on the user's answer,
+  with `fuse-flow close <slug> --note "<the user's reason>"`; never close one on your own judgement.
 - **The user asks for one document or analysis,** such as a threat model, a decision record or a
   test plan, and it is not part of a running workstream: follow section 6.
 - **Otherwise the work is new:** pick a workflow (section 2) and start it (section 3).

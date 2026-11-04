@@ -387,6 +387,7 @@ steps:
 |---|---|
 | `start <slug> [--workflow <name or path>] [--from <step>] [--after <slug>] [--input <id>=<path>]...` | Create or resume a workstream and print what to do. A new workstream requires `--workflow`. On a resumed workstream, `--workflow` names the workflow it follows, or, when that file is gone, its new path. On a new workstream, `--from` starts at a later step and records earlier steps as skipped on the owner's decision. `--after` and `--input` bind the workflow's inputs, as described under "Workflows that work together". |
 | `continue <slug>` | Finish the current step after its artifacts are accounted for, each review it owes has a findings file in this pass, and its mechanical gates pass, then print the next step or hand-over block. A step that this command hands out first, such as one added to the workflow or reached because a condition now skips the step before it, is printed and not finished; an owner's decision is likewise not applied when the hand-out moved the current step. |
+| `continue <slug> --left-open <text> [<the flags above>]` | Finish the current step as `continue` does, and record what is still open for the owner once the workflow ends: work handed over, conversations outside the session, checks that could not run, resources that still exist. Given with the last step's work, the final hand-over block prints it as `LEFT OPEN` and `status` keeps it. Given with a step that turns out not to be the last, it is not kept, and the output says so. A hand-out of a new step or a send-back deletes it. On a complete workstream that has none recorded, `--left-open` given alone records it once, for an ending that had no continue to carry it, such as the owner's approval or skip of the last step; nothing else changes. |
 | `continue <slug> --waived <reason> [<the flags above>]` | Finish the current step as `continue` does, without the reviews that have not run, which the owner waived. Records each waiver with the owner's reason; the hand-over names it. Refused when no review is left to waive. |
 | `continue <slug> [--updated [<artifact>=]<file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. A file inside the paths of two artifacts takes the identifier of the one it counts for. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
@@ -397,10 +398,10 @@ steps:
 | `continue <slug> --more-rounds <n> [--gate <n>] [--note <text>]` | Add one or more review rounds on an `IN_PROGRESS` or `BLOCKED` step. Without `--gate`, every review of the step gets them, and in a step with several reviews the output says so; with `--gate`, only the review with that number. A step blocked at one review refuses rounds granted to another review alone. A grant to one review is bound to the review's identity, as an acceptance is. |
 | `continue <slug> --back-to <step> [--rerun <item>[,<item>]...] [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. `--rerun`, for a step with a `for_each` gate as the target, names the items that get new child workstreams; the other items keep their children while those fit the gate. It is refused for any other target, under `rerun_override: false`, before the step has recorded children, and for an item the step does not have or one named twice. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes; where it writes an artifact whole at a path an edit has moved, later steps and `--after` read the new file alone, also when an earlier fuse-flow recorded the earlier one, and the earlier one stays in the step's files as history. Its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
-| `finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]...` | The agent of a child workstream declares that it failed, while its parent step still waits for it. Accepted at any step except one awaiting the owner, a blocked one included: the files named with `--updated`, such as a verdict, are recorded first, then the current and remaining steps are skipped with the reason. On a complete child it only records the outcome. A second declaration is refused. |
-| `finish <slug> --outcome succeeded` | Declare a complete child workstream succeeded. Refused on a child with a step left, since a success goes through every step; optional, since a complete child reads as succeeded. |
-| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`, or the owner's waiver in this pass, as `[waived by the owner: <reason>]`. Once a reviewer has run, it also shows the review's cost so far over all passes, counted from the findings files, such as `[cap 2; 5 reviewer launches in 4 rounds over 2 passes]`; the step block and the hand-over's `VERIFICATION` line show the same total, also for a review the owner accepted or waived. A file counts for the review whose name it carries as the workflow names the reviews now, also under `-redo`. Files under a name no review has now, as after an edit added or removed a review, are shown with every review as launches that cannot be given to one of them; an edit that renumbers the reviews without changing how many there are moves earlier files to the review now at their number. The count only informs the owner and decides nothing. So that no two steps share findings names, a workflow is refused when one step id is another's followed by `-gate<n>`, `-redo`, `-pass-<n>` or `-round-<n>`, as `build-pass-2` would be next to `build`. Each file shows once, under the latest step that records it. A document an earlier step recorded that a later step reported with `--updated`, without declaring it, shows `amended by <step>`; a folder an earlier step recorded whole shows `<step> changed files in it`, since those may be new files. A step declares a file when one of its paths is that file or the earlier record's path, or holds the file under the same artifact. A record of the whole repository, such as code at `.`, shows neither. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. |
-| `list` | List the project's workstreams with their workflow and current step, and how many recorded steps the workflow no longer has, and every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
+| `finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]... [--left-open <text>]` | The agent of a child workstream declares that it failed, while its parent step still waits for it. Accepted at any step except one awaiting the owner, a blocked one included: the files named with `--updated`, such as a verdict, are recorded first, then the current and remaining steps are skipped with the reason. On a complete child it only records the outcome. A second declaration is refused. |
+| `finish <slug> --outcome succeeded [--left-open <text>]` | Declare a complete child workstream succeeded. Refused on a child with a step left, since a success goes through every step; optional, since a complete child reads as succeeded. With either outcome, `--left-open` records what is still open, as `continue --left-open` does, once. |
+| `status <slug>` | Show all steps, their six states, gates, artifacts, skip reasons and the current step. Each review gate shows its round cap, with any rounds the owner granted, such as `[cap 3, 2 plus 1 granted]`, or the owner's waiver in this pass, as `[waived by the owner: <reason>]`. Once a reviewer has run, it also shows the review's cost so far over all passes, counted from the findings files, such as `[cap 2; 5 reviewer launches in 4 rounds over 2 passes]`; the step block and the hand-over's `VERIFICATION` line show the same total, also for a review the owner accepted or waived. A file counts for the review whose name it carries as the workflow names the reviews now, also under `-redo`. Files under a name no review has now, as after an edit added or removed a review, are shown with every review as launches that cannot be given to one of them; an edit that renumbers the reviews without changing how many there are moves earlier files to the review now at their number. The count only informs the owner and decides nothing. So that no two steps share findings names, a workflow is refused when one step id is another's followed by `-gate<n>`, `-redo`, `-pass-<n>` or `-round-<n>`, as `build-pass-2` would be next to `build`. Each file shows once, under the latest step that records it. A document an earlier step recorded that a later step reported with `--updated`, without declaring it, shows `amended by <step>`; a folder an earlier step recorded whole shows `<step> changed files in it`, since those may be new files. A step declares a file when one of its paths is that file or the earlier record's path, or holds the file under the same artifact. A record of the whole repository, such as code at `.`, shows neither. `done` means the step's gates passed and it has no owner gate; `approved` means an owner gate approved it. Steps the state file records that the workflow no longer has, because the workflow was edited, are listed after the steps with their status. For a complete workstream, an `END OF RUN` section follows: the outcome, the owner's decisions with their notes, the checks that ran and those that did not, the path of the decisions file, and `left open`, the recorded `LEFT OPEN` or `not recorded`. It counts no open decisions, since the state file does not hold them. |
+| `list [--all]` | List the project's unfinished workstreams with their workflow and current step, and how many recorded steps the workflow no longer has, then a line counting the complete and closed workstreams it leaves out; `--all` lists those too. An unfinished workstream whose last recorded change is at least 7 days old, or the policy's `idle_days`, is marked `idle`, unless its current step awaits the owner or is blocked. Then it lists every workflow a new workstream can follow, by location, with the name `start --workflow` takes and its description. Names that cannot be started by name, and invalid files, are listed with the reason. |
 | `validate <name, file or directory>...` | Validate one or more workflows without starting a workstream. A directory means every `.yml` and `.yaml` file below it, including nested and symlinked folders. |
 | `help`, `--help`, `-h` | Print command usage, lookup paths and state location. |
 
@@ -469,7 +470,10 @@ the block.
 
 - `SUMMARY:` the task, workstream slug and step position.
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or
-  `workflow complete`.
+  `workflow complete`. For a workstream that is not a child whose parent still waits,
+  `workflow complete` is followed by a sentence saying that the workflow has ended, and that what
+  is under `NEXT STEP` and `LEFT OPEN` happens outside it, with no step of it tracking it and no
+  gate of it checking it.
 - `OUTCOME:` on `workflow complete` only for a workstream that ended as failed: the step it ended
   at, when one did, and the reason. `PRODUCED` then includes what that step recorded.
 - `PRODUCED:` new and updated files, or a compact summary for five or more files, plus reasons for
@@ -478,6 +482,9 @@ the block.
 - `VERIFICATION:` mechanical gate results, review rounds used and required fixes still open, or
   `none`.
 - `NEXT STEP:` the owner's options, with the recommendation first and its reason.
+- `LEFT OPEN:` on `workflow complete` only: what is still open for the owner, from `--left-open`,
+  or a placeholder for the agent to fill in. When none was recorded, the agent's part of the
+  output carries a warning and the command that records it; the workstream completes anyway.
 - `DECISIONS:` how many decisions are open, or `none recorded`, the decisions files they are in,
   and the owner's four ways to respond. It names this workstream's file and the file of each
   delegated workstream whose finished work the owner has not reviewed, with the step that
@@ -491,7 +498,10 @@ step that waits for the owner, it gives the command for each of the owner's opti
 `workflow complete`, present when there is something to say, it names the workflows this one
 hands off to, with their start commands, and for a child workstream the parent step that waits
 for it, or why that step no longer waits for it: the owner skipped or completed it, or sent the
-work back so that its new pass waits for another child. For
+work back so that its new pass waits for another child. Unless the workstream is a child whose
+parent still waits, it also tells the agent to say in its own reply that the workflow has ended,
+and that the session can end, with the conversation marked as done where the harness allows it;
+fuse-flow itself never calls the harness. For
 `needs input` or `paused`, the agent fills in the lines the step block printed under
 `IF YOU STOP BEFORE THE STEP IS DONE`.
 
@@ -565,6 +575,7 @@ review:
 rulings:
   - In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill.
 checkout: refuse                   # or warn, the default
+idle_days: 14                      # 7 by default
 artifacts:
   spec:
     path: docs/specs/{date}-{slug}.md
@@ -574,6 +585,10 @@ artifacts:
 changes outside `.konductor/`, or on the branch a remote's HEAD points to, such as `main`: `warn`,
 the default, prints a warning the agent passes on to the owner, and `refuse` refuses to start. The
 most specific file wins, so a team that refuses can still be relaxed in one checkout's local file.
+
+`idle_days` says after how many days without a recorded change `list` marks an unfinished
+workstream idle, 7 by default. A workstream whose current step awaits the owner or is blocked is
+never marked, since only the owner moves it on. The most specific file wins.
 
 `launch` says how the agent starts a reviewer: `subagent`, a fresh subagent in its own harness,
 or a shell command such as another harness on the terminal. When no policy file sets it, the agent
@@ -703,6 +718,13 @@ not finish cannot complete; its block names the owner's ways on, skipping the st
 work back to it for a new child, and skipping keeps the closed child for the record. A child of a
 closed parent is told that the parent no longer waits for it. Closing is the owner's decision, as
 a jump is. To take the work up again, start a new workstream under another slug.
+
+A complete workstream is not reopened either: `continue` refuses it, `--back-to` included, and
+names `start <new-slug> --workflow <name or path> --after <slug>`, which gives the new workstream
+its documents. A reopened workstream would rewrite files a later workstream may already have taken
+as inputs. `--after` does not choose the workflow. `list --all` and `status` show which workstream
+was started after which. An edit of the workflow that adds a step still makes its workstreams
+unfinished again, since completion is derived from the workflow as it is now.
 
 ## Rules
 

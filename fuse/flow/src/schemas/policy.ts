@@ -114,6 +114,18 @@ export const PolicySchema = z
           "warning, `refuse` refuses to start. The most specific file wins. Engine effect: the warning or the refusal.",
         examples: ["refuse"],
       }),
+    idle_days: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .meta({
+        description:
+          "After how many days without a recorded change `list` marks an unfinished workstream idle; 7 when no " +
+          "file sets it. A workstream whose current step awaits the owner or is blocked is never idle. The most " +
+          "specific file wins. Engine effect: the idle mark in `list`.",
+        examples: [14],
+      }),
     artifacts: idRecord(ARTIFACT_ID, z.object({ path: z.string().min(1) }).strict())
       .optional()
       .meta({

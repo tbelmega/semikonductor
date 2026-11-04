@@ -289,7 +289,7 @@ test("a parent moved with its child, as the README describes, resumes with the c
 
 // -------------------------------------------------------------------- close
 
-test("the owner closes a workstream: start and continue refuse it with the reason, list and status show it", () => {
+test("the owner closes a workstream: start and continue refuse it with the reason, list --all and status show it", () => {
   repo.ok("start", "abandoned", "--workflow", "w");
   repo.ok("start", "alive", "--workflow", "w");
   const out = repo.ok("close", "abandoned", "--note", "the customer cancelled the feature");
@@ -300,7 +300,7 @@ test("the owner closes a workstream: start and continue refuse it with the reaso
   expect(repo.refused("start", "abandoned")).toContain("To work on it again, start a new workstream under another slug");
   expect(repo.refused("continue", "abandoned")).toMatch(reason);
   expect(repo.refused("continue", "abandoned", "--owner-approved")).toMatch(reason);
-  expect(repo.ok("list")).toMatch(/\n {2}abandoned \(w, started \d{4}-\d{2}-\d{2}\): closed by the owner on \d{4}-\d{2}-\d{2}: the customer cancelled the feature\n/);
+  expect(repo.ok("list", "--all")).toMatch(/\n {2}abandoned \(w, started \d{4}-\d{2}-\d{2}\): closed by the owner on \d{4}-\d{2}-\d{2}: the customer cancelled the feature\n/);
   expect(repo.ok("list")).toMatch(/\n {2}alive \(w, started [^)]*\): step draft, 1 of 2, IN_PROGRESS\n/);
   const status = repo.ok("status", "abandoned");
   expect(status).toMatch(reason);
@@ -365,12 +365,12 @@ test("a child of a closed parent is told that the parent no longer waits for it"
   expect(done).not.toContain("Go on there");
 });
 
-test("a closed workstream whose workflow is gone still shows its closure in list and status", () => {
+test("a closed workstream whose workflow is gone still shows its closure in list --all and status", () => {
   repo.write(".konductor/workflows/gone.yml", W.replace("name: w", "name: gone"));
   repo.ok("start", "old", "--workflow", "gone");
   repo.ok("close", "old", "--note", "superseded by the new design");
   rmSync(join(repo.root, ".konductor/workflows/gone.yml"));
-  expect(repo.ok("list")).toMatch(/\n {2}old \(gone\): closed by the owner on [0-9-]+: superseded by the new design; its workflow cannot be read: /);
+  expect(repo.ok("list", "--all")).toMatch(/\n {2}old \(gone\): closed by the owner on [0-9-]+: superseded by the new design; its workflow cannot be read: /);
   const status = repo.ok("status", "old");
   expect(status).toMatch(/closed by the owner on [0-9-]+: superseded by the new design/);
   expect(status).toContain("workstream closed; start and continue refuse it");

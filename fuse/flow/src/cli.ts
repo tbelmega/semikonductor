@@ -26,6 +26,7 @@ const USAGE = `usage:
                                                 from the repository root
   fuse-flow continue <slug> [--updated [<artifact>=]<file>]... [--unchanged <artifact> <reason>]...
                             [--not-produced <artifact> <reason>]... [--waived <the owner's reason>]
+                            [--left-open <text>]
                                                 the current step's work is done: refused until every artifact
                                                 it produces exists or is reported --not-produced, every
                                                 artifact it updates is accounted for, every review has a
@@ -36,7 +37,11 @@ const USAGE = `usage:
                                                 the step wrote; a file in the paths of two of its artifacts
                                                 takes the id of the one it counts for, <artifact>=<file>.
                                                 A relative path is read from the current directory, else
-                                                from the repository root, as the step block prints it
+                                                from the repository root, as the step block prints it.
+                                                --left-open records, with the last step's work, what is still
+                                                open for the owner once the workflow ends
+  fuse-flow continue <slug> --left-open <text>  on a complete workstream that has no LEFT OPEN recorded:
+                                                record it, once; nothing else changes
   fuse-flow continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...
                                                 the agent cannot finish the step, for example at the review
                                                 round cap; the owner decides. --gate names the review it is
@@ -60,20 +65,23 @@ const USAGE = `usage:
                                                 workstreams; the others' children are carried over
   fuse-flow continue <slug> --forward-to <step> [--note <text>]
                                                 the owner jumps forward; the steps passed over are skipped
-  fuse-flow finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]...
-  fuse-flow finish <slug> --outcome succeeded
+  fuse-flow finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]... [--left-open <text>]
+  fuse-flow finish <slug> --outcome succeeded [--left-open <text>]
                                                 the agent declares how a child workstream ended. failed is
                                                 accepted unless the current step awaits the owner: the
                                                 current and later steps are skipped with the reason, and
                                                 --updated records the files that say why first. succeeded
                                                 is accepted only once every step is finished, and is
-                                                optional: a complete workstream reads as succeeded
+                                                optional: a complete workstream reads as succeeded.
+                                                --left-open records what is still open for the owner
   fuse-flow status <slug>                       show every step's state. A file shows once, under the latest
                                                 step that records it.
                                                 done means the step's gates passed and it has no owner gate;
                                                 approved means an owner gate approved it
-  fuse-flow list                                list this project's workstreams with their current step, and
-                                                every workflow a workstream can follow, with its description
+  fuse-flow list [--all]                        list this project's unfinished workstreams with their current
+                                                step, marking idle ones, and every workflow a workstream can
+                                                follow, with its description. --all lists complete and closed
+                                                workstreams too
   fuse-flow rename <old slug> <new slug>        give a workstream another slug: its state file, reviews
                                                 folder, decisions file and debug log move with it, and the
                                                 workstreams that name it are updated. Its documents keep
@@ -113,9 +121,10 @@ const OPTIONS = {
     "forward-to": { type: "string" },
     note: { type: "string" },
     rerun: { type: "string" },
+    "left-open": { type: "string" },
   },
   status: {},
-  finish: { outcome: { type: "string" }, reason: { type: "string" }, updated: { type: "string", multiple: true } },
+  finish: { outcome: { type: "string" }, reason: { type: "string" }, updated: { type: "string", multiple: true }, "left-open": { type: "string" } },
 } as const;
 
 // Remove every `--<name> <artifact> <reason>` from args, and return them by
@@ -209,10 +218,11 @@ function run(argv: string[]): string[] {
   if (command === "help" || command === "--help" || command === "-h") return [USAGE];
   if (command === "validate") return validate(args);
   if (command === "list") {
-    if (args.length) throw new UsageError("list takes no arguments");
+    const all = args.length === 1 && args[0] === "--all";
+    if (args.length && !all) throw new UsageError("list takes no arguments but --all");
     const root = findRepoRoot(process.cwd());
     ignoreLocalPolicy(root);
-    return commands.list(root);
+    return commands.list(root, all);
   }
   if (command === "rename") return rename(args);
   if (command === "close") return close(args);
@@ -261,6 +271,10 @@ function run(argv: string[]): string[] {
       if (actions.length > 1) throw new UsageError(`${actions.join(" and ")} are different decisions; give one`);
       // A waiver goes with the agent's report that the work is done.
       if (values.waived !== undefined && actions.length) throw new UsageError(`--waived goes with the report that the work is done; it does not go with ${actions[0]}`);
+      // What is left open goes with the report that the work is done, or alone on a complete workstream.
+      if (values["left-open"] !== undefined && actions.length) {
+        throw new UsageError(`--left-open goes with the report that the work is done; it does not go with ${actions[0]}`);
+      }
       // A send-back, and a block, may record what the current step wrote so far.
       const recordsWork = (backTo !== undefined || values.blocked !== undefined) && work.every((w) => w === "--updated");
       if (actions.length && work.length && !recordsWork) {
@@ -300,6 +314,7 @@ function run(argv: string[]): string[] {
         }),
         unchanged: namesFromHere(root, unchanged),
         notProduced: namesFromHere(root, notProduced),
+        leftOpen: values["left-open"] as string | undefined,
       });
     }
     case "status":
@@ -315,6 +330,7 @@ function run(argv: string[]): string[] {
       return commands.finishWorkstream(root, slug, {
         outcome,
         ...(reason !== undefined ? { reason } : {}),
+        ...(values["left-open"] !== undefined ? { leftOpen: values["left-open"] as string } : {}),
         updated: updated.map((value) => {
           const m = /^([a-z0-9][a-z0-9-]*)=(.+)$/.exec(value);
           return m ? namedHere(root, m[2], m[1]) : namedHere(root, value);

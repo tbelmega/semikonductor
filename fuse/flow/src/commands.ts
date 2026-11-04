@@ -15,13 +15,14 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { checkoutProblems, currentBase, resolveBase } from "./base.ts";
 import { FlowError } from "./errors.ts";
-import { EVENT, ownerNotes, runEvents, SKIP_REASON, stamp } from "./history.ts";
+import { conditionRun, EVENT, ownerNotes, runEvents, SKIP_REASON, stamp, summarizeRun } from "./history.ts";
 import { has, own } from "./own.ts";
 import {
   artifactPath,
   checkBinding,
   checkoutSetting,
   display,
+  idleDays,
   libraryEntry,
   loadProject,
   maxRounds,
@@ -418,7 +419,20 @@ function handOut(c: Ctx): void {
     const cond = step.condition;
     if (cond && (cond.kind === "script" || cond.kind === "check")) {
       const m = mechanical(c, cond);
-      if (m.kind === "unbound") return; // stays PENDING; the output says how to bind it
+      if (m.kind === "unbound") {
+        // Stays PENDING; the output says how to bind it. The workflow goes on
+        // here, so a LEFT OPEN given with an earlier step is not what it left.
+        // Under the lock, only while the step still waits there and the text
+        // is the one read: another command may have finished the workflow and
+        // recorded its final text meanwhile.
+        const early = ws.left_open;
+        if (early !== undefined) {
+          updateWorkstream(c.root, c.slug, (ws2) => {
+            if (currentStep(c.wf, ws2) === step && stateOf(ws2, step.id).status === "PENDING" && ws2.left_open === early) delete ws2.left_open;
+          });
+        }
+        return;
+      }
       if (m.kind === "run") {
         const r = runCommand(c, m.command, step.id);
         if (r.exitCode === 0) note = EVENT.handedOut(`condition \`${m.command}\` exited 0`);
@@ -444,6 +458,8 @@ function handOut(c: Ctx): void {
         return;
       }
       state.status = "IN_PROGRESS";
+      // New work makes what the workflow left open stale too.
+      delete ws2.left_open;
       // A later pass keeps what the first pass found: by now the workstream
       // has recorded files of its own in a folder that existed before it.
       // A folder that another artifact of this workstream recorded, such as
@@ -2224,7 +2240,7 @@ const redo = (c: Ctx, step: Step) => `run \`${FUSE_FLOW} continue ${c.slug} --ba
 // The labelled lines of a hand-over, printed as list items so that a chat
 // that renders Markdown shows each on its own line instead of joining them
 // into one paragraph. The owner's options under NEXT STEP nest below it.
-const HANDOVER_LABEL = /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|DECISIONS):/;
+const HANDOVER_LABEL = /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|LEFT OPEN|DECISIONS):/;
 const asListItems = (lines: string[]) => lines.map((l) => (HANDOVER_LABEL.test(l) ? `- ${l}` : l));
 
 // When it is the owner's turn: the hand-over block, pre-filled.
@@ -2273,6 +2289,9 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
           "which gives it this workstream's documents.",
       );
     }
+    // A child whose parent still waits hands back to the parent, so the work
+    // goes on there and only the parent's own ending says the workflow ended.
+    const goesOn = ws.parent !== undefined && !parentGone(c.root, c.slug, ws.parent);
     if (ws.parent) {
       const gone = parentGone(c.root, c.slug, ws.parent);
       const siblings = gone ? [] : unfinishedSiblings(c, ws.parent);
@@ -2287,16 +2306,39 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
               `\`${FUSE_FLOW} start ${ws.parent.slug}\` prints that step, with what this workstream returns to it.`,
       );
     }
+    const leftOpen =
+      ws.left_open !== undefined
+        ? `LEFT OPEN: ${ws.left_open}`
+        : "LEFT OPEN: <what is still open for the owner now that the workflow is over: findings or work handed over, " +
+          "conversations outside this session, checks that could not run, resources that still exist; none only once you checked each>";
+    if (ws.left_open === undefined) {
+      forYou.unshift(
+        "  - WARNING: no LEFT OPEN was recorded for this workstream. Fill in the LEFT OPEN line above, and record it with " +
+          `\`${FUSE_FLOW} continue ${c.slug} --left-open "<text>"\`, so status shows it later.`,
+      );
+    }
+    if (!goesOn) {
+      forYou.push(
+        "  - Tell the owner in your own reply too, not only in this block, that the workflow has ended, and that what is under " +
+          "NEXT STEP and LEFT OPEN happens outside it. A follow-up workflow the owner agrees to start tracks its own work.",
+        "  - The session can end here. If your harness lets you mark the conversation as done, do so once the owner agrees.",
+      );
+    }
+    const ended = goesOn
+      ? ""
+      : ". This workflow has ended: anything under NEXT STEP or LEFT OPEN happens outside it, with no step of it " +
+        "tracking it and no gate of it checking it.";
     const decisions = decisionLines(c, ws, true);
     return [
       intro,
       "",
       `SUMMARY: <the work, in a sentence>. Workstream ${c.slug}, all ${c.wf.steps.length} steps of ${c.wf.name}.${skipped}`,
-      "STATUS: workflow complete",
+      `STATUS: workflow complete${ended}`,
       ...(ws.outcome?.kind === "failed" ? [`OUTCOME: failed${ws.outcome.step ? ` at step ${ws.outcome.step}` : ""}: ${ws.outcome.reason}`] : []),
       `PRODUCED: ${produced.join("; ") || "none"}`,
       `VERIFICATION: ${[...verified, ...reviews].join("; ") || "none"}`,
       next,
+      leftOpen,
       ...decisions,
       ...(forYou.length ? ["", "FOR YOU, NOT FOR THE OWNER:", ...forYou] : []),
     ];
@@ -2650,6 +2692,9 @@ export interface Continue {
   updated: Named[];
   unchanged: Record<string, string>;
   notProduced: Record<string, string>;
+  // What is still open for the owner once the workflow ends, as the agent
+  // reports it with the last step's work, or alone on a complete workstream.
+  leftOpen?: string;
 }
 
 // A file the agent named with --updated: an absolute path, with the artifact
@@ -2677,7 +2722,15 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
   handOut(c);
   const ws = readWorkstream(root, slug);
   const step = currentStep(c.wf, ws);
-  if (!step) throw new FlowError("workflow complete; there is nothing to continue");
+  if (input.leftOpen !== undefined && !input.leftOpen.trim()) throw new FlowError("--left-open needs the text, not blank text");
+  if (!step) {
+    if (input.leftOpen !== undefined) return recordLeftOpen(c, input);
+    throw new FlowError(
+      "workflow complete; there is nothing to continue. A finished workstream is not reopened: to work on what it left, " +
+        `start a new workstream after it, \`${FUSE_FLOW} start <new-slug> --workflow <name or path> --after ${slug}\`, which ` +
+        "gives the new one this workstream's documents. --after does not choose the workflow; choose it as you would for any new work.",
+    );
+  }
   const status = stateOf(ws, step.id).status;
 
   // A decision is about the step it was made for. When this command's hand-out
@@ -3022,8 +3075,44 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     for (const w of waivers) state.history.push(stamp(EVENT.reviewWaived(w.n, w.g.text, w.reason)));
     state.status = awaitsOwner ? "AWAITING_OWNER" : "COMPLETED";
     state.history.push(stamp(awaitsOwner ? EVENT.awaitingOwner() : EVENT.completed()));
+    if (input.leftOpen !== undefined) ws.left_open = input.leftOpen.trim();
   });
-  return [`${step.id}: ${awaitsOwner ? "work recorded; the step awaits the owner's action" : "COMPLETED"}`, "", ...present(c)];
+  const head = `${step.id}: ${awaitsOwner ? "work recorded; the step awaits the owner's action" : "COMPLETED"}`;
+  const shown = present(c);
+  return [head, ...leftOpenDropped(c, input.leftOpen), "", ...shown];
+}
+
+// A LEFT OPEN given with a step that turned out not to be the last is deleted
+// when the next step is handed out: the workflow goes on, so it is not what the
+// workflow left open. The agent is told, so it gives it again at the end.
+function leftOpenDropped(c: Ctx, given: string | undefined): string[] {
+  if (given === undefined) return [];
+  const ws = readWorkstream(c.root, c.slug);
+  const next = currentStep(c.wf, ws);
+  if (ws.left_open !== undefined || !next) return [];
+  return [
+    `LEFT OPEN was not kept: the workflow goes on with step ${next.id}. Give it with the continue that finishes the last step's work.`,
+  ];
+}
+
+// Record what a complete workstream left open, once, when its last step ended
+// without it: the owner skipped it, approved it, or a condition skipped it.
+function recordLeftOpen(c: Ctx, input: Continue): string[] {
+  const other = [
+    input.updated.length > 0 && "--updated",
+    Object.keys(input.unchanged).length > 0 && "--unchanged",
+    Object.keys(input.notProduced).length > 0 && "--not-produced",
+    input.waived !== undefined && "--waived",
+  ].filter(Boolean);
+  if (other.length) throw new FlowError(`workflow complete; ${other[0]} has no step left to go with. Give --left-open alone`);
+  updateWorkstream(c.root, c.slug, (ws) => {
+    if (currentStep(c.wf, ws)) throw new FlowError(`workstream ${c.slug} changed while continue ran; run it again`);
+    if (ws.left_open !== undefined) {
+      throw new FlowError(`workstream ${c.slug} already records what it left open: ${ws.left_open}. It is recorded once`);
+    }
+    ws.left_open = input.leftOpen!.trim();
+  });
+  return [`${c.slug}: LEFT OPEN recorded`, "", ...present(c)];
 }
 
 function setOrDelete<K extends keyof StepState>(state: StepState, key: K, value: StepState[K] | undefined): void {
@@ -3459,6 +3548,7 @@ function sendBack(c: Ctx, step: Step, target: string, note: string | undefined, 
     record(c, step, current, named, "draft", current.status === "IN_PROGRESS" ? "block" : "none");
     // The declaration was about work the owner is now having redone.
     delete ws.outcome;
+    delete ws.left_open;
     // One line for the whole send-back, written to every reopened step, so
     // the steps carry the same time and a reader counts it once.
     const line = stamp(EVENT.sentBack(step.id, target, note));
@@ -3626,6 +3716,7 @@ export interface Finish {
   outcome: "succeeded" | "failed";
   reason?: string;
   updated: Named[];
+  leftOpen?: string; // what is still open for the owner, as with continue --left-open
 }
 
 // The steps as the state file records them, to tell whether another command
@@ -3639,6 +3730,7 @@ const shapeOf = (ws: Workstream) =>
 
 export function finishWorkstream(root: string, slug: string, input: Finish): string[] {
   if (input.outcome === "failed" && !input.reason?.trim()) throw new FlowError("--reason needs a reason, not blank text");
+  if (input.leftOpen !== undefined && !input.leftOpen.trim()) throw new FlowError("--left-open needs the text, not blank text");
   const initial = readWorkstream(root, slug);
   // The steps a failure abandons are never printed, so their review guides need not exist.
   const c = context(root, slug, initial, true);
@@ -3649,6 +3741,9 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
     throw new FlowError(`finish declares a child workstream's outcome for the step that waits for it; workstream ${slug} has no parent`);
   }
   if (ws.outcome) throw new FlowError(`workstream ${slug}'s outcome is already declared: ${ws.outcome.kind}`);
+  if (input.leftOpen !== undefined && ws.left_open !== undefined) {
+    throw new FlowError(`workstream ${slug} already records what it left open: ${ws.left_open}. It is recorded once`);
+  }
   const snapshot = shapeOf(ws);
   const step = currentStep(c.wf, ws);
   const reason = input.reason?.trim();
@@ -3676,6 +3771,9 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
     }
     if (locked.closed) throw closedError(slug, locked.closed);
     if (shapeOf(locked) !== snapshot || locked.outcome) throw new FlowError(`workstream ${slug} changed while finish ran; run it again`);
+    if (input.leftOpen !== undefined && locked.left_open !== undefined) {
+      throw new FlowError(`workstream ${slug} already records what it left open: ${locked.left_open}. It is recorded once`);
+    }
   };
   let dropped: string[] = [];
   updateWorkstream(root, parent.slug, () => {
@@ -3685,6 +3783,7 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
         const last = c.wf.steps[c.wf.steps.length - 1];
         locked.outcome = input.outcome === "failed" ? { kind: "failed", reason: reason! } : { kind: "succeeded" };
         stateOf(locked, last.id).history.push(stamp(EVENT.finished(input.outcome, reason)));
+        if (input.leftOpen !== undefined) locked.left_open = input.leftOpen.trim();
         return;
       }
       const state = stateOf(locked, step.id);
@@ -3704,6 +3803,7 @@ export function finishWorkstream(root: string, slug: string, input: Finish): str
       // Last, so a refused or failing finish leaves the step's own children as they were.
       dropped = dropUntouchedChild(c, step, locked);
       locked.outcome = { kind: "failed", reason: reason!, step: step.id };
+      if (input.leftOpen !== undefined) locked.left_open = input.leftOpen.trim();
     });
   });
   const head = input.outcome === "failed" ? `${slug}: ended as failed${step ? ` at step ${step.id}` : ""}: ${reason}` : `${slug}: finished as succeeded`;
@@ -3999,7 +4099,117 @@ export function status(root: string, slug: string): string[] {
   }
   if (c.wf.inputs.length) header.push(`  inputs: ${inputsSummary(c, ws)}`);
   const started = related.startedAfter.length ? [`started after it: ${related.startedAfter.join(", ")}`] : [];
-  return [...header, ...rows, footer, ...started];
+  return [...header, ...rows, footer, ...started, ...(current || ws.closed ? [] : endOfRun(c, ws))];
+}
+
+// How a workflow ends. What holds, for a run of fuse-flow commands and, where
+// noted, for commands on the same workstream at the same time:
+//   1. LEFT OPEN is written only by continue --left-open with a step's work,
+//      by finish --left-open, and by continue --left-open alone on a complete
+//      workstream that has none.
+//   2. Once written for a complete workstream it is never overwritten: each
+//      writer checks under the state file's lock that none is there, also
+//      against a command running at the same time.
+//   3. It describes the end of the workflow, so new work deletes it: a step
+//      handed out, a send-back, or a step that stays PENDING at an unbound
+//      condition. That last deletion happens only while, under the lock, the
+//      same step still waits there and the text is the one read, so a command
+//      delayed on the lock never deletes a final text written meanwhile.
+//   4. A trailing step skipped by its condition, and the owner's approval or
+//      skip of the last step, keep it.
+//   5. A missing LEFT OPEN never holds the workstream back; the block warns.
+//   6. The "workflow has ended" sentence and the harness line are printed
+//      unless the workstream is a child whose parent still waits.
+//   7. The end-of-run summary writes nothing and claims only what the state
+//      file records: a condition that ran is shown under the command it ran,
+//      whatever the workflow says now; a check or script gate with no
+//      recorded result, and a check or script condition the workflow names
+//      now that has not run under that command, are shown as not run.
+//   8. Idle is read from the last recorded event, else the start date; a step
+//      awaiting the owner or blocked is never idle; nothing is closed for it.
+// Two families were considered for removal: the guarded deletion in 3, which
+// a deletion at the next hand-out could replace, and reading condition
+// results back from history in 7, which a new field in the state file could
+// replace. Both are kept: the deletion must happen at the unbound condition,
+// since nothing is handed out there, and the history texts are read with the
+// parser that sits beside their writer in history.ts, so no second record of
+// the same fact is kept. This choice covers the remaining work on 7: a
+// condition reported under the command that ran, including multi-line
+// commands with backticks, and a replaced condition shown as not run.
+
+// How a finished run went, read from the state file: what the step rows above
+// do not say. The steps, their skip reasons and their artifacts are the rows.
+function endOfRun(c: Ctx, ws: Workstream): string[] {
+  const failed = ws.outcome?.kind === "failed" ? ws.outcome : undefined;
+  const outcome = failed ? `failed${failed.step ? ` at step ${failed.step}` : ""}: ${failed.reason}` : "succeeded";
+  const owner = runEvents(ws)
+    .filter((e) => e.actor === "owner")
+    .map((e) => {
+      const what =
+        e.kind === "sent-back"
+          ? `sent the work back from ${e.backFrom} to ${e.backTo}`
+          : e.kind === "approved"
+            ? "approved"
+            : e.kind === "skipped"
+              ? "skipped"
+              : e.kind === "review-waived"
+                ? "waived a review"
+                : "";
+      const detail = e.kind === "rounds-granted" || e.kind === "review-accepted" ? e.detail : what && e.detail ? `${what}: ${e.detail}` : what || e.detail;
+      return `${e.step}: ${detail}`;
+    });
+  // A step skipped, or accepted by the owner before its checks ran, records
+  // no result for them; they are shown as not run.
+  const checks = c.wf.steps.flatMap((s) => {
+    const recorded = stateOf(ws, s.id).verification ?? [];
+    const unrecorded = gatesInOrder(s)
+      .filter((g) => g.kind === "check" || g.kind === "script")
+      .map((g) => mechanical(c, g).label)
+      .filter((label) => !recorded.some((v) => v.startsWith(`${label}:`) || v.startsWith(`${label} `)))
+      .map((label) => `${label}: not run`);
+    return [...conditionResult(c, ws, s), ...recorded, ...unrecorded].map((v) => `${s.id}: ${v}`);
+  });
+  const decisions = decisionsFile(c.root, c.slug);
+  return [
+    "END OF RUN",
+    `  outcome: ${outcome}`,
+    `  owner's decisions: ${owner.join("; ") || "none"}`,
+    `  checks: ${checks.join("; ") || "none ran"}`,
+    `  decisions file: ${display(c.p, decisions)}${existsSync(decisions) ? "" : " (not written)"}`,
+    `  left open: ${ws.left_open ?? "not recorded"}`,
+  ];
+}
+
+// A check or script condition's result, as the step's history records it
+// when the condition ran, under the command that ran. A condition an edit or
+// a policy change put in its place since, or one that never ran, is not run.
+function conditionResult(c: Ctx, ws: Workstream, step: Step): string[] {
+  const ran = stateOf(ws, step.id).history.map(conditionRun).filter((r) => r !== undefined).at(-1);
+  // The record stands whatever the workflow says now; the current condition
+  // only adds a line when it is a check or script that has not run.
+  const cond = step.condition;
+  if (!cond || (cond.kind !== "script" && cond.kind !== "check")) return ran ? [`condition ${ran.what}: ${ran.result}`] : [];
+  const m = mechanical(c, cond);
+  const now = m.kind === "run" ? `\`${m.command}\`` : m.label;
+  const lines = ran ? [`condition ${ran.what}: ${ran.result}`] : [];
+  if (!ran || ran.what !== now) lines.push(`condition ${m.label}: not run`);
+  return lines;
+}
+
+// Whether an unfinished workstream is idle: its last recorded change is at
+// least the policy's idle days old, and its current step does not wait for
+// the owner, since only the owner moves such a step on.
+function idleSince(c: Ctx, ws: Workstream, step: Step, now = new Date()): string | undefined {
+  const status = stateOf(ws, step.id).status;
+  if (status === "AWAITING_OWNER" || status === "BLOCKED") return undefined;
+  // A workstream with no recorded event yet, such as a child nobody started,
+  // has been idle since the local day it started.
+  const last = summarizeRun(ws, c.wf.steps.map((s) => s.id), now).lastEvent;
+  const started = startedOn(ws);
+  const since = last && !Number.isNaN(Date.parse(last)) ? new Date(last) : new Date(`${started}T00:00:00`);
+  if (Number.isNaN(since.getTime())) return undefined;
+  const days = Math.floor((now.getTime() - since.getTime()) / 86_400_000);
+  return days >= idleDays(c.p) ? `idle: no recorded change for ${days} days, since ${last ? localDate(since) : started}` : undefined;
 }
 
 // ---------------------------------------------------------------------- list
@@ -4009,7 +4219,7 @@ export function status(root: string, slug: string): string[] {
 // valid workflow, or a name that cannot be started, is listed with the reason,
 // so one broken file does not hide the others.
 
-export function list(root: string): string[] {
+export function list(root: string, all = false): string[] {
   const lines: string[] = [];
   const dir = workstreamsDir(root);
   const slugs = isDirectory(dir)
@@ -4018,13 +4228,23 @@ export function list(root: string): string[] {
         .map((name) => name.slice(0, -4))
         .sort()
     : [];
-  lines.push(slugs.length ? `WORKSTREAMS in this project; \`${FUSE_FLOW} start <slug>\` resumes one:` : "WORKSTREAMS in this project: none");
+  const heading = lines.length;
+  let hidden = 0;
   for (const slug of slugs) {
     let ws: Workstream | undefined;
     try {
       ws = readWorkstream(root, slug);
+      if (ws.closed && !all) {
+        hidden += 1;
+        continue;
+      }
       const c = context(root, slug, ws, true);
       const step = currentStep(c.wf, ws);
+      if (!step && !ws.closed && !all) {
+        hidden += 1;
+        continue;
+      }
+      const idle = step && !ws.closed ? idleSince(c, ws, step) : undefined;
       const where = ws.closed
         ? `closed by the owner on ${ws.closed.date}: ${ws.closed.reason}`
         : step
@@ -4033,7 +4253,7 @@ export function list(root: string): string[] {
       const from = [ws.after && `after ${ws.after}`, ws.parent && `child of ${ws.parent.slug}, step ${ws.parent.step}`].filter(Boolean).join(", ");
       const gone = orphans(c, ws);
       const note = gone.length ? `; ${gone.length} recorded step${gone.length === 1 ? "" : "s"} the workflow no longer has: ${gone.join(", ")}` : "";
-      lines.push(`  ${slug} (${c.wf.name}, started ${c.date}${from ? `, ${from}` : ""}): ${where}${note}`);
+      lines.push(`  ${slug} (${c.wf.name}, started ${c.date}${from ? `, ${from}` : ""}): ${where}${note}${idle ? `; ${idle}` : ""}`);
     } catch (e) {
       if (!(e instanceof FlowError)) throw e;
       lines.push(
@@ -4042,6 +4262,15 @@ export function list(root: string): string[] {
           : `  ${slug}: cannot be read: ${e.message.replaceAll("\n", "\n    ")}`,
       );
     }
+  }
+  const shown = lines.length - heading;
+  lines.splice(
+    heading,
+    0,
+    shown ? `WORKSTREAMS in this project; \`${FUSE_FLOW} start <slug>\` resumes one:` : `WORKSTREAMS in this project: none${hidden ? " unfinished" : ""}`,
+  );
+  if (hidden) {
+    lines.push(`  ${hidden} complete or closed workstream${hidden === 1 ? " is" : "s are"} not shown; \`${FUSE_FLOW} list --all\` shows ${hidden === 1 ? "it" : "them"}`);
   }
 
   lines.push("", `WORKFLOWS by the name \`${FUSE_FLOW} start <slug> --workflow <name>\` takes; where a name is in several locations, the first wins:`);

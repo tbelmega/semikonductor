@@ -280,6 +280,12 @@ export const WorkstreamSchema = z
           "declaration and does not verify it. Absent when nothing was declared: a complete workstream then reads as " +
           "succeeded. A hand-out or a send-back deletes it, since new work makes the declaration stale.",
       }),
+    left_open: z.string().min(1).optional().meta({
+      description:
+        "What the agent reported as still open for the owner when the workflow ended, with `--left-open`: work " +
+        "handed over, conversations outside the session, checks that could not run, resources that still exist. " +
+        "Absent when the agent gave none. A hand-out or a send-back deletes it, since new work makes it stale.",
+    }),
     paths_slug: z.string().optional().meta({
       description:
         "For a renamed workstream: the slug it had before its first rename, which `{slug}` in artifact paths " +

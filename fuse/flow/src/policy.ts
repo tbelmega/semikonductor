@@ -164,6 +164,14 @@ export function checkoutSetting(p: Project): "warn" | "refuse" {
   return "warn";
 }
 
+// After how many days without a recorded change an unfinished workstream is idle.
+export function idleDays(p: Project): number {
+  for (const layer of [p.local, p.team, p.user]) {
+    if (layer?.policy.idle_days !== undefined) return layer.policy.idle_days;
+  }
+  return 7;
+}
+
 function policyGuide(layer: Layer | undefined): string | undefined {
   const guide = layer?.policy.review?.guide;
   return guide === undefined ? undefined : isAbsolute(guide) ? guide : resolve(dirname(layer!.file), guide);

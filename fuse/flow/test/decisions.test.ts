@@ -147,8 +147,8 @@ describe("the DECISIONS line", () => {
         "accept them as they are, comment inline in the file, ask for changes here, or have you walk through them " +
         "one by one. A change is made in a new workstream that follows on from this one.",
     ]);
-    // No agent part is added: the completion block of a workflow with no hand-offs has none.
-    expect(out).not.toContain("FOR YOU, NOT FOR THE OWNER:");
+    // A workflow with no hand-offs offers no follow-up workflow.
+    expect(out).not.toContain("hands off to");
     expect(readFileSync(DECISION_GUIDE, "utf8")).toContain("--after <slug>");
   });
 });

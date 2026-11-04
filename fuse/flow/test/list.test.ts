@@ -22,7 +22,7 @@ test("with nothing started, list says so and shows the shipped workflows with th
   expect(out).toContain("  fuse-feature-development (fuse/fuse-feature-development.yml)\n      One feature in an existing codebase:");
 });
 
-test("list shows each workstream with its workflow and current step, and a complete one as complete", () => {
+test("list shows each unfinished workstream with its workflow and current step; a complete one only with --all", () => {
   repo.write(".konductor/workflows/small.yml", flow("small", "A small change."));
   repo.ok("start", "first", "--workflow", "small");
   repo.ok("start", "second", "--workflow", "small");
@@ -32,7 +32,9 @@ test("list shows each workstream with its workflow and current step, and a compl
   const out = repo.ok("list");
   expect(out).toContain("WORKSTREAMS in this project; `fuse-flow start <slug>` resumes one:\n");
   expect(out).toMatch(/\n {2}first \(small, started \d{4}-\d{2}-\d{2}\): step one, 1 of 2, IN_PROGRESS\n/);
-  expect(out).toMatch(/\n {2}second \(small, started \d{4}-\d{2}-\d{2}\): workflow complete\n/);
+  expect(out).not.toContain("  second (");
+  expect(out).toContain("  1 complete or closed workstream is not shown; `fuse-flow list --all` shows it\n");
+  expect(repo.ok("list", "--all")).toMatch(/\n {2}second \(small, started \d{4}-\d{2}-\d{2}\): workflow complete\n/);
 });
 
 test("a name in an earlier location wins, and the later one is listed with how to start it", () => {
