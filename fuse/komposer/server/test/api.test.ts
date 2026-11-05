@@ -19,7 +19,6 @@ import { type KomposerServer, startServer } from "../app.ts";
 
 const CLI = resolve(import.meta.dir, "..", "..", "..", "flow", "src", "cli.ts");
 const PACKAGE_WORKFLOWS = realpathSync(resolve(import.meta.dir, "..", "..", "..", "flow", "workflows"));
-const TOKEN = "test-token";
 
 const TWO_STEPS = `version: 1
 name: two steps
@@ -72,9 +71,8 @@ function flowIn(cwd: string, ...args: string[]): string {
   return out;
 }
 
-async function api(path: string, init: RequestInit = {}, token: string | null = TOKEN): Promise<Response> {
+async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (token) headers.set("authorization", `Bearer ${token}`);
   if (init.body) headers.set("content-type", "application/json");
   return fetch(`${server.url}${path}`, { ...init, headers });
 }
@@ -85,12 +83,12 @@ async function json(path: string, init: RequestInit = {}): Promise<any> {
   return res.json();
 }
 
-// A raw request with a chosen Host header, which fetch does not let us set.
-function withHost(host: string, path: string): Promise<number> {
+// A raw request with chosen headers, such as Host, which fetch does not let us set.
+function withHeaders(headers: Record<string, string>, path: string, method = "GET"): Promise<number> {
   const url = new URL(server.url);
   return new Promise((done, fail) => {
     const req = request(
-      { host: "127.0.0.1", port: url.port, path, headers: { host, authorization: `Bearer ${TOKEN}` } },
+      { host: "127.0.0.1", port: url.port, path, method, headers },
       (res) => {
         res.resume();
         done(res.statusCode ?? 0);
@@ -109,7 +107,7 @@ beforeEach(() => {
   mkdirSync(home);
   savedHome = process.env.HOME;
   process.env.HOME = home;
-  server = startServer({ root, port: 0, token: TOKEN });
+  server = startServer({ root, port: 0 });
 });
 
 afterEach(() => {
@@ -119,16 +117,49 @@ afterEach(() => {
 });
 
 describe("access", () => {
-  test("refuses a request without the token", async () => {
-    expect((await api("/api/session", {}, null)).status).toBe(401);
-    expect((await api("/api/session", {}, "wrong")).status).toBe(401);
+  test("refuses a request that a page of another origin sent", async () => {
+    const port = new URL(server.url).port;
+    const host = `127.0.0.1:${port}`;
+    expect(await withHeaders({ host, origin: `http://${host}` }, "/api/session")).toBe(200);
+    expect(await withHeaders({ host, "sec-fetch-site": "same-origin" }, "/api/session")).toBe(200);
+    expect(await withHeaders({ host, origin: "https://evil.example" }, "/api/session")).toBe(403);
+    expect(await withHeaders({ host, origin: `http://localhost:${port}` }, "/api/session")).toBe(403);
+    expect(await withHeaders({ host, "sec-fetch-site": "cross-site" }, "/api/session")).toBe(403);
+    expect(await withHeaders({ host, "sec-fetch-site": "same-site" }, "/api/session")).toBe(403);
+  });
+
+  test("refuses Origin null, a contradictory pair of headers and a foreign watcher", async () => {
+    const port = new URL(server.url).port;
+    const host = `127.0.0.1:${port}`;
+    expect(await withHeaders({ host, origin: "null" }, "/api/session")).toBe(403);
+    expect(await withHeaders({ host, origin: `http://${host}`, "sec-fetch-site": "cross-site" }, "/api/session")).toBe(403);
+    expect(await withHeaders({ host, origin: "https://evil.example", "content-type": "application/json" }, "/api/workflows", "POST")).toBe(403);
+    expect(await withHeaders({ host, origin: "https://evil.example" }, "/api/watch?path=/x")).toBe(403);
+  });
+
+  test("forbids framing the app", async () => {
+    const appDir = join(root, "dist");
+    write(join(appDir, "index.html"), "<html></html>");
+    server.stop();
+    server = startServer({ root, port: 0, appDir });
+    const res = await fetch(`${server.url}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+  });
+
+  test("refuses a write whose body is not JSON, which another site could send without asking first", async () => {
+    const port = new URL(server.url).port;
+    const host = `127.0.0.1:${port}`;
+    expect(await withHeaders({ host, "content-type": "text/plain" }, "/api/workflows", "POST")).toBe(415);
+    expect(await withHeaders({ host }, "/api/workflows", "POST")).toBe(415);
   });
 
   test("refuses a foreign Host header, which DNS rebinding would send", async () => {
     const port = new URL(server.url).port;
-    expect(await withHost(`127.0.0.1:${port}`, "/api/session")).toBe(200);
-    expect(await withHost(`localhost:${port}`, "/api/session")).toBe(200);
-    expect(await withHost(`evil.example:${port}`, "/api/session")).toBe(403);
+    expect(await withHeaders({ host: `127.0.0.1:${port}` }, "/api/session")).toBe(200);
+    expect(await withHeaders({ host: `localhost:${port}` }, "/api/session")).toBe(200);
+    expect(await withHeaders({ host: `evil.example:${port}` }, "/api/session")).toBe(403);
   });
 
   test("listens on 127.0.0.1 only", () => {
@@ -377,7 +408,7 @@ describe("workflows", () => {
     symlinkSync(realHome, home);
     server.stop();
     process.env.HOME = home;
-    server = startServer({ root, port: 0, token: TOKEN });
+    server = startServer({ root, port: 0 });
     const mine = "version: 1\nname: mine\nsteps:\n  - id: only\n    instruction: Do it.\n";
     const listedPath = write(join(home, ".konductor", "workflows", "mine.yml"), mine);
     const realPath = join(realHome, ".konductor", "workflows", "mine.yml");
@@ -475,7 +506,7 @@ steps:
     symlinkSync(realHome, home);
     server.stop();
     process.env.HOME = home;
-    server = startServer({ root, port: 0, token: TOKEN });
+    server = startServer({ root, port: 0 });
     const listedPath = write(join(home, ".konductor", "workflows", "child.yml"), "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Do it.\n");
     const plain = write(join(root, ".konductor", "workflows", "plain.yml"), ONE_STEP);
     const locked = write(join(home, ".konductor", "workflows", "locked.yml"), ONE_STEP);
@@ -501,7 +532,7 @@ steps:
     symlinkSync(realHome, home);
     server.stop();
     process.env.HOME = home;
-    server = startServer({ root, port: 0, token: TOKEN });
+    server = startServer({ root, port: 0 });
     const listedPath = write(join(home, ".konductor", "workflows", "child.yml"), "version: 1\nname: child\nsteps:\n  - id: work\n    instruction: Do it.\n");
     const realChild = join(realHome, ".konductor", "workflows", "child.yml");
     const folder = join(root, ".konductor", "workflows");
@@ -756,7 +787,7 @@ steps:
 
   test("tells a watcher when the open file changes on disk", async () => {
     const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
-    const res = await fetch(`${server.url}/api/watch?path=${encodeURIComponent(path)}&token=${TOKEN}`);
+    const res = await fetch(`${server.url}/api/watch?path=${encodeURIComponent(path)}`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const reader = res.body!.getReader();
@@ -775,7 +806,7 @@ steps:
 
   test("a watched file that becomes unreadable is reported to its watcher as unreadable; the server keeps serving", async () => {
     const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
-    const res = await fetch(`${server.url}/api/watch?path=${encodeURIComponent(path)}&token=${TOKEN}`);
+    const res = await fetch(`${server.url}/api/watch?path=${encodeURIComponent(path)}`);
     const reader = res.body!.getReader();
     setTimeout(() => chmodSync(path, 0o000), 100);
     try {

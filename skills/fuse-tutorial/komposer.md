@@ -38,14 +38,12 @@ repeat it later without you:
    to `~/.konductor/tutorials/<run>/komposer.log`. Use port 4807 for the first run. If the log says
    the port is in use, which happens when another run is going, try the next port up. Record the
    port in `state.yml`.
-4. Read the URL from the log. It looks like `http://127.0.0.1:4807/#token=...`; the token is part
-   of it, so give the whole URL.
+4. Read the URL from the log. It looks like `http://127.0.0.1:4807`.
 
 Then tell the user, in one short paragraph, how to do it themselves in any project: from
 `<clone>/fuse/komposer`, `bun install --cwd ../flow && bun install && bun run build` once (and
 again after pulling changes), then `bun run start -- <project directory>`, and open the URL it
-prints. The server stops when they stop the command. Hold back the token's purpose (it keeps
-other web pages in their browser from using the server) for "more".
+prints. The server stops when they stop the command. Hold back why the server refuses requests from other web pages in their browser for "more".
 
 **Third message: open it.** Hand the URL to the user:
 

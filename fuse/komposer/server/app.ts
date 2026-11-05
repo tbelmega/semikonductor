@@ -5,8 +5,8 @@
 // app itself. Every location rule comes from fuse-flow's own code.
 //
 // The server writes files, so it guards itself: it listens on 127.0.0.1 only,
-// wants the token it was started with on every API request, refuses a foreign
-// Host header (DNS rebinding), and writes only .yml and .yaml files inside
+// refuses an API request that a web page of another origin sent (cross-site
+// request forgery), refuses a foreign Host header (DNS rebinding), and writes only .yml and .yaml files inside
 // the three workflow locations, its own working-copy folder and the projects
 // list, judged by the real path a write leads to, with symlinks resolved. The
 // workflow files of another project are read, never written. It
@@ -32,7 +32,6 @@ import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstre
 export interface ServerOptions {
   root: string;
   port: number;
-  token: string;
   // The built app (dist/); not served when absent.
   appDir?: string;
 }
@@ -176,7 +175,7 @@ function findProjects(dir: string): { found: string[]; truncated: boolean } {
 }
 
 export function startServer(options: ServerOptions): KomposerServer {
-  const { root, token } = options;
+  const { root } = options;
   const [project, personal, pkg] = workflowDirs(root);
   const locations: Location[] = [
     { id: "project", label: "Project", path: project },
@@ -1102,11 +1101,14 @@ export function startServer(options: ServerOptions): KomposerServer {
 
   const serveApp = (pathname: string): Response => {
     const dir = options.appDir;
-    if (!dir || !existsSync(dir)) return new Response("not found", { status: 404 });
+    // No page may frame the app: a framed copy would send the same-origin
+    // requests the check above lets through, on clicks the owner did not mean.
+    const headers = { "content-security-policy": "frame-ancestors 'none'", "x-frame-options": "DENY" };
+    if (!dir || !existsSync(dir)) return new Response("not found", { status: 404, headers });
     const file = resolve(dir, `.${decodeURIComponent(pathname)}`);
     const inside = file === resolve(dir) || file.startsWith(resolve(dir) + sep);
     const target = inside && existsSync(file) && statSync(file).isFile() ? file : join(dir, "index.html");
-    return new Response(Bun.file(target));
+    return new Response(Bun.file(target), { headers });
   };
 
   const handle = async (req: Request, port: number): Promise<Response> => {
@@ -1116,8 +1118,19 @@ export function startServer(options: ServerOptions): KomposerServer {
     }
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return serveApp(url.pathname);
-    const given = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? url.searchParams.get("token");
-    if (given !== token) return Response.json({ error: "missing or wrong token" }, { status: 401 });
+    // A browser marks every request with where it came from. A page of another
+    // origin cannot change these headers, so refusing them keeps other web pages
+    // from using the server. A caller that sends neither header (a script on
+    // this machine) is allowed.
+    const site = req.headers.get("sec-fetch-site");
+    const origin = req.headers.get("origin");
+    if ((site && site !== "same-origin" && site !== "none") || (origin && origin !== `http://${host}`)) {
+      return Response.json({ error: "cross-origin request" }, { status: 403 });
+    }
+    // Another site can send a form-style body without asking first, but not JSON.
+    if (req.method !== "GET" && !req.headers.get("content-type")?.startsWith("application/json")) {
+      return Response.json({ error: "JSON body expected" }, { status: 415 });
+    }
     const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
     const route = `${req.method} ${url.pathname}`;
     switch (route) {

@@ -1,26 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// Typed client for Komposer's local server. The token travels in
-// location.hash (#token=...); we read it once, keep it in sessionStorage so a
-// reload does not lose it, and strip it from the URL bar.
+// Typed client for Komposer's local server.
 
 import type { UnavailableWorkflow } from "./model/workflowLinks.ts";
 import type { EngineValidation } from "./validate.ts";
 import type { Session, WorkflowFile } from "./workflowView.ts";
-
-const STORAGE_KEY = "komposer-token";
-
-function readToken(): string {
-  const fromHash = /(?:^#|[?&])token=([^&]+)/.exec(location.hash);
-  if (fromHash) {
-    const token = decodeURIComponent(fromHash[1]);
-    sessionStorage.setItem(STORAGE_KEY, token);
-    history.replaceState(null, "", location.pathname + location.search);
-    return token;
-  }
-  return sessionStorage.getItem(STORAGE_KEY) ?? "";
-}
-
-export const token = readToken();
 
 export class ApiError extends Error {
   constructor(
@@ -36,7 +19,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       ...(init?.headers ?? {}),
-      authorization: `Bearer ${token}`,
       ...(init?.body ? { "content-type": "application/json" } : {}),
     },
   });
@@ -89,7 +71,7 @@ export const api = {
     request<{ found: string[]; added: string[]; truncated?: true }>("projects", { method: "POST", body: JSON.stringify({ path }) }),
   removeProject: (path: string) =>
     request<{ removed: boolean }>("projects", { method: "DELETE", body: JSON.stringify({ path }) }),
-  watchUrl: (path: string) => `/api/watch?path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}`,
+  watchUrl: (path: string) => `/api/watch?path=${encodeURIComponent(path)}`,
 };
 
 export interface LibraryEntry {

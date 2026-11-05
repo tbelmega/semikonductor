@@ -66,8 +66,8 @@ Then start it on a project, which is any git repository:
 bun run start -- <project directory>
 ```
 
-Leave the directory out to use the current one. The command prints a URL with a token, such as
-`http://127.0.0.1:4807/#token=...`; open it in your browser. `--port <n>` picks another port.
+Leave the directory out to use the current one. The command prints the URL, such as
+`http://127.0.0.1:4807`; open it in your browser. `--port <n>` picks another port.
 
 Run the two installs and `bun run build` again after pulling changes. For working on Komposer
 itself, `bun run dev` serves the app with Vite on port 5173 and passes `/api` to the server
@@ -101,8 +101,7 @@ started with `bun run start`.
   `/edit/project/release/ship.yml` for a workflow of the project's folder,
   `/present/fuse-flow/fuse/fuse-bug-bash.yml` for a shipped one, or `/edit/run/<path>` for another
   project's file. The browser's back and forward buttons move between pages and workflows, and a
-  reload or a link opens the same view. A tab that does not hold the token yet needs it added to the
-  link (`#token=...`, from the printed URL). An address naming a workflow that is not listed opens
+  reload or a link opens the same view. An address naming a workflow that is not listed opens
   the first one. Going back while a save writes a file keeps the page where it is.
 - **Saving a workflow that a workstream is following** affects that workstream, because fuse-flow
   reads the workflow again on every command. Komposer warns you when a save moves or renames
@@ -125,8 +124,8 @@ started with `bun run start`.
   path is listed as a second, read-only entry beside the editable one, which saves the same file. As
   `fuse-flow status` does, a workstream lists the steps its state records that its workflow no
   longer has, and one whose workflow file is not a valid workflow says that it cannot be read.
-- **The server is for your machine only.** It listens on 127.0.0.1, requires the token from the
-  printed URL, refuses requests that come with another host name, and writes only `.yml` and `.yaml`
+- **The server is for your machine only.** It listens on 127.0.0.1, refuses requests that come with another host name
+  or from a web page of another origin, and writes only `.yml` and `.yaml`
   files in the three workflow folders, files in its own working-copy folder, and the projects list.
   A write to a workflow file or a working copy is judged by the real path it leads to, with links
   resolved, so a workflow file that a link leads outside the three folders opens read-only, saying
