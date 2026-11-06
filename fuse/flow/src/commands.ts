@@ -2140,7 +2140,10 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
     text +=
       ` This is pass ${state.pass} of this step, because the owner sent the work back: count only this pass's rounds ` +
       "against the cap. The review covers the whole artifact. Give the reviewer the findings files of the earlier " +
-      `passes of this step, in ${dir}/, with how each finding was handled.`;
+      `passes of this step, in ${dir}/, with how each finding was handled. If the owner's note says the changes ` +
+      "need no agent review, make them, run the checks, and finish the step with `--waived \"<the owner's words>\"` " +
+      "added to the continue command; if your changes go beyond the owner's notes, run the review anyway and say why " +
+      "in the hand-over. Without such a note, run the review.";
   }
   // The same rule, in the same words, as the fuse review guide's.
   text +=
@@ -2392,6 +2395,12 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
   // back to the step itself.
   const backOption =
     (c.wf.steps.indexOf(step) === 0 ? "Send the work back to redo this step, with what to change" : "Send the work back to an earlier step, with what to change") +
+    // Only the owner waives a review, so the owner says with the send-back
+    // whether the changes need one, and no reply is spent asking later.
+    (c.wf.steps.slice(0, c.wf.steps.indexOf(step) + 1).some((s) => s.gates.some((g) => g.kind === "agent"))
+      ? ", and say whether the changes need another agent review before you see them again; without one, the step " +
+        "comes back to you once the changes are made and the checks pass"
+      : "") +
     (routes.length ? `; the step's gates suggest ${routes.join(" or ")}` : "") +
     ".";
   const backCommand =

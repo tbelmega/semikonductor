@@ -316,6 +316,32 @@ test("the owner's notes since the pass began reach the step block, its review an
   expect(prototype).not.toContain("approved without offline mode");
 });
 
+test("a send-back asks the owner whether the changes need another review, and the owner's no review is a waiver", () => {
+  const blocked = r.ok("continue", "ds", "--blocked", "the experiment needs a decision");
+  expect(blocked).toContain(
+    "  - Send the work back to an earlier step, with what to change, and say whether the changes need another agent " +
+      "review before you see them again; without one, the step comes back to you once the changes are made and the checks pass.\n",
+  );
+  const back = r.ok("continue", "ds", "--back-to", "requirements", "--note", "rename the offline mode; no review needed");
+  expect(back).toContain(
+    "If the owner's note says the changes need no agent review, make them, run the checks, and finish the step with " +
+      "`--waived \"<the owner's words>\"` added to the continue command; if your changes go beyond the owner's notes, " +
+      "run the review anyway and say why in the hand-over. Without such a note, run the review.",
+  );
+  const done = r.ok("continue", "ds", "--updated", "requirements.md", "--waived", "no review needed");
+  expect(done).toContain("review (review the requirements): waived by the owner: no review needed");
+});
+
+test("a workflow without agent reviews does not ask about another review on a send-back", () => {
+  const plain = new Repo();
+  try {
+    plain.start("p", "version: 1\nname: p\nsteps:\n  - id: a\n    instruction: Do a.\n    gates:\n      - owner-action: approve a\n");
+    expect(plain.ok("continue", "p")).toContain("  - Send the work back to redo this step, with what to change.\n");
+  } finally {
+    plain.cleanup();
+  }
+});
+
 test("the help says what done and approved mean", () => {
   expect(r.ok("help")).toContain("done means the step's gates passed and it has no owner gate;");
   expect(r.ok("help")).toContain("approved means an owner gate approved it");

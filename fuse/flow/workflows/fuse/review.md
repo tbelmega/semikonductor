@@ -98,6 +98,9 @@ are deferred to the owner instead of fixed, and the step completes with them lis
 
 In the hand-over, list each round's findings with how each was handled, and the deferred ones.
 
-After the owner sends the work back to a step, its next pass starts the round count again, and
+When the owner sends the work back and says the changes need no agent review, the next pass runs
+none: make the changes, run the checks, and finish the step with the owner's words as the waiver.
+Changes that go beyond the owner's notes are reviewed anyway. Without such a word from the owner,
+the next pass runs the review. After the owner sends the work back to a step, its next pass starts the round count again, and
 its findings files carry the pass in their name. The review still covers the whole artifact, and
 the reviewer gets the findings files of the earlier passes, with how each finding was handled.
