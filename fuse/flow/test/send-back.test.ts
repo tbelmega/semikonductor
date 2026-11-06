@@ -59,6 +59,11 @@ afterEach(() => r.cleanup());
 
 const history = (step: string): string[] => r.state("ds").steps[step].history;
 
+// Printed once after the owner's notes, so a correction is applied wherever it occurs.
+const SWEEP =
+  "SWEEP THE OWNER'S NOTES: list each ask in them in the decisions file, apply it everywhere it occurs (documents, " +
+  "names, messages, code and tests), and say in the hand-over where you applied each, or why not.";
+
 test("the owner sends work back from a step in progress, with no false block", () => {
   r.write("research/harness.md");
   const out = r.ok("continue", "ds", "--back-to", "requirements", "--updated", "research/harness.md", "--note", "the experiments changed the requirements");
@@ -289,7 +294,8 @@ test("the owner's notes since the pass began reach the step block, its review an
   r.write("research/harness.md");
   const note = "drop the offline mode; keep the harness note";
   const back = r.ok("continue", "ds", "--back-to", "requirements", "--updated", "research/harness.md", "--note", note);
-  expect(back).toContain(`\nOWNER SAID: "${note}"\n`);
+  expect(back).toContain(`\nOWNER SAID: "${note}"\n${SWEEP}\n`);
+  expect(back.split(SWEEP).length).toBe(2);
   expect(back).toContain(
     "EARLIER PASS: this step ran before the owner sent the work back, and wrote requirements.md. Check each against " +
       "what changed since. Follow the owner's notes where they decide what happens to a file; for the files they do " +
@@ -298,7 +304,7 @@ test("the owner's notes since the pass began reach the step block, its review an
   expect(back).toContain("Give the reviewer the owner's notes as well.");
 
   const granted = r.ok("continue", "ds", "--more-rounds", "1", "--note", "one more round for the API section");
-  expect(granted).toContain(`\nOWNER SAID: "${note}"\nOWNER SAID: "one more round for the API section"\n`);
+  expect(granted).toContain(`\nOWNER SAID: "${note}"\nOWNER SAID: "one more round for the API section"\n${SWEEP}\n`);
 
   r.reviewed("ds", "requirements-pass-2");
   r.ok("continue", "ds", "--updated", "requirements.md");

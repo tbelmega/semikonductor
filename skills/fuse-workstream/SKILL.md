@@ -113,6 +113,9 @@ covers that.
 - **After a context reset or in a new session,** run `fuse-flow start <slug>` again: it prints the
   current step as if for the first time. The state file and the step's artifacts hold everything
   that matters; the conversation may not.
+- **Sweep the owner's corrections.** After each reply from the owner, list each ask in the
+  decisions file, apply it everywhere it occurs (documents, names, messages, code and tests), and
+  say in the hand-over where you applied each, or why not.
 - **Jumps and skips are the owner's decisions.** `--from`, `--forward-to`, `--back-to`, and
   `--skip` on a step without a condition run only when the owner asked for them. When one would
   help, recommend it with a reason and wait. After a rebase that only resolved conflicts, for

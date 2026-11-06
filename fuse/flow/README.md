@@ -432,7 +432,9 @@ When it is the agent's turn, the step block uses these labels:
 
 - `STEP` gives the step identifier, position and instruction.
 - `RULINGS` lists the owner's standing rulings from the policy files, where they set any.
-- `OWNER SAID` quotes the owner's note with each decision that led into this pass.
+- `OWNER SAID` quotes the owner's note with each decision that led into this pass. After the
+  notes, `SWEEP THE OWNER'S NOTES` asks the agent to list each ask in the decisions file, apply it
+  everywhere it occurs, and say in the hand-over where it applied each, or why not.
 - `CONDITION` explains why an optional step runs or how to skip it.
 - `MODE` says whether the step is attended or unattended, what that asks of the agent and the
   owner, and where the agent records its decisions.

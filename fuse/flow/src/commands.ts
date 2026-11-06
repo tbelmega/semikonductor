@@ -1297,6 +1297,14 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   // agent need not carry them over from the conversation.
   const notes = ownerNotes(state.history);
   for (const note of notes) lines.push(`OWNER SAID: "${note}"`);
+  // An owner's correction left in one place, such as an old name in a file
+  // name, comes back as the owner's next correction.
+  if (notes.length) {
+    lines.push(
+      "SWEEP THE OWNER'S NOTES: list each ask in them in the decisions file, apply it everywhere it occurs (documents, " +
+        "names, messages, code and tests), and say in the hand-over where you applied each, or why not.",
+    );
+  }
   const ff = `${FUSE_FLOW} continue ${c.slug}`;
 
   const cond = step.condition;

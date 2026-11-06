@@ -56,7 +56,8 @@ The reviewer says for each finding whether it is a single instance or a broken p
 A reviewer is not an authority: it can be wrong, and it lacks context you have. P0 and P1
 findings are required fixes once you have checked them against the code; record a rejected
 finding as a false positive with the reason. For a pattern, look for every other occurrence in the
-change and fix them in the same pass. P2 and P3 findings are optional: fix them when the fix
+change and fix them in the same pass. Treat each correction the owner gives the same way: apply it
+everywhere it occurs, in documents, names, messages, code and tests. P2 and P3 findings are optional: fix them when the fix
 is cheap; list the rest as deferred in the hand-over. An optional finding never needs another
 round.
 
