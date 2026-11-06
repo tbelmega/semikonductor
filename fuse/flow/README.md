@@ -183,7 +183,10 @@ The step fields have these effects:
   `FUSE_FLOW_STEP`, the step's id. A check that builds a path from the slug uses
   `FUSE_FLOW_PATH_SLUG`. The step block prints the command with all three set, as
   `FUSE_FLOW_SLUG=<slug> FUSE_FLOW_PATH_SLUG=<slug> FUSE_FLOW_STEP=<step> sh -c '<command>'`, so a
-  run by hand is the run fuse-flow makes on `continue`.
+  run by hand is the run fuse-flow makes on `continue`. A check that exits 0 passes whatever it
+  prints. When the last lines of its output read as a count of failures, such as `3 failed`, the
+  check still passes, and fuse-flow adds a `WARNING:` line to its own output and, after
+  `VERIFICATION`, to the owner's hand-over, so a test runner that hides its exit code is noticed.
 - `agent: <review>` tells the maker to obtain an independent review. `continue` is refused until
   the reviewer has written a findings file for at least one round of the step's current pass, as
   the step block names it; fuse-flow does not read the findings, since the maker classifies them.

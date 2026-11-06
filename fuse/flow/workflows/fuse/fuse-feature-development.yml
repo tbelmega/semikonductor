@@ -99,7 +99,12 @@ steps:
       requirements this feature covers. If the default check does not run the acceptance tests
       you wrote, change its binding where it is set, so that it does, without dropping what it
       already ran: in .konductor/policy-overrides.local.yml when that file binds it, otherwise in
-      .konductor/policy-overrides.yml. Say so in the hand-over. Commit as you go. When something
+      .konductor/policy-overrides.yml. Say so in the hand-over. If the default check runs tests,
+      prove once that it fails on a failing test: break one acceptance test on purpose, run the
+      check, see it exit non-zero, and restore the test before you verify and commit as usual.
+      fuse-flow takes exit 0 as a pass, and a test runner behind a pipe or a wrapper can report
+      failing tests and still exit 0. A check that calls a deployed system runs only against a
+      target the owner authorized. Commit as you go. When something
       fails unexpectedly, find the root cause before you change code. Decide ambiguities
       yourself, with the spec as the authority, and record each decision in the decisions file.
       Stop and ask only before an irreversible action or one that reaches outside this checkout.

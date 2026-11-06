@@ -387,6 +387,27 @@ function runCommand(c: Ctx, command: string, stepId: string) {
   }
 }
 
+// A test runner behind a pipe or a wrapper can report failing tests and still
+// exit 0, so its check would pass on red tests. fuse-flow does not judge the
+// output: it only names the first line of the tail that reads as a count of
+// failures, so the agent and the owner see it. A count of 0 is no failure.
+// A count is read in any case; a FAIL or FAILED marker of a test counts
+// unless it is the label of a count of 0, as in "0 FAILED".
+const FAILURE_COUNT = /\b[1-9]\d*\s+(?:fail(?:ed|ing|ures?)?|errors?)\b/i;
+const ZERO_COUNT = /\b0+\s+(?:fail(?:ed|ing|ures?)?|errors?)\b/gi;
+const FAIL_MARKER = /\bFAIL(?:ED)?\b/;
+const reportsFailure = (line: string) => FAILURE_COUNT.test(line) || FAIL_MARKER.test(line.replace(ZERO_COUNT, ""));
+
+function failureLine(output: string): string | undefined {
+  return output.split("\n").find(reportsFailure)?.trim().slice(0, 160);
+}
+
+// The warning a passing check carries when its output reads as failing tests;
+// it is recorded as a verification entry of its own, after the check's
+// `passed`, which stays as it is.
+const WARNING = "WARNING: ";
+const checkWarning = (label: string, line: string) => `${WARNING}${label} exited 0, but its output reports failures: "${line}"`;
+
 // The last lines of the output file. Reads only its end; when that cuts a
 // line, the cut line is dropped.
 function outputTail(fd: number): string {
@@ -2176,7 +2197,7 @@ function producedLine(c: Ctx, step: Step, state: StepState): string {
 function verificationLine(c: Ctx, step: Step, state: StepState): string {
   const mechanicalGates = gatesInOrder(step).filter((g) => g.kind === "workflow" || g.kind === "check" || g.kind === "script");
   const notRun = (g: Gate) => (g.kind === "workflow" ? `${childrenLabel(c, state, step)}: not checked` : `${mechanical(c, g).label}: not run`);
-  const parts = state.verification ? [...state.verification] : mechanicalGates.map(notRun);
+  const parts = state.verification ? state.verification.filter((v) => !v.startsWith(WARNING)) : mechanicalGates.map(notRun);
   // A child recorded complete that has become unfinished since is not
   // complete now.
   const pending = state.verification && waitingFor(c, step);
@@ -2194,6 +2215,11 @@ function verificationLine(c: Ctx, step: Step, state: StepState): string {
   }
   return `VERIFICATION: ${parts.join("; ") || "none"}`;
 }
+
+// The warnings the step's checks left, each a line of its own after the
+// VERIFICATION line.
+const warningLines = (verification: string[] | undefined, prefix = "") =>
+  (verification ?? []).filter((v) => v.startsWith(WARNING)).map((v) => `${WARNING}${prefix}${v.slice(WARNING.length)}`);
 
 // A review gate's part of a VERIFICATION line, with `rest` after the rounds.
 function reviewResult(c: Ctx, g: Gate, step: Step, state: StepState, rest: string): string {
@@ -2240,7 +2266,7 @@ const redo = (c: Ctx, step: Step) => `run \`${FUSE_FLOW} continue ${c.slug} --ba
 // The labelled lines of a hand-over, printed as list items so that a chat
 // that renders Markdown shows each on its own line instead of joining them
 // into one paragraph. The owner's options under NEXT STEP nest below it.
-const HANDOVER_LABEL = /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|NEXT STEP|LEFT OPEN|DECISIONS):/;
+const HANDOVER_LABEL = /^(SUMMARY|STATUS|PRODUCED|VERIFICATION|WARNING|NEXT STEP|LEFT OPEN|DECISIONS):/;
 const asListItems = (lines: string[]) => lines.map((l) => (HANDOVER_LABEL.test(l) ? `- ${l}` : l));
 
 // When it is the owner's turn: the hand-over block, pre-filled.
@@ -2263,7 +2289,8 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
     const failedAt = ws.outcome?.kind === "failed" ? ws.outcome.step : undefined;
     const recorded = c.wf.steps.filter((s) => done.includes(s) || s.id === failedAt);
     const produced = recorded.map((s) => `${s.id}: ${producedLine(c, s, stateOf(ws, s.id)).replace(/^PRODUCED: /, "")}`).filter((l) => !l.endsWith(": none"));
-    const verified = done.flatMap((s) => (stateOf(ws, s.id).verification ?? []).map((v) => `${s.id}: ${v}`));
+    const verified = done.flatMap((s) => (stateOf(ws, s.id).verification ?? []).filter((v) => !v.startsWith(WARNING)).map((v) => `${s.id}: ${v}`));
+    const warned = done.flatMap((s) => warningLines(stateOf(ws, s.id).verification, `${s.id}: `));
     // The engine prints each review's cap; the agent counts the rounds it used.
     const reviews = done.flatMap((s) => {
       const state = stateOf(ws, s.id);
@@ -2337,6 +2364,7 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
       ...(ws.outcome?.kind === "failed" ? [`OUTCOME: failed${ws.outcome.step ? ` at step ${ws.outcome.step}` : ""}: ${ws.outcome.reason}`] : []),
       `PRODUCED: ${produced.join("; ") || "none"}`,
       `VERIFICATION: ${[...verified, ...reviews].join("; ") || "none"}`,
+      ...warned,
       next,
       leftOpen,
       ...decisions,
@@ -2378,6 +2406,7 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
       `STATUS: awaiting owner action. The owner is asked to ${asks}.${also}${unrun}${pending ? ` It cannot be approved yet: ${pending.why}.` : ""}`,
       producedLine(c, step, state),
       verificationLine(c, step, state),
+      ...warningLines(state.verification),
       "NEXT STEP:",
     );
     if (pending) {
@@ -2446,7 +2475,13 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
     const why = state.history.findLast((h) => h.includes("blocked"))?.replace(/^\S+ /, "") ?? "blocked";
     const pending = waitingFor(c, step);
     const inherited = inheritedApproval(c, ws, step, "Accepting the whole step");
-    lines.push(`STATUS: blocked. ${inherited ? `${why.replace(/\.?$/, ".")}${inherited}` : why}`, producedLine(c, step, state), verificationLine(c, step, state), "NEXT STEP:");
+    lines.push(
+      `STATUS: blocked. ${inherited ? `${why.replace(/\.?$/, ".")}${inherited}` : why}`,
+      producedLine(c, step, state),
+      verificationLine(c, step, state),
+      ...warningLines(state.verification),
+      "NEXT STEP:",
+    );
     if (pending) {
       const failed = pending.each.filter((p) => p.kind === "failed");
       if (failed.length) {
@@ -3033,9 +3068,12 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   // does not stall fuse-flow commands for other workstreams. A refusal records
   // every result so far, and the gates not run, for the hand-over block.
   const mechanicalGates = gatesInOrder(step).filter((g) => g.kind === "check" || g.kind === "script");
+  const warnings: string[] = [];
   const failWith = (i: number, result: string, reason: string, output = "") => {
     verification.push(result, ...mechanicalGates.slice(i + 1).map((g) => `${mechanical(c, g).label}: not run`));
-    return refuse(c, step, pass, reason, output, verification);
+    // A warning of a check that passed before this one stays in view, so a
+    // red suite behind a passing check is not lost behind a later failure.
+    return refuse(c, step, pass, reason, [...warnings, output].filter(Boolean).join("\n"), verification);
   };
   for (const [i, g] of mechanicalGates.entries()) {
     const m = mechanical(c, g);
@@ -3051,6 +3089,14 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
       throw failWith(i, `${m.label}: failed (exit ${r.exitCode ?? "none"})`, failed, r.output);
     }
     verification.push(`${m.label}: passed`);
+    const failure = failureLine(r.output);
+    if (failure) {
+      verification.push(checkWarning(m.label, failure));
+      warnings.push(
+        `${WARNING}${m.label} exited 0, so fuse-flow took it as a pass, but its output reports failures: "${failure}". ` +
+          "Check that the command exits non-zero when a test fails, fix it or the tests, and tell the owner.",
+      );
+    }
   }
 
   const awaitsOwner = ownerGates(step).length > 0;
@@ -3079,7 +3125,7 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   });
   const head = `${step.id}: ${awaitsOwner ? "work recorded; the step awaits the owner's action" : "COMPLETED"}`;
   const shown = present(c);
-  return [head, ...leftOpenDropped(c, input.leftOpen), "", ...shown];
+  return [head, ...warnings, ...leftOpenDropped(c, input.leftOpen), "", ...shown];
 }
 
 // A LEFT OPEN given with a step that turned out not to be the last is deleted
