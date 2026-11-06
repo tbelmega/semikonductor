@@ -35,7 +35,9 @@ ask the owner when it is unclear.
   it builds on? Is every claim about existing code or services true when checked against the
   source? Could the next step be done from it without guessing? Can a reader without the author's
   context follow every heading and reference, or does one lean on a label, such as `D1`, that is
-  only explained further down or elsewhere?
+  only explained further down or elsewhere? Is each mechanism, field, prerequisite or rule it adds
+  needed for the owner's request? One that is not is a finding. A finding that asks to define or
+  complete a mechanism the request does not need is at most a P2.
 - Code: the workstream's whole change since its base commit, as fuse-flow names it in the step, against the
   approved spec. Behavior the spec asks for that is missing or wrong, tests that do not prove
   what they claim, security and data loss risks, and departures from the project's conventions. Check the tests against the spec,
