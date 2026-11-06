@@ -88,9 +88,16 @@ artifact again, told how each earlier finding was handled. The reviewer marks an
 that was fixed and has come back as `regressed` in the findings file's list of earlier findings,
 and does not report it again as a new finding. A round passes when it leaves no P0 or
 P1 open, and a passing round ends the review: fixing its optional findings starts no further
-round. When the round cap is reached with required fixes open, make the last round's fixes
-anyway, start no further review, and report the step blocked, naming the fixes no reviewer has
-seen. The owner decides, and can grant a round to review them.
+round. When the round cap is reached with required fixes open and the step has an owner gate
+after the review, make the last round's fixes anyway, start no further review, and finish the
+step, naming in the hand-over's VERIFICATION line each fix no reviewer has seen, so the owner
+decides at the step's owner gate: approve, or send the work back for another review. When the
+step has further reviews after this one, start no further round of this review, go on with them,
+and finish the step once they are done. Without an
+owner gate after the review, make the last round's fixes anyway, start no further review, and
+report the step blocked, naming the fixes no reviewer has seen. The owner decides, and can grant a
+round to review them. Do not ask the owner for more rounds; recommend one only when a fix no
+reviewer has seen changes behavior the owner has not seen.
 
 An owner's ruling recorded for the workstream wins over these round rules where it applies, such
 as a bug bash's limit ruling, under which required findings left open when the limits are reached

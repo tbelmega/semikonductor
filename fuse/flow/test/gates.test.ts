@@ -741,10 +741,16 @@ test("the owner accepts the review that blocked, and the step goes back to the a
   try {
     r.start("feat", TWO_REVIEWS);
     r.write("design.md");
-    // The cap instruction names the review it belongs to, by its number in the list.
-    expect(r.ok("start", "feat")).toContain(
-      '`fuse-flow continue feat --blocked "<what is still open, and the fixes no reviewer has seen>" --gate 2`.',
+    // An owner gate follows the reviews, so the cap instruction sends the agent on to it rather than to a block;
+    // the first review's cap goes on to the review still ahead, and only the last one's finishes the step.
+    const capped = r.ok("start", "feat");
+    expect(capped).toContain(
+      "After 2 such rounds, make the last round's fixes anyway, start no further round of this review, and go on with the " +
+        "reviews still ahead in this step: review 3 (review the design as a principal engineer). Once they are done, finish " +
+        "the step, naming in the hand-over's VERIFICATION line each fix no reviewer has seen, so the owner decides at the " +
+        "step's owner gate. Do not ask the owner for more rounds.",
     );
+    expect(capped.split("so the owner decides at the step's owner gate. Do not ask the owner for more rounds.").length).toBe(3);
     expect(r.refused("continue", "feat", "--blocked", "x", "--gate", "1")).toContain(
       "--gate names one of the step's reviews by its number in the step's list: 2 (review the design), 3 (review the design as a principal engineer)",
     );
@@ -1371,6 +1377,41 @@ test("at the round cap the agent makes the last fixes, starts no further review,
     );
     // The review guide says it in the same words.
     expect(readFileSync(join(FLOW_DIR, "workflows", "fuse", "review.md"), "utf8").replace(/\s+/g, " ")).toContain(rule);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("at the round cap of a review that an owner gate follows, the agent finishes the step and names the unreviewed fixes for the owner", () => {
+  const r = new Repo();
+  try {
+    r.start("feat", `version: 1
+name: gated
+steps:
+  - id: design
+    instruction: Write the spec.
+    produces:
+      - artifact: paper
+        path: spec.md
+    gates:
+      - agent: review the spec
+      - owner-action: approve the spec
+`);
+    const rule =
+      "make the last round's fixes anyway, start no further review, and finish the step, naming in the hand-over's " +
+      "VERIFICATION line each fix no reviewer has seen, so the owner decides at the step's owner gate";
+    const out = r.ok("start", "feat");
+    expect(out).toContain(`After 2 such rounds, ${rule}. Do not ask the owner for more rounds.`);
+    expect(out).not.toContain("--blocked \"<what is still open, and the fixes no reviewer has seen>\"");
+    // The review guide says it in the same words.
+    expect(readFileSync(join(FLOW_DIR, "workflows", "fuse", "review.md"), "utf8").replace(/\s+/g, " ")).toContain(rule);
+    // Finishing at the cap reaches the owner's gate, whose VERIFICATION line asks for the unreviewed fixes.
+    r.write("spec.md");
+    r.reviewed("feat", "design", 1);
+    r.reviewed("feat", "design", 2);
+    expect(r.ok("continue", "feat")).toContain(
+      "VERIFICATION: review (review the spec): <rounds used> of 2 rounds, <any required fix still open, and any fix made after the last review, which no reviewer has seen>",
+    );
   } finally {
     r.cleanup();
   }

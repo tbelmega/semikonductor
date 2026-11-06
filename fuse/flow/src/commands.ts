@@ -2167,11 +2167,24 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
       "in the hand-over. Without such a note, run the review.";
   }
   // The same rule, in the same words, as the fuse review guide's.
+  // When an owner gate follows in the same step, the owner rules on the
+  // unreviewed fixes there, so a block would only add a second ruling.
+  // Reviews later in the step still have to run before continue finishes it.
+  const ownerAfter = ownerGates(step).length > 0;
+  const ahead = gatesInOrder(step).flatMap((x, i) => (x.kind === "agent" && i + 1 > n ? [reviewLabel(i + 1, x)] : []));
+  const finish =
+    "finish the step, naming in the hand-over's VERIFICATION line each fix no reviewer has seen, so the owner " +
+    "decides at the step's owner gate. Do not ask the owner for more rounds.";
   text +=
     " Every round that ends with a required fix counts, whatever the cause. After " +
-    `${capOf(c, g, step, state)} such rounds, make the last round's fixes anyway, start no further review, and report the ` +
-    `step blocked, naming the fixes no reviewer has seen: run \`${FUSE_FLOW} continue ${c.slug} --blocked ` +
-    `"<what is still open, and the fixes no reviewer has seen>" --gate ${n}\`.`;
+    `${capOf(c, g, step, state)} such rounds, make the last round's fixes anyway, ` +
+    (!ownerAfter
+      ? `start no further review, and report the step blocked, naming the fixes no reviewer has seen: run \`${FUSE_FLOW} continue ${c.slug} --blocked ` +
+        `"<what is still open, and the fixes no reviewer has seen>" --gate ${n}\`.`
+      : ahead.length
+        ? `start no further round of this review, and go on with the reviews still ahead in this step: ${ahead.join(", ")}. ` +
+          `Once they are done, ${finish}`
+        : `start no further review, and ${finish}`);
   // What the review has cost so far, which a pass's round count leaves out.
   const so = launchesText(c, g, step);
   if (so) text += ` So far this review has had ${so}, counted from the findings files in ${dir}/.`;

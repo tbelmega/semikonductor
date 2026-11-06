@@ -136,11 +136,14 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      finding as a required fix, optional or a false positive, fixes what is required and reviews
      again. A round with no required fix passes and ends the review; fixing its optional findings
      starts no further round. `max_rounds` (default 2) caps the rounds that end with a required
-     fix; at the cap the agent reports the step blocked and the owner decides. `guide:` names a
+     fix. At the cap the agent makes the last fixes and starts no further round of that review.
+     In a step with an `owner-action` gate, it goes on with any later reviews of the step, then
+     finishes the step and names each fix no reviewer has seen, so the owner decides at that gate;
+     in a step without one, it reports the step blocked and the owner decides. `guide:` names a
      review guide relative to the workflow file. The guide decides what counts as a required fix
      and when a round passes; where it does not say, or without a guide, P0 and P1 findings are
      required and P2 and P3 findings optional, fixed when cheap or listed as deferred. The cap and
-     the blocked exit still apply.
+     its exit still apply.
    - **`workflow: <name>`.** The step waits for a child workstream that follows another workflow,
      for a procedure that has its own steps, gates and owner decisions, such as an adversarial
      review inside a code review. fuse-flow creates the child when the step is handed out and

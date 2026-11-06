@@ -205,7 +205,9 @@ The step fields have these effects:
   step first and the decision is not applied, the steps from the one the hand-out reached are
   checked instead. A delegating step's existing child that refuses such a guide cannot be used. `status` and `list` read the workstream
   whatever its guides. fuse-flow prints these instructions;
-  the maker counts the rounds and reports `--blocked` at the cap.
+  the maker counts the rounds. At the cap it reports `--blocked` in a step without an
+  `owner-action` gate; in a step with one, it goes on with the step's later reviews, if any, then
+  finishes the step and names the fixes no reviewer has seen, for the owner at that gate.
 - `owner-action: <action>` leaves the completed work in `AWAITING_OWNER` until the owner decides.
 - Any gate mapping may have `route_back_to`, as one step identifier or a list. Each target is the
   same step or an earlier step. It suggests routes for the owner's `--back-to` decision and does
@@ -395,7 +397,7 @@ steps:
 | `continue <slug> [--updated [<artifact>=]<file>]...` | Report each file revised under an `updates` artifact. Repeat the flag for several files. Files outside declared update paths are accepted and identified in the hand-over block. A file inside the paths of two artifacts takes the identifier of the one it counts for. |
 | `continue <slug> [--unchanged <artifact> <reason>]...` | Report each `updates` artifact deliberately left unchanged. Repeat the flag as needed. |
 | `continue <slug> [--not-produced <artifact> <reason>]...` | Report each required `produces` artifact deliberately not written. Repeat the flag as needed. |
-| `continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...` | Record that the agent cannot finish the current step, such as at the review round cap. `--gate` names the review it is blocked at, by its number in the step block. The files of the step's `produces` paths on disk, and the files named with `--updated`, are recorded as draft, so the hand-over lists them and acceptance keeps them. The owner decides what happens next. |
+| `continue <slug> --blocked <why> [--gate <n>] [--updated [<artifact>=]<file>]...` | Record that the agent cannot finish the current step, such as at the review round cap of a step with no owner gate; in a step with one, the step block tells the agent to finish the step at the cap and name the fixes no reviewer has seen, so the owner rules at that gate. `--gate` names the review it is blocked at, by its number in the step block. The files of the step's `produces` paths on disk, and the files named with `--updated`, are recorded as draft, so the hand-over lists them and acceptance keeps them. The owner decides what happens next. |
 | `continue <slug> --skip <why>` | Skip a conditional step, or skip any step after the owner explicitly asks. Records the reason, as the agent's decision for an agent condition it judged and as the owner's otherwise. |
 | `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. A step that delegates to a child workstream is approved only while the child is complete; otherwise the owner skips it. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. An acceptance, a block at a review and the reviews a step passed before the owner are each bound to the review's identity as recorded then: its number, its text, and each guide it follows with the artifact the guide applies to and a digest of the guide's content. They hold only while the workflow names the review exactly so. When an edit of the workflow, of a guide or of the policy changes an accepted review, the step block prints a `TAKEN BACK` line that names it and asks the agent to tell the owner; the review runs again with its rounds counted afresh, in findings files with `-redo` in the name, and the reviews that passed before it run again once an edit changes one of them. When the edit removed the review or moved it to another number, the line says so, and the hand-over's `VERIFICATION` line names the acceptance that was taken back. A change of the review the step is blocked at refuses `--gate` and leaves the owner the other decisions. A record an earlier fuse-flow wrote without the identity is bound to the reviews as the workflow names them at the first command that reads it; where no review has its number then, or the workflow no longer has the step, it is bound to none, so a review an edit adds at that number later runs, and the step block says the acceptance was taken back. An `AWAITING_OWNER` step whose work a check, script or review that an edit added or changed has not run on cannot be approved: the hand-over names those gates, and the owner sends the work back to the step, which runs them. |
 | `continue <slug> --more-rounds <n> [--gate <n>] [--note <text>]` | Add one or more review rounds on an `IN_PROGRESS` or `BLOCKED` step. Without `--gate`, every review of the step gets them, and in a step with several reviews the output says so; with `--gate`, only the review with that number. A step blocked at one review refuses rounds granted to another review alone. A grant to one review is bound to the review's identity, as an acceptance is. |
@@ -768,9 +770,12 @@ unfinished again, since completion is derived from the workflow as it is now.
   positive, fixes the required ones and repeats until a round ends with no required fix. Unless the
   review guide says otherwise, P0 and P1 findings are required and P2 and P3 findings optional,
   fixed when cheap or listed as deferred. A round with no required fix passes and ends the review;
-  fixing its optional findings starts no further round. A round ending with a required fix counts. At the printed cap, the maker reports the step
-  blocked rather than starting another round. The owner can approve as is, grant rounds or send
-  work back.
+  fixing its optional findings starts no further round. A round ending with a required fix counts. At the printed cap, the maker makes the last
+  fixes and starts no further round of that review. In a step with an owner gate, it goes on with
+  the step's later reviews, if any, then finishes the step and names in the hand-over's
+  `VERIFICATION` line each fix no reviewer has seen; the owner approves or sends the work back for
+  another review at that gate. In a step without one, the maker reports the step blocked, and the
+  owner can approve as is, grant rounds or send work back.
 - **Jumps.** `--from`, `--forward-to`, `--back-to`, and skipping a mandatory step are owner
   decisions. After a jump, the agent restores missing consumed artifacts in the owner's interest
   and reports what it did.
