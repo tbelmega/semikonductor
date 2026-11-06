@@ -10,6 +10,7 @@ import {
   STEPS_ONLY,
   createDrawerHover,
   drawerOpen,
+  drawerPointer,
   pointerOnDrawer,
   escapeAction,
   releasesFocus,
@@ -166,6 +167,17 @@ describe("pointerOnDrawer", () => {
   });
   test("the drawer itself does", () => {
     expect(pointerOnDrawer({ inDrawer: true, onTip: false, tipAnchorInDrawer: false })).toBe(true);
+  });
+});
+
+describe("drawerPointer", () => {
+  const away = { inDrawer: false, onTip: false, tipAnchorInDrawer: false, onPinZone: false };
+  test("the drawer opens the hover, the page outside starts the close delay", () => {
+    expect(drawerPointer({ ...away, inDrawer: true })).toBe("on");
+    expect(drawerPointer(away)).toBe("off");
+  });
+  test("the pin button's zone changes nothing, so the button can be clicked", () => {
+    expect(drawerPointer({ ...away, inDrawer: true, onPinZone: true })).toBe("keep");
   });
 });
 

@@ -2215,12 +2215,10 @@ button.compare-card-title:focus-visible { outline: 2px solid var(--ring); outlin
 .step-card.is-static:hover { border-color: var(--border); }
 .step-card.is-static.is-optional:hover { border-color: var(--border-strong); }
 /* The page: the diagram between two drawers that slide in over it; the
-   main column's side padding keeps the cards clear of the 20px strips. */
+   main column's side padding keeps the cards clear of the 28px strips. The
+   drawers float, so the diagram never moves when they open. */
 .screen.is-present { position: relative; overflow: hidden; }
-.present-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 0 20px; }
-.screen.is-present.has-left-open .present-main { padding-left: 276px; }
-.screen.is-present.has-right-open .present-main { padding-right: 276px; }
-.present-main { transition: padding 180ms var(--ease-out); }
+.present-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 0 28px; }
 .present-main > .center-empty { display: flex; flex: 1; }
 .present-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; padding: 36px 0 24px; }
 .present-scroll.has-second { gap: 28px; padding: 36px 12px 24px; }
@@ -2243,17 +2241,24 @@ button.compare-card-title:focus-visible { outline: 2px solid var(--ring); outlin
 .present-drawer > .lane { flex: none; width: 240px; }
 .drawer-strip {
   flex: none;
-  width: 20px;
+  width: 28px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 10px;
   background: var(--surface);
+}
+/* The pin button and the space around it: hovering here neither opens nor
+   closes a drawer, so the button can be reached and clicked. */
+.drawer-pin-zone {
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
 }
 .drawer-strip.is-left { border-right: 1px solid var(--border); }
 .drawer-strip.is-right { border-left: 1px solid var(--border); }
 .drawer-pin {
-  width: 18px;
+  width: 24px;
   height: 28px;
   padding: 0;
   display: flex;

@@ -83,6 +83,19 @@ export const DRAWER_CLOSE_DELAY = 3000;
 export const pointerOnDrawer = (at: { inDrawer: boolean; onTip: boolean; tipAnchorInDrawer: boolean }) =>
   at.inDrawer || (at.onTip && at.tipAnchorInDrawer);
 
+// What a pointer movement means for a drawer's hover: "on" opens it, "off"
+// starts the close delay, and "keep" changes nothing. The pin button and the
+// strip around it are neutral, so a closed drawer does not slide open under
+// the pointer on its way to the button, and an open one does not start to
+// close while the pointer rests on it.
+export type DrawerPointer = "on" | "off" | "keep";
+export const drawerPointer = (at: {
+  inDrawer: boolean;
+  onTip: boolean;
+  tipAnchorInDrawer: boolean;
+  onPinZone: boolean;
+}): DrawerPointer => (at.onPinZone ? "keep" : pointerOnDrawer(at) ? "on" : "off");
+
 export interface DrawerHoverEnv {
   setTimer(run: () => void, ms: number): number;
   clearTimer(id: number | undefined): void;

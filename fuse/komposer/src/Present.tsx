@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Present page: the selected workflow's diagram, read-only, under its
 // name and description, optionally next to a second workflow in the same
-// scroll area. The workflow list and the Show panel are drawers: a 20px
-// strip on each side that slides its panel in over the diagram on hover,
-// stays open while focus is inside it and for a moment after the pointer
-// leaves, and pins open with its arrow.
+// scroll area. The workflow list and the Show panel are drawers: a strip on
+// each side that slides its panel in over the diagram on hover, stays open
+// while focus is inside it and for a moment after the pointer leaves, and
+// pins open with its pin button. Both drawers open together on hover, and
+// the diagram stays where it is under them.
 
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { Pin, PinOff } from "lucide-react";
 import type { LibraryEntry } from "./api.ts";
 import { Flow } from "./Flow.tsx";
 import { pickerLabel } from "./Compare.tsx";
@@ -17,7 +18,7 @@ import {
   STEPS_ONLY,
   createDrawerHover,
   drawerOpen,
-  pointerOnDrawer,
+  drawerPointer,
   releasesFocus,
   type FlowShow,
 } from "./model/present.ts";
@@ -46,9 +47,10 @@ function releaseFocus(drawer: Element) {
 // A drawer is open while any element inside it has focus, so focus never
 // sits on a hidden control. Hover is followed on the whole page, not with
 // mouseenter and mouseleave, because the pointer on the tooltip of a row in
-// the drawer counts as on the drawer (pointerOnDrawer), and leaving starts a
-// delay instead of closing (createDrawerHover).
-function useDrawer(pinned: boolean) {
+// the drawer counts as on the drawer (drawerPointer), and leaving starts a
+// delay instead of closing (createDrawerHover). The hook reports its own
+// hover and focus; Present combines them across both drawers.
+function useDrawer() {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -68,14 +70,15 @@ function useDrawer(pinned: boolean) {
       const drawer = ref.current;
       const target = event.target instanceof Node ? event.target : null;
       const anchor = tooltip.anchor();
-      h.pointer(
-        !!drawer &&
-          pointerOnDrawer({
-            inDrawer: !!target && drawer.contains(target),
-            onTip: onTip(target),
-            tipAnchorInDrawer: !!anchor && drawer.contains(anchor),
-          }),
-      );
+      if (!drawer) return;
+      const zone = target instanceof Element ? target.closest(".drawer-pin-zone") : null;
+      const next = drawerPointer({
+        inDrawer: !!target && drawer.contains(target),
+        onTip: onTip(target),
+        tipAnchorInDrawer: !!anchor && drawer.contains(anchor),
+        onPinZone: !!zone && drawer.contains(zone),
+      });
+      if (next !== "keep") h.pointer(next === "on");
     };
     // Leaving the window: no pointerover follows.
     const out = (event: PointerEvent) => {
@@ -92,7 +95,8 @@ function useDrawer(pinned: boolean) {
   }, [tooltip]);
   return {
     ref,
-    open: drawerOpen({ pinned, hovered, focused }),
+    hovered,
+    focused,
     // After the pin was clicked: the drawer closes unless focus holds it. The
     // click focused the pin, so focus is released here every time, not only
     // when the hover changes.
@@ -113,22 +117,26 @@ function DrawerStrip({
   side,
   label,
   open,
+  pinned,
   tip,
   onPin,
 }: {
   side: "left" | "right";
   label: string;
   open: boolean;
+  pinned: boolean;
   tip: string;
   onPin: () => void;
 }) {
-  // The arrow points the way the panel moves when it is clicked.
-  const rotate = side === "left" ? (open ? 180 : 0) : open ? 0 : 180;
+  // The button pins the drawer open, or un-pins it; the icon shows which.
+  // The zone around it does not react to hover (drawerPointer).
   return (
     <div className={`drawer-strip is-${side}`}>
-      <button type="button" className="drawer-pin" data-tip={tip} aria-label={tip} aria-expanded={open} onClick={onPin}>
-        <ChevronRight size={14} strokeWidth={2} style={{ transform: `rotate(${rotate}deg)` }} />
-      </button>
+      <div className="drawer-pin-zone">
+        <button type="button" className="drawer-pin" data-tip={tip} aria-label={tip} aria-pressed={pinned} aria-expanded={open} onClick={onPin}>
+          {pinned ? <PinOff size={14} strokeWidth={2} /> : <Pin size={14} strokeWidth={2} />}
+        </button>
+      </div>
       <span className="drawer-label" aria-hidden="true">
         {label}
       </span>
@@ -184,8 +192,11 @@ export function Present({
   onLeftPinned: (pinned: boolean) => void;
   onRightPinned: (pinned: boolean) => void;
 }) {
-  const left = useDrawer(leftPinned);
-  const right = useDrawer(rightPinned);
+  const left = useDrawer();
+  const right = useDrawer();
+  const hovered = left.hovered || right.hovered;
+  const leftOpen = drawerOpen({ pinned: leftPinned, hovered, focused: left.focused });
+  const rightOpen = drawerOpen({ pinned: rightPinned, hovered, focused: right.focused });
 
   const header = (w: OpenWorkflow) => (
     <>
@@ -222,18 +233,19 @@ export function Present({
   );
 
   return (
-    <div className={`screen is-present${left.open ? " has-left-open" : ""}${right.open ? " has-right-open" : ""}`}>
+    <div className="screen is-present">
       <div
         ref={left.ref}
-        className={`present-drawer is-left${left.open ? " is-open" : ""}`}
+        className={`present-drawer is-left${leftOpen ? " is-open" : ""}`}
         {...left.props}
       >
         {lane}
         <DrawerStrip
           side="left"
           label="Workflows"
-          open={left.open}
-          tip={leftPinned ? "Collapse workflows" : "Keep workflows open"}
+          open={leftOpen}
+          pinned={leftPinned}
+          tip={leftPinned ? "Unpin workflows" : "Keep workflows open"}
           onPin={() => {
             onLeftPinned(!leftPinned);
             left.unhover();
@@ -252,14 +264,15 @@ export function Present({
       </main>
       <div
         ref={right.ref}
-        className={`present-drawer is-right${right.open ? " is-open" : ""}`}
+        className={`present-drawer is-right${rightOpen ? " is-open" : ""}`}
         {...right.props}
       >
         <DrawerStrip
           side="right"
           label="Show"
-          open={right.open}
-          tip={rightPinned ? "Collapse" : "Keep open"}
+          open={rightOpen}
+          pinned={rightPinned}
+          tip={rightPinned ? "Unpin" : "Keep open"}
           onPin={() => {
             onRightPinned(!rightPinned);
             right.unhover();
