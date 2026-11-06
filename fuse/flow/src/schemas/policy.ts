@@ -27,7 +27,11 @@ const LaunchSchema = z.union([
 const ReviewerSchema = z
   .object({
     model: z.string().min(1).meta({ description: "The model the reviewer runs on." }),
-    effort: z.string().min(1).optional().meta({ description: "The reasoning effort, such as high." }),
+    effort: z.string().min(1).optional().meta({
+      description:
+        "The reasoning effort, such as low or medium, for every review this row is used for. Leave it out to let " +
+        "the review guide choose it, such as a lower effort for a document than for code.",
+    }),
     launch: LaunchSchema.optional().meta({
       description: "How to start this reviewer, when it differs from `review.launch`, for example a model the agent's harness cannot run.",
     }),
@@ -74,8 +78,8 @@ export const PolicySchema = z
               "agent picks the row for its own model.",
             examples: [
               {
-                "claude-opus-5.5": { model: "gpt-6.1-sol", effort: "high" },
-                "gpt-6.1-sol": { model: "claude-opus-5.5", effort: "high" },
+                "claude-opus-5.5": { model: "gpt-6.1-sol" },
+                "gpt-6.1-sol": { model: "claude-opus-5.5" },
               },
             ],
           }),

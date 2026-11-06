@@ -568,10 +568,9 @@ review:
   reviewers:                       # the reviewer's model, by the author's model
     claude-opus-5.5:
       model: gpt-6.1-sol
-      effort: high
       launch:                      # a row's own launch, for a model this harness cannot run
         command: opencode run -m amazon-bedrock/us.openai.{model} "$(cat {prompt_file})"
-    gpt-6.1-sol: { model: claude-opus-5.5, effort: high }
+    gpt-6.1-sol: { model: claude-opus-5.5 }
 rulings:
   - In fuse-flow workstreams, the workflow's review gates replace the review loop of the project's own review skill.
 checkout: refuse                   # or warn, the default
@@ -617,7 +616,10 @@ new number of another review: with a check and two reviews, the old `-gate2` was
 and is now the first. Before resuming such a step, rename each old file from the k-th review's
 old number to the number the step block prints for that review, starting with the highest, so no
 file is overwritten. A row of `reviewers` may carry its own `launch`, for a reviewer model the
-author's harness cannot run. `rulings` are the owner's standing rulings, which the agent follows in
+author's harness cannot run. A row's `effort` applies to every review the row is used for; leave
+it out to let the review guide choose. The fuse review guide runs a reviewer of a document at low
+effort, and a reviewer of code at the author's effort, or at medium when the author runs at low.
+`rulings` are the owner's standing rulings, which the agent follows in
 every step, such as which of two review mechanisms runs where fuse-flow and another installed skill
 or always-on instruction overlap; fuse-flow prints them with every step.
 

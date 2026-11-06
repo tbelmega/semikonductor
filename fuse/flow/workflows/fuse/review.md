@@ -9,7 +9,10 @@ Use a fresh agent that has none of this session's context. When the step names t
 model for the model you run on, use it. Otherwise use the reviewer the house rules name, if they
 name one. Otherwise use a model of similar cost from a different
 family than yours if your harness offers one, or else your own model; do not pick a more expensive
-model than yours unless the owner asks. Start it the way the step says: the project's launch
+model than yours unless the owner asks. Unless the step or the house rules name the reviewer's
+reasoning effort, run a reviewer of a document at low effort, and a reviewer of code at your own
+effort, or at medium when yours is low. Ask every reviewer for findings, not for a rewrite, and
+have it review the whole artifact. Start it the way the step says: the project's launch
 command when its policy sets one, else the way the house rules ask, such as another harness on the
 command line, else a subagent in your own harness. Give it the artifact, what the artifact must
 satisfy (the owner's request, the approved requirements or spec), read access to the repository,

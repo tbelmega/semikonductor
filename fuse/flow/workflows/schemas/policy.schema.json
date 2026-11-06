@@ -54,12 +54,10 @@
           "examples": [
             {
               "claude-opus-5.5": {
-                "model": "gpt-6.1-sol",
-                "effort": "high"
+                "model": "gpt-6.1-sol"
               },
               "gpt-6.1-sol": {
-                "model": "claude-opus-5.5",
-                "effort": "high"
+                "model": "claude-opus-5.5"
               }
             }
           ],
@@ -78,7 +76,7 @@
                 "minLength": 1
               },
               "effort": {
-                "description": "The reasoning effort, such as high.",
+                "description": "The reasoning effort, such as low or medium, for every review this row is used for. Leave it out to let the review guide choose it, such as a lower effort for a document than for code.",
                 "type": "string",
                 "minLength": 1
               },
