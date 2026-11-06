@@ -42,7 +42,8 @@ test("start mints a workstream that records its workflow, hands out the first st
       "WHEN THE WORK IS DONE:",
       '  1. Run `fuse-flow continue feat`, with --not-produced sketch "<reason>" only if you rightly did not write sketch.',
       "IF YOU STOP BEFORE THE STEP IS DONE: end your message with these five lines, written for the owner as a list, with each " +
-        "<...> part replaced; a report another rule asks for may follow them. If you cannot finish the step at all, report it blocked instead.",
+        "<...> part replaced; a line another rule requires at the start of your message goes first, and a report another " +
+        "rule asks for may follow them. If you cannot finish the step at all, report it blocked instead.",
       "  - SUMMARY: <the task, in a sentence>. Workstream feat, step design, 1 of 3.",
       "  - STATUS: <needs input, when you need an answer or a decision from the owner; paused, when the work only " +
         "waits for the owner's request to continue>",

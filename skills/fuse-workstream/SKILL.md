@@ -110,6 +110,13 @@ covers that.
 - **Follow the block fuse-flow prints,** completely, and run the continuation command it gives.
   Repeat until it hands the work to the owner or the workflow is complete. The block says how to
   account for each artifact, which checks and reviews to run, and how to hand back to the owner.
+- **End a turn only with a block fuse-flow printed:** the owner's hand-over, the `IF YOU STOP`
+  lines when you need the owner's answer, or the final block once the workflow has ended. Do not
+  report the work as done while a step is in progress; run the continuation command first, so the
+  step's checks and reviews run.
+- **Write no text to the owner between tool calls.** Some harnesses join a turn's messages into
+  one, so your final message starts with any line the session requires at the start, then the
+  block.
 - **After a context reset or in a new session,** run `fuse-flow start <slug>` again: it prints the
   current step as if for the first time. The state file and the step's artifacts hold everything
   that matters; the conversation may not.

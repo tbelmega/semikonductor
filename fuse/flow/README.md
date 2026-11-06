@@ -470,8 +470,10 @@ When the owner acts next, `continue` first prints a line with what it recorded, 
 pre-filled hand-over block. The agent replaces placeholders, preserves the order, and ends its
 own message with these five lines, and a sixth when the agent has finished work since the
 owner's last decision. Each line is a Markdown list item, so a chat that renders Markdown shows
-them on separate lines. A report another rule asks for, such as the debug-mode report, may follow
-the block.
+them on separate lines. A line another rule requires at the start of the message goes first,
+before the agent's own text and the block, and a report another rule asks for, such as the
+debug-mode report, may follow the block. The agent writes no text to the owner between tool calls,
+since some harnesses join a turn's messages into one.
 
 - `SUMMARY:` the task, workstream slug and step position.
 - `STATUS:` one of `awaiting owner action`, `blocked`, `needs input`, `paused` or

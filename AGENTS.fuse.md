@@ -56,6 +56,12 @@ earlier commit messages, or every commit made directly on the integration branch
 - Follow the complete block fuse-flow prints, and run the continuation command it gives, until it
   hands the work to the owner or the workflow completes. After a context reset, run
   `fuse-flow start <slug>` to print the current step again.
+- End a turn only with the block fuse-flow printed for the owner's turn, with the `IF YOU STOP`
+  lines when you need the owner's answer, or with the final block once fuse-flow has printed that
+  the workflow has ended. Do not report the work as done while a step is in progress: run the
+  continuation command first, so the step's checks and reviews run.
+- Write no text to the owner between tool calls: some harnesses join a turn's messages into one.
+  Your final message starts with any line the session requires at the start, then the block.
 - Run `--from`, `--forward-to`, `--back-to`, or `--skip` on a step without a condition only when
   the owner explicitly asked for that jump or skip. If one would help, recommend it with a reason
   and wait. Run any owner-decision command only after the owner has decided.

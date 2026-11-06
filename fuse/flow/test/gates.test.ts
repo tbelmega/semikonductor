@@ -51,7 +51,12 @@ function approveDesign() {
 test("an owner gate holds the step and prints the pre-filled hand-over block until the owner approves", () => {
   repo.write("design.md");
   const recorded = repo.ok("continue", "feat");
-  expect(recorded).toStartWith("design: work recorded; the step awaits the owner's action\n\nOWNER'S TURN: end your message with this hand-over block; a report another rule asks for may follow it.");
+  expect(recorded).toStartWith(
+    "design: work recorded; the step awaits the owner's action\n\nOWNER'S TURN: end your message with this hand-over block. " +
+      "A line another rule requires at the start of your message goes first, before your own text and this block; a report " +
+      "another rule asks for may follow the block. Write no text to the owner between tool calls: some harnesses join a " +
+      "turn's messages into one, so your final message starts with what the session requires, then this block.",
+  );
   expect(recorded).toContain("\n- SUMMARY: <the task you worked on, in a sentence>. Workstream feat, step design, 1 of 3.\n- STATUS: awaiting owner action.");
   expect(recorded).toContain("STATUS: awaiting owner action. The owner is asked to approve the design.\n");
   expect(recorded).toContain("PRODUCED: design.md (new)\n");

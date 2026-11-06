@@ -1677,7 +1677,8 @@ function stopEarly(c: Ctx, ws: Workstream, step: Step, otherwise = "If you canno
   const reviews = step.gates.filter((g) => g.kind === "agent").length > 0;
   return [
     "IF YOU STOP BEFORE THE STEP IS DONE: end your message with these five lines, written for the owner as a list, with each <...> part " +
-      `replaced; a report another rule asks for may follow them. ${otherwise}`,
+      "replaced; a line another rule requires at the start of your message goes first, and a report another rule asks " +
+      `for may follow them. ${otherwise}`,
     `  - SUMMARY: <the task, in a sentence>. Workstream ${c.slug}, step ${step.id}, ${position(c, step)}.${skippedSteps(c, ws)}`,
     "  - STATUS: <needs input, when you need an answer or a decision from the owner; paused, when the work only " +
       "waits for the owner's request to continue>",
@@ -2285,7 +2286,10 @@ function handOver(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
 function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[] {
   const skipped = skippedSteps(c, ws);
   const intro =
-    "OWNER'S TURN: end your message with this hand-over block; a report another rule asks for may follow it. " +
+    "OWNER'S TURN: end your message with this hand-over block. A line another rule requires at the start of your " +
+    "message goes first, before your own text and this block; a report another rule asks for may follow the block. " +
+    "Write no text to the owner between tool calls: some harnesses join a turn's messages into one, so your final " +
+    "message starts with what the session requires, then this block. " +
     "Replace each <...> part, keep the lines in this " +
     "order, and give the owner's options with your recommendation first, with its reason. Write the block for " +
     "the owner: name steps, phases and artifacts in plain words, and leave out fuse-flow, its commands and the " +
