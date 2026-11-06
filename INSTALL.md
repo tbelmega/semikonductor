@@ -124,6 +124,47 @@ documentation which instruction files and skills folders it reads, then pick wha
 Do not rely on `@path` imports in an instruction file: only Claude Code resolves them, and other
 harnesses read them as plain text. `--uninstall` does not undo links or sentences you add by hand.
 
+## Long sessions
+
+A workstream runs in one conversation from the first step to the last, and every model call
+resends that conversation. With a model whose window holds a million tokens, the conversation can
+grow to several hundred thousand tokens before the harness compacts it, and each call gets slower
+and more expensive as it grows. Have your harness compact the conversation at about 300,000
+tokens. Nothing the workflow needs is lost: fuse-flow keeps the workstream's state in files, and
+after a compaction the agent prints the current step again.
+
+- **OpenCode** compacts when the input reaches the model's `limit.input`, minus a small reserve
+  for the reply (`compaction.reserved`). Set `limit.input` in `opencode.json` for each
+  long-context model you use:
+
+  ```json
+  {
+    "provider": {
+      "<provider>": {
+        "models": {
+          "<model>": { "limit": { "context": 1000000, "input": 300000, "output": 32000 } }
+        }
+      }
+    }
+  }
+  ```
+
+- **Other harnesses:** look for a compaction threshold or an auto-compact setting in their
+  documentation. Where there is none, start a fresh session after the owner approves the spec;
+  the agent picks the workstream up from its files.
+
+## Model and effort
+
+The workflows put the hard thinking into the spec, the reviews and the owner's gates, so the agent
+that runs a workstream seldom needs a high reasoning effort. Start at low effort. Raise it for a
+session that keeps missing what the step asks, not by default: a higher effort makes every call of
+a long session slower and more expensive, because the reasoning is resent with each later call.
+Never run a workstream at `max` or `xhigh` effort. At those levels a call can spend its whole
+output on reasoning and return nothing, so the session stalls with empty turns.
+
+The reviewers the workflows start are set apart from the author: see the review guide of the
+workflow, and the `reviewers` policy setting in `fuse/flow/README.md`.
+
 ## Update
 
 ```bash
