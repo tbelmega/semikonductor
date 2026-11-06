@@ -559,7 +559,13 @@ Policy binds workflow intents to a project. Files are read at these locations:
 
 1. `~/.konductor/policy-overrides.yml`, personal defaults across projects.
 2. `.konductor/policy-overrides.yml`, team policy checked into the project.
-3. `.konductor/policy-overrides.local.yml`, personal policy for that project, normally gitignored.
+3. `.konductor/policy-overrides.local.yml`, personal policy for that project. Every command keeps
+   it out of git with a line in the checkout's own `info/exclude`, which is never committed, so it
+   adds no file to the project, unless a rule already ignores the file. A `.konductor/.gitignore`
+   that earlier versions wrote is such a rule: fuse-flow no longer creates one, and never removes
+   or edits one that exists, so it goes on protecting the file. A failure here is reported and
+   never stops the command. When a rule in the project's ignore files still
+   un-ignores the file, fuse-flow says so and leaves those files alone.
 
 A policy file may contain:
 

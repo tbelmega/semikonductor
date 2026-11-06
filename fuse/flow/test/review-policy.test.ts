@@ -3,7 +3,7 @@
 // do the owner's rulings where fuse-flow and the house rules overlap.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Repo } from "./helpers";
 
@@ -131,15 +131,102 @@ test("a policy's review guide that does not exist is refused, naming the file an
   expect(repo.ok("start", "feat")).toContain("It reviews src/ against .konductor/guides/review.md.");
 });
 
-test("the local policy file is kept out of git, as the workstreams and reviews are", () => {
+// A real git repository, in place of the test's bare .git folder.
+function gitRepo() {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, ...args], { env: repo.env });
+  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
+  expect(git("init", "-q").exitCode).toBe(0);
+  return git;
+}
+
+test("the local policy file is kept out of git through the checkout's own exclude file, which adds no file to the project", () => {
+  const git = gitRepo();
   repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
   repo.start("feat", FLOW);
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
+  expect(repo.read(".git/info/exclude")).toEndWith("\n/.konductor/policy-overrides.local.yml\n");
+  expect(existsSync(join(repo.root, ".konductor/.gitignore"))).toBe(false);
+  // The line is added once.
+  repo.ok("status", "feat");
+  expect(repo.read(".git/info/exclude").split("/.konductor/policy-overrides.local.yml").length).toBe(2);
+  // fuse-flow leaves no untracked file of its own outside the folders it ignores.
+  expect(git("status", "--porcelain", "--untracked-files=all", "--", ".konductor").stdout.toString()).toBe("");
+});
+
+test("an existing .konductor/.gitignore is always left as it is, and the local policy file stays ignored throughout", () => {
+  // Earlier versions wrote this file; it may hold only that line or more, and the project may track it.
+  const cases: { text: string; tracked: boolean }[] = [
+    { text: "/policy-overrides.local.yml\n", tracked: false },
+    { text: "/scratch/\n/policy-overrides.local.yml\n", tracked: false },
+    { text: "/policy-overrides.local.yml\n", tracked: true },
+  ];
+  for (const { text, tracked } of cases) {
+    const r = new Repo();
+    try {
+      const git = (...args: string[]) => Bun.spawnSync(["git", "-C", r.root, ...args], { env: r.env });
+      rmSync(join(r.root, ".git"), { recursive: true, force: true });
+      expect(git("init", "-q").exitCode).toBe(0);
+      r.write(".konductor/.gitignore", text);
+      if (tracked) expect(git("add", "-f", ".konductor/.gitignore").exitCode).toBe(0);
+      r.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+      const ignored = () => git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode;
+      expect(ignored()).toBe(0);
+      r.start("feat", FLOW);
+      expect(r.read(".konductor/.gitignore")).toBe(text);
+      expect(ignored()).toBe(0);
+      r.ok("status", "feat");
+      expect(r.read(".konductor/.gitignore")).toBe(text);
+      expect(ignored()).toBe(0);
+    } finally {
+      r.cleanup();
+    }
+  }
+});
+
+test("an existing .konductor/.gitignore stays and keeps protecting the file when a project rule un-ignores it elsewhere", () => {
+  const git = gitRepo();
+  // A root rule outranks the exclude file but not the .gitignore next to the file.
+  repo.write(".gitignore", "!/.konductor/policy-overrides.local.yml\n");
+  repo.write(".konductor/.gitignore", "/policy-overrides.local.yml\n");
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  repo.ok("status", "feat");
   expect(repo.read(".konductor/.gitignore")).toBe("/policy-overrides.local.yml\n");
-  // A .gitignore the project keeps there gains the line once, and keeps its own lines.
-  repo.write(".konductor/.gitignore", "/scratch/\n");
-  repo.ok("status", "feat");
-  repo.ok("status", "feat");
-  expect(repo.read(".konductor/.gitignore")).toBe("/scratch/\n/policy-overrides.local.yml\n");
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
+});
+
+test("when the exclude file cannot be written, the command reports it and still runs", () => {
+  gitRepo();
+  // .git/info is a file, so nothing can be written below it.
+  rmSync(join(repo.root, ".git/info"), { recursive: true, force: true });
+  repo.write(".git/info", "not a folder\n");
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  const out = repo.start("feat", FLOW);
+  expect(out).toContain("fuse-flow: could not keep .konductor/policy-overrides.local.yml out of git");
+  expect(existsSync(join(repo.root, ".konductor/.gitignore"))).toBe(false);
+  expect(repo.ok("status", "feat")).toContain("feat");
+});
+
+test("commands that run side by side each finish and leave an existing .konductor/.gitignore and the exclude file's rules in place", async () => {
+  const git = gitRepo();
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  repo.write(".konductor/.gitignore", "/policy-overrides.local.yml\n");
+  const runs = await Promise.all(Array.from({ length: 6 }, () => repo.runInBackground(["status", "feat"])));
+  for (const r of runs) expect(r.code).toBe(0);
+  for (const r of runs) expect(r.out).not.toContain("could not");
+  expect(repo.read(".konductor/.gitignore")).toBe("/policy-overrides.local.yml\n");
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
+  // Each run left the earlier rules of the exclude file in place, and the line once.
+  const exclude = repo.read(".git/info/exclude");
+  expect(exclude.split("/.konductor/policy-overrides.local.yml").length).toBe(2);
+  expect(exclude).toContain("# git ls-files --others --exclude-from=.git/info/exclude");
+});
+
+test("outside a git repository nothing is written to keep the local policy file out of git", () => {
+  repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
+  repo.start("feat", FLOW);
+  expect(existsSync(join(repo.root, ".konductor/.gitignore"))).toBe(false);
 });
 
 describe("the review guide that applies must be a file; one it overrides need not exist", () => {
@@ -180,17 +267,17 @@ describe("the review guide that applies must be a file; one it overrides need no
   });
 });
 
-test("the local policy file is kept out of git when a later line of .konductor/.gitignore negates the rule", () => {
-  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo.root, ...args], { env: repo.env });
-  rmSync(join(repo.root, ".git"), { recursive: true, force: true });
-  expect(git("init", "-q").exitCode).toBe(0);
-  repo.write(".konductor/.gitignore", "/policy-overrides.local.yml\n!*.yml\n");
+test("a rule of the project that un-ignores the local policy file is reported, and the project's ignore files are left alone", () => {
+  const git = gitRepo();
+  repo.write(".konductor/.gitignore", "!*.yml\n");
   repo.write(".konductor/policy-overrides.local.yml", "review:\n  max_rounds: 3\n");
-  repo.start("feat", FLOW);
-  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(0);
-  const once = repo.read(".konductor/.gitignore");
-  repo.ok("status", "feat");
-  expect(repo.read(".konductor/.gitignore")).toBe(once);
+  const out = repo.start("feat", FLOW);
+  expect(out).toContain(
+    "fuse-flow: .konductor/policy-overrides.local.yml is still not ignored after fuse-flow added it to .git/info/exclude: " +
+      "a rule in the project's ignore files un-ignores it. Tell the owner, and keep the file out of commits.",
+  );
+  expect(git("check-ignore", "-q", ".konductor/policy-overrides.local.yml").exitCode).toBe(1);
+  expect(repo.read(".konductor/.gitignore")).toBe("!*.yml\n");
 });
 
 describe("a delegated workflow's review guide is checked as it applies, before any workstream is created", () => {

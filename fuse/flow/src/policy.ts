@@ -7,8 +7,8 @@
 // project.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
 import { own } from "./own.ts";
@@ -52,26 +52,64 @@ function readLayer(file: string): Layer | undefined {
 
 // The local policy file is the user's own for this checkout, so the fuse-flow
 // command line keeps it out of git, as it does the workstream state and the
-// reviews: with a line in .konductor/.gitignore, unless git already ignores
-// it. Nothing to do while the file does not exist.
+// reviews. It writes the rule to the checkout's own exclude file, which is
+// never committed, so keeping the file out adds no file to the project.
+// Nothing to do while the file does not exist, or outside a repository whose
+// root is this one.
+// A failure here only says so: it never stops the command that called it.
 export function ignoreLocalPolicy(root: string): void {
   const file = policyFiles(root).local;
   if (!existsSync(file)) return;
-  const name = basename(file);
-  // Git's own answer is the authority where there is one: when it says the
-  // file is not ignored, a line of ours goes last, and git then says it is.
-  // --no-index, so the answer is the rules' also for a file git tracks.
-  const ignored = spawnSync("git", ["-C", root, "check-ignore", "-q", "--no-index", "--", relative(root, file)]);
-  if (ignored.status === 0) return;
-  const gitignore = join(dirname(file), ".gitignore");
-  const text = existsSync(gitignore) ? readFileSync(gitignore, "utf8") : "";
-  // Without an answer from git, as outside a repository, our own line is
-  // taken as enough, so it is not added twice.
-  if (ignored.status !== 1 && text.split(/\r?\n/).includes(`/${name}`)) return;
+  const rel = relative(root, file);
   try {
-    writeFileSync(gitignore, `${text}${text && !text.endsWith("\n") ? "\n" : ""}/${name}\n`);
+    keepOutOfGit(root, rel);
   } catch (e) {
-    process.stderr.write(`fuse-flow: could not add ${name} to ${gitignore}: ${(e as Error).message}\n`);
+    process.stderr.write(`fuse-flow: could not keep ${rel} out of git: ${(e as Error).message}\n`);
+  }
+}
+
+// Every command runs this, before it takes any workstream's lock, so several
+// may run it at once, also from linked worktrees that share the exclude file:
+// the exclude file is only ever appended to.
+function keepOutOfGit(root: string, rel: string): void {
+  const git = (...args: string[]) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const top = git("rev-parse", "--show-toplevel");
+  if (top.status !== 0 || realpathSync(top.stdout.trim()) !== realpathSync(root)) return;
+  // Git's own answer is the authority. --no-index, so the answer is the
+  // rules' also for a file git tracks. A rule that already ignores the file,
+  // such as the .konductor/.gitignore earlier versions wrote, is left as it
+  // is: fuse-flow never removes it, so the file is never left unprotected.
+  const ignored = () => git("check-ignore", "-q", "--no-index", "--", rel).status === 0;
+  if (ignored()) return;
+  const info = git("rev-parse", "--git-path", "info/exclude");
+  if (info.status !== 0) return;
+  const exclude = resolve(root, info.stdout.trim());
+  const line = `/${rel.split(sep).join("/")}`;
+  const holds = () => (readIfThere(exclude) ?? "").split(/\r?\n/).includes(line);
+  if (!holds()) {
+    const text = readIfThere(exclude) ?? "";
+    mkdirSync(dirname(exclude), { recursive: true });
+    appendFileSync(exclude, `${text && !text.endsWith("\n") ? "\n" : ""}${line}\n`);
+    if (!holds()) throw new Error(`the rule did not reach ${exclude}`);
+  }
+  // The exclude file ranks below the project's .gitignore files, so a rule
+  // there can still un-ignore the file. fuse-flow does not edit the project's
+  // ignore files; it says so.
+  if (!ignored()) {
+    process.stderr.write(
+      `fuse-flow: ${rel} is still not ignored after fuse-flow added it to ${relative(root, exclude)}: a rule in the ` +
+        "project's ignore files un-ignores it. Tell the owner, and keep the file out of commits.\n",
+    );
+  }
+}
+
+// A file's text, or undefined when it is not there.
+function readIfThere(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw e;
   }
 }
 

@@ -71,8 +71,9 @@ steps:
       most important first. The implementation and code review steps run the project's default
       check at their gates without the owner, so if the project's policy binds no command to it
       yet, find the command, put it to the owner with the spec, and record it in
-      .konductor/policy-overrides.yml as `checks: { default: <command> }`; the owner's approval of
-      the spec confirms it. The command must run the spec's acceptance tests once they exist, such
+      .konductor/policy-overrides.local.yml, which git ignores, as `checks: { default: <command> }`;
+      offer the owner to move it to .konductor/policy-overrides.yml, which is committed, if the team
+      should share it. The owner's approval of the spec confirms it. The command must run the spec's acceptance tests once they exist, such
       as the project's test runner over the files that will hold them; a command that only starts
       the program passes whatever it prints. Do not change code until the owner approves the
       spec. Commit the spec, unless this workstream's documents are kept private.
@@ -124,7 +125,9 @@ steps:
       up to date with it first, the way the house rules ask, by default by rebasing it onto the
       integration branch. Get the work through review. Before the last round, shape the history the
       way the house rules ask; by default, fold fixups and review fixes into the commits it should
-      land as, normally one commit for the feature, with a subject that stands on its own. Do not
+      land as, normally one commit for the feature, with a subject that stands on its own. Leave
+      fuse's own files under .konductor/ out of the commits unless the owner asked for them, and do
+      not edit the project's ignore files to hide them. Do not
       merge it into the integration branch or push it to a
       shared branch; the owner lands it. Then find out whether this project uses pull requests or
       a similar code review process: look in the project's and the user's house rules, the

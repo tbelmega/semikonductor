@@ -37,7 +37,10 @@ test("a script condition that exits 0 runs the step; any other exit skips it wit
 test("a check condition runs the command the policy binds; an unbound kind holds the step until it is bound", () => {
   const out = repo.start("feat", flow("    condition: \"check: unfamiliar\""));
   expect(out).toContain("STEP research (1 of 3) cannot be handed out yet: its condition names the unfamiliar check.");
-  expect(out).toContain("record it in .konductor/policy-overrides.yml as `checks: { unfamiliar: <command> }`");
+  expect(out).toContain(
+    "record it in .konductor/policy-overrides.local.yml, which git ignores, as `checks: { unfamiliar: <command> }`; " +
+      "offer the owner to move it to .konductor/policy-overrides.yml, which is committed, if the team should share it.",
+  );
   expect(repo.status("feat", "research")).toBe("PENDING");
   // Binding the check needs the owner's confirmation, so the agent is told how to hand back meanwhile.
   expect(out).toContain("IF YOU STOP BEFORE THE STEP IS DONE:");

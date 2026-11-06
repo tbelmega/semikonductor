@@ -344,8 +344,9 @@ function mechanical(c: Ctx, g: Gate | Condition): Mechanical {
 function bindInstruction(c: Ctx, check: string): string {
   const base =
     `This project has no command for the ${check} check yet. Find it in the project (package.json, a Makefile, ` +
-    `Cargo.toml and so on), confirm it with the owner, and record it in .konductor/policy-overrides.yml as ` +
-    `\`checks: { ${check}: <command> }\`.`;
+    `Cargo.toml and so on), confirm it with the owner, and record it in .konductor/policy-overrides.local.yml, ` +
+    `which git ignores, as \`checks: { ${check}: <command> }\`; offer the owner to move it to ` +
+    ".konductor/policy-overrides.yml, which is committed, if the team should share it.";
   return check === "default"
     ? `${base} If the project has no check command for agents, suggest that the owner add one, and meanwhile bind ` +
         "the closest existing command, with the owner's confirmation."
