@@ -51,11 +51,23 @@ ask the owner when it is unclear.
 - P2: worth fixing, but nobody is hurt if it waits.
 - P3: a nit.
 
+P1 against P2, by example:
+
+- "The spec does not define X" is a P2, unless the request requires X or the next step would have
+  to guess it; then it is a P1.
+- "The code returns the wrong value when the input is empty" is a P1: a user hits it.
+- "This test would pass without the code it claims to cover" is a P1 when it is the only test of a
+  required behavior, and a P2 when another test proves that behavior.
+- "This name or this wording could be clearer" is a P2 or a P3, unless a reader would take it to
+  mean something else.
+
 The reviewer says for each finding whether it is a single instance or a broken pattern.
 
 A reviewer is not an authority: it can be wrong, and it lacks context you have. P0 and P1
 findings are required fixes once you have checked them against the code; record a rejected
-finding as a false positive with the reason. For a pattern, look for every other occurrence in the
+finding as a false positive with the reason. When a finding says a rule rests on an assumption
+nobody has checked, or that a prerequisite lies outside the repository, put it to the owner as a
+question at the next gate instead of designing around it. For a pattern, look for every other occurrence in the
 change and fix them in the same pass. Treat each correction the owner gives the same way: apply it
 everywhere it occurs, in documents, names, messages, code and tests. P2 and P3 findings are optional: fix them when the fix
 is cheap; list the rest as deferred in the hand-over. An optional finding never needs another
