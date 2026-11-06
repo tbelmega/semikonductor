@@ -11,7 +11,6 @@ import type { KanvasProjects, KanvasState } from "../../src/kanvas/model.ts";
 import { type KomposerServer, startServer } from "../app.ts";
 
 const EXAMPLE = resolve(import.meta.dir, "..", "..", "example-design");
-const TOKEN = "test-token";
 let dir: string;
 let server: KomposerServer;
 let savedHome: string | undefined;
@@ -19,7 +18,7 @@ let savedHome: string | undefined;
 const api = (path: string, init: RequestInit = {}) =>
   fetch(`${server.url}${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", ...(init.headers ?? {}) },
+    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
   });
 
 beforeEach(() => {
@@ -29,7 +28,7 @@ beforeEach(() => {
   savedHome = process.env.HOME;
   process.env.HOME = join(dir, "home");
   cpSync(join(EXAMPLE, "design"), join(dir, "design"), { recursive: true, filter: (src) => !/\.(cache|kanvas)/.test(src) });
-  server = startServer({ root: dir, port: 0, token: TOKEN, kanvasDir: dir });
+  server = startServer({ root: dir, port: 0, kanvasDir: dir });
 });
 
 afterEach(() => {
@@ -38,7 +37,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("Kanvas reads the board, builds its options with source locations and serves them under the secret only", async () => {
+test("Kanvas reads the board, builds its options with source locations and serves them to this origin only", async () => {
   const state = (await (await api("/api/kanvas")).json()) as KanvasState;
   expect(state.build.ok).toBe(true);
   const [round] = state.boards[0].rounds;
@@ -55,7 +54,7 @@ test("Kanvas reads the board, builds its options with source locations and serve
 
   expect((await fetch(`${server.url}${frame.replace(/frame\/[^/]+\//, "frame/wrong/")}`)).status).toBe(404);
   expect((await fetch(`${server.url}${frame}..%2F..%2F..%2F..%2F..%2F..%2F..%2Fapps/streaks/README.md`)).status).toBe(404);
-  expect((await fetch(`${server.url}/api/kanvas`)).status).toBe(401);
+  expect((await fetch(`${server.url}/api/kanvas`, { headers: { origin: "http://evil.example" } })).status).toBe(403);
 });
 
 test("a comment is stored in design/.kanvas/comments.json, and an agent's edit there reaches the page", async () => {
@@ -103,7 +102,7 @@ test("the app's own /kanvas/... routes are the app's, and only frame paths are K
   const dist = mkdtempSync(join(dir, "dist-"));
   writeFileSync(join(dist, "index.html"), "<!doctype html><title>app</title>");
   server.stop();
-  server = startServer({ root: dir, port: 0, token: TOKEN, kanvasDir: dir, appDir: dist });
+  server = startServer({ root: dir, port: 0, kanvasDir: dir, appDir: dist });
   expect(await (await fetch(`${server.url}/kanvas/personal/flows/x.yml`)).text()).toContain("<title>app</title>");
   expect((await fetch(`${server.url}/kanvas/frame/wrong/apps/`)).status).toBe(404);
   expect((await fetch(`${server.url}/kanvas/bridge.js`)).headers.get("content-type")).toContain("javascript");
@@ -116,7 +115,7 @@ test("Kanvas lists the --kanvas folder and the Workstreams page's projects, and 
   mkdirSync(project);
   mkdirSync(join(other, "design", "apps"), { recursive: true });
   registerProject(other);
-  server = startServer({ root: project, port: 0, token: TOKEN, kanvasDir: dir });
+  server = startServer({ root: project, port: 0, kanvasDir: dir });
 
   const listed = (await (await api("/api/kanvas/projects")).json()) as KanvasProjects;
   expect(listed.first).toBe(dir);
