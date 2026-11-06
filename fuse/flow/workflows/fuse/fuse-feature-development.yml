@@ -69,7 +69,8 @@ steps:
       recommendation. Ask every remaining question whose answer changes the design, give your
       recommended answer with each, and decide the rest yourself as recorded assumptions, labeled
       as your decisions so the owner can object. Record what is deferred. Keep the spec as short
-      as the feature allows. When nothing material is open, order the spec for review: the
+      as the feature allows, and have it state the current result: resolved questions, approvals
+      and review history go to the decisions file, not the spec. When nothing material is open, order the spec for review: the
       decisions the owner must make or check, and your own decisions and assumptions, come first,
       most important first. The implementation and code review steps run the project's default
       check at their gates without the owner, so if the project's policy binds no command to it

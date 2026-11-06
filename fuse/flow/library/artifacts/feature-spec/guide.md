@@ -23,3 +23,7 @@ are checked against.
 
 Keep each section as short as the feature allows; a small feature may need only a few lines per
 section. Leave out what does not apply.
+
+The spec states the current result. Once a question is resolved, write its answer where it
+belongs and remove the question. Approvals, resolved questions and the history of reviews go to
+the decisions file, not the spec.
