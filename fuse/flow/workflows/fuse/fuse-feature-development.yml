@@ -112,7 +112,9 @@ steps:
       check, see it exit non-zero, and restore the test before you verify and commit as usual.
       fuse-flow takes exit 0 as a pass, and a test runner behind a pipe or a wrapper can report
       failing tests and still exit 0. A check that calls a deployed system runs only against a
-      target the owner authorized. Commit as you go. When something
+      target the owner authorized. Run the bound checks with `fuse-flow check <slug>`, which prints
+      each result, the end of its output and the failing tests; when you run tests yourself, cut
+      their output to the summary and the failures. Commit as you go. When something
       fails unexpectedly, find the root cause before you change code. Decide ambiguities
       yourself, with the spec as the authority, and record each decision in the decisions file.
       Stop and ask only before an irreversible action or one that reaches outside this checkout.
@@ -130,7 +132,8 @@ steps:
     instruction: >
       Make the work ready for the owner to land. If the integration branch has moved, bring the work
       up to date with it first, the way the house rules ask, by default by rebasing it onto the
-      integration branch. Get the work through review. Before the last round, shape the history the
+      integration branch. Get the work through review. Run the bound checks with `fuse-flow check
+      <slug>`, or cut test output to the summary and the failures. Before the last round, shape the history the
       way the house rules ask; by default, fold fixups and review fixes into the commits it should
       land as, normally one commit for the feature, with a subject that stands on its own. Leave
       fuse's own files under .konductor/ out of the commits unless the owner asked for them, and do

@@ -14,7 +14,7 @@ import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readdirSync, r
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { checkoutProblems, currentBase, resolveBase } from "./base.ts";
-import { FlowError } from "./errors.ts";
+import { FailedResult, FlowError } from "./errors.ts";
 import { conditionRun, EVENT, ownerNotes, runEvents, SKIP_REASON, stamp, summarizeRun } from "./history.ts";
 import { has, own } from "./own.ts";
 import {
@@ -110,7 +110,17 @@ interface Ctx {
 // finish, whose step blocks print it; `readOnly` commands, which print no
 // step block, read the workstream whatever its guides. Steps before index
 // `from` of the workflow are not checked: the command passes over them.
-function context(root: string, slug: string, ws: Workstream, readOnly = false, from: (wf: Workflow) => number = () => 0): Ctx {
+// A state file in an earlier format is converted, and the conversion saved;
+// with `persist` false, as for a command that promises to change nothing, it
+// is converted in `ws` alone.
+function context(
+  root: string,
+  slug: string,
+  ws: Workstream,
+  readOnly = false,
+  from: (wf: Workflow) => number = () => 0,
+  persist = true,
+): Ctx {
   const file = findWorkflow(root, ws.workflow);
   if (gone(ws.workflow)) throw new FlowError(goneWorkflow(slug, ws.workflow));
   const c = { root, slug, wf: loadWorkflow(file), p: loadProject(root), date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
@@ -118,10 +128,15 @@ function context(root: string, slug: string, ws: Workstream, readOnly = false, f
     const first = from(c.wf);
     refuseBadReviewGuides(c.p, c.wf, file, (step) => c.wf.steps.indexOf(step) >= first && unfinishedIn(ws)(step));
   }
-  convertOldState(c, ws);
-  recordOldReviews(c, ws);
+  const update: Update = persist ? (change) => updateWorkstream(root, slug, change) : (change) => change(ws);
+  convertOldState(c, ws, update);
+  recordOldReviews(c, ws, update);
   return c;
 }
+
+// How a conversion of an earlier format is applied: to the state file, or to
+// the workstream in memory.
+type Update = (change: (ws: Workstream) => void) => void;
 
 // A workflow file the workstream follows that is no longer there, as after a
 // move or a rename, is never replaced by a guess; the agent names its new path.
@@ -399,8 +414,14 @@ const ZERO_COUNT = /\b0+\s+(?:fail(?:ed|ing|ures?)?|errors?)\b/gi;
 const FAIL_MARKER = /\bFAIL(?:ED)?\b/;
 const reportsFailure = (line: string) => FAILURE_COUNT.test(line) || FAIL_MARKER.test(line.replace(ZERO_COUNT, ""));
 
+const failureLines = (output: string) =>
+  output
+    .split("\n")
+    .filter(reportsFailure)
+    .map((l) => l.trim().slice(0, 160));
+
 function failureLine(output: string): string | undefined {
-  return output.split("\n").find(reportsFailure)?.trim().slice(0, 160);
+  return failureLines(output)[0];
 }
 
 // The warning a passing check carries when its output reads as failing tests;
@@ -2669,8 +2690,9 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
   );
   const ws = readWorkstream(root, slug);
   const c: Ctx = { root, slug, wf, p, date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
-  convertOldState(c, ws);
-  recordOldReviews(c, ws);
+  const update: Update = (change) => updateWorkstream(root, slug, change);
+  convertOldState(c, ws, update);
+  recordOldReviews(c, ws, update);
   const header = [`${resumed ? "resumed" : "minted"} workstream ${slug}`, `workflow: ${path}`, `state:    ${workstreamFile(root, slug)}`];
   const base = baseText(root, ws, true);
   if (base) header.push(`base:     ${base}`);
@@ -3331,10 +3353,10 @@ function recordsOf(c: Ctx, step: Step, files: Written[]): StepState["artifacts"]
 // `earlier_pass`, beside the records. Converted once, each path placed as the
 // old rules placed it: under the artifacts its records name, else under
 // every declared path that holds it.
-function convertOldState(c: Ctx, ws: Workstream): void {
+function convertOldState(c: Ctx, ws: Workstream, update: Update): void {
   const old = (s: StepState) => s.updated !== undefined || s.earlier_pass !== undefined || (s.files === undefined && s.artifacts.length > 0);
   if (!Object.values(ws.steps).some(old)) return;
-  updateWorkstream(c.root, c.slug, (fresh) => {
+  update((fresh) => {
     for (const [id, s] of Object.entries(fresh.steps)) {
       if (!old(s)) continue;
       const step = c.wf.steps.find((x) => x.id === id);
@@ -3367,7 +3389,7 @@ function convertOldState(c: Ctx, ws: Workstream): void {
 // review or work handed to the owner without the identity of the reviews it
 // concerns. Each is recorded once, as the workflow names the reviews at the
 // first command that reads it, and from then on holds like any other record.
-function recordOldReviews(c: Ctx, ws: Workstream): void {
+function recordOldReviews(c: Ctx, ws: Workstream, update: Update): void {
   const reviews = (step: Step | undefined) => (step ? gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [reviewId(c, step, i + 1, g)] : [])) : []);
   const missing = (s: StepState) => ({
     accepted: (s.accepted_gates ?? []).filter((n) => !acceptanceOf(s, n)),
@@ -3379,7 +3401,7 @@ function recordOldReviews(c: Ctx, ws: Workstream): void {
     return m.accepted.length > 0 || m.blocked || m.handedOver;
   };
   if (!Object.values(ws.steps).some(old)) return;
-  updateWorkstream(c.root, c.slug, (fresh) => {
+  update((fresh) => {
     for (const [id, s] of Object.entries(fresh.steps)) {
       if (!old(s)) continue;
       // A step the workflow no longer has names no review: its records are
@@ -3955,6 +3977,51 @@ function refuseClosed(root: string, slug: string): void {
 // rule says so. Making it so would need a reservation of
 // slugs and a journal of the rename shared by every command that creates a
 // link, which a local engine run by one owner does not need.
+
+// --------------------------------------------------------------------- check
+// Run the current step's checks and scripts the way continue does, and print
+// for each its exit status, the end of its output and the lines that read as
+// failing tests, so the agent need not read the whole test output. Changes
+// nothing in the workstream. Fails when a check fails or has no command.
+
+export function check(root: string, slug: string): string[] {
+  refuseClosed(root, slug);
+  const ws = readWorkstream(root, slug);
+  const c = context(root, slug, ws, true, () => 0, false);
+  const step = currentStep(c.wf, ws);
+  if (!step) throw new FlowError("workflow complete; there is no step whose checks could run");
+  const gates = gatesInOrder(step).filter((g) => g.kind === "check" || g.kind === "script");
+  if (!gates.length) return [`Step ${step.id} has no checks to run.`];
+  const lines: string[] = [];
+  let failed = 0;
+  for (const g of gates) {
+    const m = mechanical(c, g);
+    if (m.kind === "unbound") {
+      failed += 1;
+      lines.push(`CHECK ${m.label}: not run, no command is bound. ${bindInstruction(c, m.check)}`);
+      continue;
+    }
+    if (m.kind === "none") {
+      lines.push(`CHECK ${m.label}: not configured in this project`);
+      continue;
+    }
+    // A workstream closed while an earlier check ran runs no further check, as on continue.
+    refuseClosed(root, slug);
+    const r = runCommand(c, m.command, step.id);
+    const failing = failureLines(r.output);
+    if (r.exitCode === 0) {
+      lines.push(`CHECK ${m.label}: passed (exit 0)${failing.length ? ", but its output reports failures" : ""}`);
+    } else {
+      failed += 1;
+      lines.push(`CHECK ${m.label}: failed (exit ${r.exitCode ?? "none, killed by a signal"})`);
+    }
+    if (r.output) lines.push(...r.output.split("\n").map((l) => `    ${l}`));
+    if (failing.length) lines.push(`  failing: ${failing.join("; ")}`);
+  }
+  const total = `${gates.length} check${gates.length === 1 ? "" : "s"} of step ${step.id}`;
+  if (failed) throw new FailedResult([...lines, `${failed} of ${total} failed.`]);
+  return [...lines, `All ${total} passed.`];
+}
 
 export function rename(root: string, from: string, to: string): string[] {
   if (from === to) throw new FlowError(`workstream ${from} already has that slug`);

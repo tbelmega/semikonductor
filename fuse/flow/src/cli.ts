@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import * as commands from "./commands.ts";
-import { FlowError, UsageError } from "./errors.ts";
+import { FailedResult, FlowError, UsageError } from "./errors.ts";
 import { ignoreLocalPolicy } from "./policy.ts";
 import { checkSlug, findRepoRoot, isDirectory, isWorkflowPath } from "./project.ts";
 
@@ -74,6 +74,10 @@ const USAGE = `usage:
                                                 is accepted only once every step is finished, and is
                                                 optional: a complete workstream reads as succeeded.
                                                 --left-open records what is still open for the owner
+  fuse-flow check <slug>                        run the current step's checks as continue does and print, for
+                                                each, its exit status, the end of its output and the lines
+                                                that read as failing tests; exits 1 when one fails or has no
+                                                command. Changes nothing
   fuse-flow status <slug>                       show every step's state. A file shows once, under the latest
                                                 step that records it.
                                                 done means the step's gates passed and it has no owner gate;
@@ -225,6 +229,7 @@ function run(argv: string[]): string[] {
     return commands.list(root, all);
   }
   if (command === "rename") return rename(args);
+  if (command === "check") return check(args);
   if (command === "close") return close(args);
   if (!command || !Object.hasOwn(OPTIONS, command)) throw new UsageError(command ? `unknown command "${command}"` : "no command");
 
@@ -371,6 +376,21 @@ function rename(args: string[]): string[] {
   return commands.rename(root, positionals[0], positionals[1]);
 }
 
+// `check <slug>`: one slug, no options.
+function check(args: string[]): string[] {
+  let positionals: string[];
+  try {
+    positionals = parseArgs({ args, options: {}, allowPositionals: true, strict: true }).positionals;
+  } catch (e) {
+    throw new UsageError((e as Error).message);
+  }
+  if (positionals.length !== 1) throw new UsageError("check takes <slug>");
+  checkSlug(positionals[0]);
+  const root = findRepoRoot(process.cwd());
+  ignoreLocalPolicy(root);
+  return commands.check(root, positionals[0]);
+}
+
 // `close <slug> --note <the owner's reason>`.
 function close(args: string[]): string[] {
   let parsed;
@@ -396,6 +416,10 @@ function main(argv: string[]): number {
     if (e instanceof UsageError) {
       console.log(`error: ${e.message}\n\n${USAGE}`);
       return 64;
+    }
+    if (e instanceof FailedResult) {
+      for (const line of e.lines) console.log(line);
+      return 1;
     }
     if (e instanceof FlowError) {
       console.log(`REFUSED: ${e.message}`);
