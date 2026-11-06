@@ -145,6 +145,20 @@ describe("createDrawerHover", () => {
     fire(DRAWER_CLOSE_DELAY - 2000);
     expect(states).toEqual([true, false]);
   });
+  test("holding on a neutral spot drops the close delay but never opens a closed drawer", () => {
+    const { hover, states, fire } = hoverOnClock();
+    hover.hold();
+    expect(states).toEqual([]);
+    hover.pointer(true);
+    hover.pointer(false);
+    fire(DRAWER_CLOSE_DELAY - 500);
+    hover.hold();
+    fire(DRAWER_CLOSE_DELAY);
+    expect(states).toEqual([true]);
+    hover.pointer(false);
+    fire(DRAWER_CLOSE_DELAY);
+    expect(states).toEqual([true, false]);
+  });
   test("a release closes at once and keeps it closed until the pointer left and came back", () => {
     const { hover, states } = hoverOnClock();
     hover.pointer(true);

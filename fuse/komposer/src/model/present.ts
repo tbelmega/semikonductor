@@ -135,6 +135,11 @@ export function createDrawerHover(env: DrawerHoverEnv) {
         }, DRAWER_CLOSE_DELAY);
       }
     },
+    // The pointer is on a neutral spot: an open drawer stays open and a
+    // running close delay is dropped; a closed one stays closed.
+    hold() {
+      if (hovered) cancel();
+    },
     release() {
       cancel();
       released = true;

@@ -7,7 +7,7 @@
 // pins open with its pin button. Both drawers open together on hover, and
 // the diagram stays where it is under them.
 
-import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode, type RefObject } from "react";
 import { Pin, PinOff } from "lucide-react";
 import type { LibraryEntry } from "./api.ts";
 import { Flow } from "./Flow.tsx";
@@ -45,40 +45,58 @@ function releaseFocus(drawer: Element) {
 }
 
 // A drawer is open while any element inside it has focus, so focus never
-// sits on a hidden control. Hover is followed on the whole page, not with
-// mouseenter and mouseleave, because the pointer on the tooltip of a row in
-// the drawer counts as on the drawer (drawerPointer), and leaving starts a
-// delay instead of closing (createDrawerHover). The hook reports its own
-// hover and focus; Present combines them across both drawers.
-function useDrawer() {
-  const [hovered, setHovered] = useState(false);
+// sits on a hidden control. A pin clicked with the mouse does not count: it
+// takes focus on mouse-down, and opening the drawer then would slide the
+// button away before the click completes.
+function useDrawerFocus() {
   const [focused, setFocused] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  return {
+    focused,
+    props: {
+      onFocus: (event: FocusEvent<HTMLElement>) => {
+        const target = event.target;
+        if (target.classList.contains("drawer-pin") && !target.matches(":focus-visible")) return;
+        setFocused(true);
+      },
+      onBlur: (event: FocusEvent<HTMLElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+      },
+    },
+  };
+}
+
+// One hover for both drawers, so they open and close together. It is followed
+// on the whole page, not with mouseenter and mouseleave, because the pointer
+// on the tooltip of a row in a drawer counts as on the drawers
+// (drawerPointer), and leaving starts a delay instead of closing
+// (createDrawerHover).
+function useDrawersHover(drawers: RefObject<HTMLDivElement | null>[]) {
+  const [hovered, setHovered] = useState(false);
   const hover = useRef<ReturnType<typeof createDrawerHover> | null>(null);
   const tooltip = useTooltip();
   useEffect(() => {
+    const els = () => drawers.map((ref) => ref.current).filter((el): el is HTMLDivElement => !!el);
     const h = createDrawerHover({
       setTimer: (run, ms) => window.setTimeout(run, ms),
       clearTimer: (id) => window.clearTimeout(id),
       render: (next) => {
         setHovered(next);
-        if (!next && ref.current) releaseFocus(ref.current);
+        if (!next) els().forEach(releaseFocus);
       },
     });
     hover.current = h;
     const over = (event: PointerEvent) => {
-      const drawer = ref.current;
       const target = event.target instanceof Node ? event.target : null;
       const anchor = tooltip.anchor();
-      if (!drawer) return;
       const zone = target instanceof Element ? target.closest(".drawer-pin-zone") : null;
       const next = drawerPointer({
-        inDrawer: !!target && drawer.contains(target),
+        inDrawer: !!target && els().some((el) => el.contains(target)),
         onTip: onTip(target),
-        tipAnchorInDrawer: !!anchor && drawer.contains(anchor),
-        onPinZone: !!zone && drawer.contains(zone),
+        tipAnchorInDrawer: !!anchor && els().some((el) => el.contains(anchor)),
+        onPinZone: !!zone && els().some((el) => el.contains(zone)),
       });
-      if (next !== "keep") h.pointer(next === "on");
+      if (next === "keep") h.hold();
+      else h.pointer(next === "on");
     };
     // Leaving the window: no pointerover follows.
     const out = (event: PointerEvent) => {
@@ -94,21 +112,13 @@ function useDrawer() {
     };
   }, [tooltip]);
   return {
-    ref,
     hovered,
-    focused,
-    // After the pin was clicked: the drawer closes unless focus holds it. The
-    // click focused the pin, so focus is released here every time, not only
-    // when the hover changes.
-    unhover: () => {
+    // After a pin was clicked: both drawers close unless pinned or holding
+    // focus. The click focused the pin, so focus is released here every time,
+    // not only when the hover changes.
+    release: () => {
       hover.current?.release();
-      if (ref.current) releaseFocus(ref.current);
-    },
-    props: {
-      onFocus: () => setFocused(true),
-      onBlur: (event: FocusEvent<HTMLElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
-      },
+      drawers.forEach((ref) => ref.current && releaseFocus(ref.current));
     },
   };
 }
@@ -192,9 +202,11 @@ export function Present({
   onLeftPinned: (pinned: boolean) => void;
   onRightPinned: (pinned: boolean) => void;
 }) {
-  const left = useDrawer();
-  const right = useDrawer();
-  const hovered = left.hovered || right.hovered;
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const left = useDrawerFocus();
+  const right = useDrawerFocus();
+  const { hovered, release } = useDrawersHover([leftRef, rightRef]);
   const leftOpen = drawerOpen({ pinned: leftPinned, hovered, focused: left.focused });
   const rightOpen = drawerOpen({ pinned: rightPinned, hovered, focused: right.focused });
 
@@ -235,7 +247,7 @@ export function Present({
   return (
     <div className="screen is-present">
       <div
-        ref={left.ref}
+        ref={leftRef}
         className={`present-drawer is-left${leftOpen ? " is-open" : ""}`}
         {...left.props}
       >
@@ -248,7 +260,7 @@ export function Present({
           tip={leftPinned ? "Unpin workflows" : "Keep workflows open"}
           onPin={() => {
             onLeftPinned(!leftPinned);
-            left.unhover();
+            release();
           }}
         />
       </div>
@@ -263,7 +275,7 @@ export function Present({
         )}
       </main>
       <div
-        ref={right.ref}
+        ref={rightRef}
         className={`present-drawer is-right${rightOpen ? " is-open" : ""}`}
         {...right.props}
       >
@@ -275,7 +287,7 @@ export function Present({
           tip={rightPinned ? "Unpin" : "Keep open"}
           onPin={() => {
             onRightPinned(!rightPinned);
-            right.unhover();
+            release();
           }}
         />
         <div className="show-panel">
