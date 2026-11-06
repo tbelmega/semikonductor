@@ -42,7 +42,10 @@ steps:
       purpose and rough scope are settled, write a first draft of the spec, marked as a draft,
       with the questions still open; from then on, record each decision in the draft when it is
       made. When the request already settles the purpose and scope, write the draft straight away
-      and say so. Before you write it, check where this workstream's documents go and whether they
+      and say so. Name files, sections and the workstream after the domain terms only once the
+      owner has confirmed them; at the first correction of a term the workstream's slug uses,
+      rename the workstream with `fuse-flow rename <old slug> <new slug>` before more work carries
+      the old name. Before you write it, check where this workstream's documents go and whether they
       are committed. By default they go to the docs/specs/ paths and are committed with the work.
       Where the house rules keep such documents elsewhere, use that place and record it in
       .konductor/policy-overrides.yml under `artifacts:`, by artifact id. Where the house rules keep

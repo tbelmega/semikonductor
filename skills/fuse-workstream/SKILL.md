@@ -89,7 +89,9 @@ covers that.
 ## 3. Start the workstream
 
 - **Pick a slug:** short, lower-case letters, digits and hyphens, named for the work, such as
-  `checkout-redesign`. It must not be the slug of an existing workstream.
+  `checkout-redesign`. It must not be the slug of an existing workstream. Use the owner's own
+  words for the work; when the owner later corrects a term the slug uses, rename the workstream
+  with `fuse-flow rename <old> <new>` at that first correction.
 - **Where the work goes.** The workflows leave branching to the house rules (section 5). Follow
   the way of working they show, such as a feature branch per change, a fixed branch per worktree,
   or commits directly on the integration branch. If they show none and the checkout is on the
