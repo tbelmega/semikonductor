@@ -79,7 +79,10 @@ steps:
       should share it. The owner's approval of the spec confirms it. The command must run the spec's acceptance tests once they exist, such
       as the project's test runner over the files that will hold them; a command that only starts
       the program passes whatever it prints. Do not change code until the owner approves the
-      spec. Commit the spec, unless this workstream's documents are kept private.
+      spec. When you put the spec to the owner, say that the build starts from the approved spec,
+      the decisions file and the workflow's own record, and recommend that the owner compact or
+      clear the conversation, where the harness allows it, before the build starts. Commit the
+      spec, unless this workstream's documents are kept private.
     consumes: [requirements, design]
     updates:
       - artifact: feature-spec
@@ -138,7 +141,9 @@ steps:
       in commit messages, and what you remember of this project. Only if you find such evidence,
       tell the owner at the last gate that instead of landing the work they can approve it for
       that process, name the mechanism you found and where, and record which the owner chose in
-      the gate's note; that approval passes the gate. Without evidence, do not mention pull
+      the gate's note; that approval passes the gate. With the option to send the work back to
+      the build, recommend that the owner compact or clear the conversation, where the harness
+      allows it, before the build starts again. Without evidence, do not mention pull
       requests at all.
     consumes: [feature-spec]
     updates:

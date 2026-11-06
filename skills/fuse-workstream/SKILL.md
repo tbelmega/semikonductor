@@ -122,6 +122,10 @@ covers that.
 - **After a context reset or in a new session,** run `fuse-flow start <slug>` again: it prints the
   current step as if for the first time. The state file and the step's artifacts hold everything
   that matters; the conversation may not.
+- **Before each entry into implementation,** such as after the owner approves a spec or sends the
+  work back to the build, the step's documents hold what the build needs. Where the harness can
+  compact or clear the conversation, recommend it to the owner at that hand-over; afterwards run
+  `fuse-flow start <slug>` to print the step again.
 - **Sweep the owner's corrections.** After each reply from the owner, list each ask in the
   decisions file, apply it everywhere it occurs (documents, names, messages, code and tests), and
   say in the hand-over where you applied each, or why not.
