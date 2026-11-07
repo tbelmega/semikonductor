@@ -30,14 +30,24 @@ script installs plain skills and an always-on instruction block that every suppo
   - Commands: `start` creates or resumes a workstream; `continue` finishes the current step and
     records the agent's artifact reports and the owner's decisions (approve, more review rounds,
     back to an earlier step, forward, skip); `status`, `list` and `validate`; `rename`, which moves
-    a workstream's files to a new slug while its documents keep their paths; and `close`, with
-    which the owner gives a workstream up, with a reason.
+    a workstream's files to a new slug while its documents keep their paths; `close`, with
+    which the owner gives a workstream up, with a reason; and `check`, which runs the current
+    step's checks and scripts the way `continue` does and prints each one's exit status, the tail
+    of its output and any lines that read as failing tests, without changing the workstream.
   - `start` warns when it mints a workstream in a checkout with uncommitted changes outside
     `.konductor/` or on the branch a remote's HEAD points to; a policy's `checkout: refuse` turns
     the warning into a refusal. The README describes how to move a workstream to another checkout.
   - The engine refuses to complete a step while a required artifact is missing without a reason
     or a check fails. It hands over to the owner at owner gates and when a review reaches its
-    round cap, with the owner's options in plain words.
+    round cap, with the owner's options in plain words. When a check exits 0 but its output
+    reads as failing tests, the check still counts as passed, and a `WARNING:` line in the
+    agent's output and in the owner's hand-over names the line, so a check command whose pipe
+    or wrapper hides a failure is noticed.
+  - At a review's round cap, the agent makes the last round's fixes and starts no further round
+    of that review. When the step ends at an owner gate, the agent runs the step's remaining
+    reviews, finishes the step and names each fix no reviewer has seen in the hand-over's
+    VERIFICATION line, so the owner decides there; only a step without an owner gate is reported
+    blocked. The agent does not ask the owner for more rounds.
   - `continue` also refuses a step with an agent review until the reviewer has written a
     findings file for the step's current pass, under the name the step block prints. A review
     the owner waives is passed over with `continue --waived "<reason>"`, which records the
@@ -54,9 +64,22 @@ script installs plain skills and an always-on instruction block that every suppo
     round's fixes added as a P2, so a document review converges. A launch command must return
     once the findings are written; `fuse/flow/workflows/schemas/launch-once.sh` is an example
     wrapper that makes any agent task's command return once its output file is written.
+  - The review guide, `fuse/flow/workflows/fuse/review.md`, opens with the sections a reviewer
+    reads. A document reviewer runs at low reasoning effort and a code reviewer at the author's
+    effort, or `medium` when the author runs `low`, unless the step or the house rules name
+    another; every reviewer reports findings rather than rewrites and keeps the whole artifact
+    in scope, and from the second round starts from the diff since the last reviewed round. A
+    document review asks whether each mechanism, field, prerequisite or rule is needed for the
+    owner's request, and a finding that asks to complete one the request does not need is at
+    most a P2; examples separate a P1 from a P2. The author hands the reviewer the changed files,
+    the existing code the artifact relies on and the proof commands, without conclusions, and
+    puts a finding that a rule rests on an unchecked assumption, or that a prerequisite lies
+    outside the repository, to the owner at the next gate. The policy examples leave the
+    reviewer's effort unset, so the guide decides.
   - The labelled lines of a hand-over print as Markdown list items, so a chat that renders
-    Markdown shows each on its own line. A report another rule asks for, such as the debug-mode
-    report, may follow the block.
+    Markdown shows each on its own line. A line another rule requires at the start of the message
+    goes first, before the agent's own text and the block, and a report another rule asks for,
+    such as the debug-mode report, may follow the block.
   - A file a step without an owner gate records is `done`, and becomes `approved` only at a
     later owner gate that approves it.
   - When the workflow of a running workstream is edited, an owner's acceptance or block of a
@@ -76,6 +99,12 @@ script installs plain skills and an always-on instruction block that every suppo
     folder that existed before the step, such as a shared research folder, is recorded file by
     file from the files the agent names. After a rebase that only resolved conflicts, the owner
     can `--forward-to` past the steps whose results still hold, with a note naming the evidence.
+    In a workflow with agent reviews, the owner's send-back option asks whether the changes need
+    another agent review; when the owner says they do not, the agent makes them, runs the checks
+    and finishes the step with `--waived "<the owner's words>"`, and changes beyond the owner's
+    notes are reviewed anyway. The next pass prints the owner's notes with an instruction to
+    apply each one everywhere it occurs, in documents, names, messages, code and tests, and to
+    say in the hand-over where each was applied.
   - A later step may change a document an earlier step produced, such as the requirements, with
     the owner's agreement. The step block's `AMENDING EARLIER WORK` line says how, and `status`
     shows the document as amended by that step.
@@ -116,7 +145,9 @@ script installs plain skills and an always-on instruction block that every suppo
     and `.konductor/policy-overrides.local.yml`) set check commands, artifact paths, the reviewer
     model for each author model and how the reviewer is launched, and the owner's standing
     rulings, which every step block prints. Reviewers write findings as JSON to
-    `.konductor/reviews/`.
+    `.konductor/reviews/`. fuse-flow keeps the local policy file out of git through the
+    checkout's own exclude file, so it adds no file to the project, and reports a project rule
+    that still un-ignores it.
   - A step runs attended or unattended, set with `mode` and attended when it is not set. The step
     block's `MODE` line tells the agent to ask the owner often, or to decide on its own judgement,
     and tells the owner whether to stay. In both, the agent records the decisions it makes on its
@@ -130,7 +161,17 @@ script installs plain skills and an always-on instruction block that every suppo
 - **Shipped workflows:**
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
     implementation and code review, with agent reviews before the owner approves the spec and
-    lands the work. The shipped workflows leave branching to the project's own rules: when there
+    lands the work. Intake names the workstream and its files once the owner has confirmed the
+    domain terms, and renames them at the first term correction. The design step binds the check
+    command in the local policy file, offering the team file when the team should share it; the
+    delivered spec states the current result, with resolved questions, approvals and review
+    history in the decision log; and the hand-over recommends compacting or clearing the
+    conversation before each entry into the build. The implementation step proves that a test
+    check fails by breaking one acceptance test and restoring it, treats a test that passes and
+    fails on the same code as a defect to fix rather than rerun or loosen, and runs the checks
+    with `fuse-flow check` or cuts test output to the summary and the failures. The code review
+    leaves fuse's files under `.konductor/` out of the commits unless the owner asked for them,
+    and never edits the project's ignore files to hide them. The shipped workflows leave branching to the project's own rules: when there
     are none and the checkout is on the integration branch, the agent asks the owner once whether
     to create a branch.
   - `fuse-pull-request`, a change through the project's pull request or code review process, the
@@ -206,7 +247,10 @@ script installs plain skills and an always-on instruction block that every suppo
 - **Skills:**
   - `fuse-workstream`: finds a workstream to resume, recommends a workflow for new work, starts it
     once the user agrees, and runs it, keeping fuse-flow's commands out of what the owner reads.
-    Its opt-in debug mode ends every reply with a report of what fuse did.
+    It applies each owner correction everywhere it occurs, renames a workstream after a term
+    correction, recommends a fresh or compacted conversation before each entry into
+    implementation, and reads several files or line ranges per call during research. Its opt-in
+    debug mode ends every reply with a report of what fuse did.
   - `fuse-flow-builder`: builds or changes a workflow with the user, by interview, by encoding an
     existing process, or together in Komposer, following fuse's principles for workflows.
   - `fuse-tutorial`: a coach for new users. Started in the clone before anything is installed, it
@@ -217,7 +261,11 @@ script installs plain skills and an always-on instruction block that every suppo
     guidance to load for common tasks, taken from the removed architect and developer agents.
 - **The always-on block** `AGENTS.fuse.md`, which `install.sh` writes into instruction files. It
   says when fuse applies, the rules that hold while a workstream runs, and how to write for the
-  owner: self-explaining headings, decisions and commit messages, without bare labels such as `D1`.
+  owner. While a workstream runs, a turn ends only with a block fuse-flow printed (the owner's
+  turn, the stop lines, or the end of the workflow), and the agent writes no text between tool
+  calls, since some harnesses join a turn's messages into one. On writing for the owner, it
+  asks for self-explaining headings, decisions and commit messages, without bare labels such as
+  `D1`.
   It defines house rules: the project's and the harness's agent instructions, the owner's earlier
   rulings, what the agent remembers of the project, and what the project's history shows. Where
   a step says in prose how to do something a house rule covers, such as branching, getting a
@@ -236,6 +284,9 @@ script installs plain skills and an always-on instruction block that every suppo
   Every install prints the clone's commit, and names uncommitted changes, so an install from an
   outdated checkout is noticed; a project install records the commit in the project's manifest.
   Supported harnesses: Claude Code, Codex, Cursor (project install only), OpenCode and Kiro CLI.
+  `INSTALL.md` recommends starting at low reasoning effort and never running a workstream at
+  `max` or `xhigh`, and compacting the conversation at about 300,000 tokens for models with a
+  window of a million tokens, with OpenCode's `limit.input` setting as the example.
 - A smoke-test harness in `fuse/smoke/`: an orchestrating agent plays the user, has a separate
   fuse agent build a trivial program with a workflow, and judges whether an engineer who knows
   nothing about fuse-flow could get through it.
@@ -392,6 +443,13 @@ prints:
   follows an old name is refused with
   "no workflow named". Change the `workflow:` line of its `.konductor/workstreams/<slug>.yml` to
   the new name, and update your own workflows that hand off to or wait for an old name or path.
+- fuse-flow no longer creates `.konductor/.gitignore`; it keeps the local policy file out of git
+  through the checkout's exclude file. An existing `.konductor/.gitignore` is never edited or
+  removed and goes on protecting the file. Once
+  `git check-ignore .konductor/policy-overrides.local.yml` confirms the file is ignored without
+  it, you can delete an untracked one yourself.
+- `fuse-feature-development` now binds a newly found check command in
+  `.konductor/policy-overrides.local.yml`. A check already bound in the team file keeps working.
 
 ## [1.0.0] - 2026-09-23
 
