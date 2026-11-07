@@ -126,6 +126,9 @@ covers that.
   work back to the build, the step's documents hold what the build needs. Where the harness can
   compact or clear the conversation, recommend it to the owner at that hand-over; afterwards run
   `fuse-flow start <slug>` to print the step again.
+- **Read in batches.** While you research the code for a step, read several files or line ranges
+  in one call where your harness allows it, rather than one per call: each call resends the whole
+  conversation.
 - **Sweep the owner's corrections.** After each reply from the owner, list each ask in the
   decisions file, apply it everywhere it occurs (documents, names, messages, code and tests), and
   say in the hand-over where you applied each, or why not.

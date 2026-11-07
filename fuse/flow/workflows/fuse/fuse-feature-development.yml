@@ -115,7 +115,10 @@ steps:
       target the owner authorized. Run the bound checks with `fuse-flow check <slug>`, which prints
       each result, the end of its output and the failing tests; when you run tests yourself, cut
       their output to the summary and the failures. Commit as you go. When something
-      fails unexpectedly, find the root cause before you change code. Decide ambiguities
+      fails unexpectedly, find the root cause before you change code. A test that passes and
+      fails on the same code is a defect too, often shared state, ports, ordering or timing: find
+      and fix its cause; do not raise timeouts or rerun the check until it passes. If the cause
+      lies outside this checkout, such as a loaded machine, say so in the hand-over. Decide ambiguities
       yourself, with the spec as the authority, and record each decision in the decisions file.
       Stop and ask only before an irreversible action or one that reaches outside this checkout.
     consumes: [feature-spec, requirements, design]

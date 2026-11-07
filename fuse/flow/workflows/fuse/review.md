@@ -1,5 +1,8 @@
 # Review in the fuse development workflows
 
+A reviewer reads only the sections "What it looks at" and "Priorities"; the rest is for the
+author who runs the review.
+
 A review round is one independent review of the whole artifact, followed by one pass of fixes.
 The goal is that the owner only sees work that an agent has already tried hard to break.
 
@@ -16,7 +19,8 @@ have it review the whole artifact. Start it the way the step says: the project's
 command when its policy sets one, else the way the house rules ask, such as another harness on the
 command line, else a subagent in your own harness. Give it the artifact, what the artifact must
 satisfy (the owner's request, the approved requirements or spec), read access to the repository,
-and the path of its findings file. It writes its findings there as JSON, following the schema the
+and the path of its findings file. Hand it the changed files, the existing code the artifact relies
+on with line ranges, and the commands that prove the work, without your conclusions about them. It writes its findings there as JSON, following the schema the
 step names, and changes no other file. A launch command must return once the reviewer has written
 its findings file. When more than one reviewer reviews the same round, each writes its own file,
 with a dot and its name after the round, as the step says, and together they are one round. Do not tell it
