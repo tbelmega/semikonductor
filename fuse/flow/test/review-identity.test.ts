@@ -93,8 +93,15 @@ steps:
   link("two", "one-guide.md");
   const resumed = r.ok("start", "feat");
   expect(resumed).not.toContain("The owner accepted this review");
-  expect(resumed).toContain("TAKEN BACK: the owner accepted review 1 (inspect the documents) following one-guide.md for one, two-guide.md for two as it was");
-  expect(resumed).toContain("It reviews one.md against two-guide.md; two.md against one-guide.md.");
+  // Each artifact's authoring guide applies alongside its review guide, so both name the review.
+  expect(resumed).toContain(
+    "TAKEN BACK: the owner accepted review 1 (inspect the documents) following .konductor/library/artifacts/one/guide.md for one, " +
+      "one-guide.md for one, .konductor/library/artifacts/two/guide.md for two, two-guide.md for two as it was",
+  );
+  expect(resumed).toContain(
+    "It reviews one.md against two-guide.md, with its guide .konductor/library/artifacts/one/guide.md as the definition of a " +
+      "good artifact; two.md against one-guide.md, with its guide .konductor/library/artifacts/two/guide.md as the definition of a good artifact.",
+  );
 });
 
 test("the owner's note on an accepted review is read whole after an edit changes the review's text", () => {
@@ -177,6 +184,35 @@ test("a gate added while the step awaits the owner holds the approval back until
   expect(r.status("feat", "work")).toBe("AWAITING_OWNER");
   r.ok("continue", "feat", "--back-to", "work");
   expect(r.ok("start", "feat")).toContain("  1. Have an independent agent review authorization boundaries.");
+});
+
+test("an edit of an artifact's authoring guide invalidates a passed review of it, also when the gate has a guide", () => {
+  const WORK = `version: 1
+name: w
+steps:
+  - id: work
+    instruction: Write the notes.
+    produces:
+      - artifact: notes
+        path: notes.md
+    gates:
+      - agent: review the notes
+        guide: rules.md
+      - owner-action: approve the work
+  - id: finish
+    instruction: Finish.
+`;
+  r.write("rules.md", "# how to review\n");
+  r.write(".konductor/library/artifacts/notes/guide.md", "# Notes have a summary\n");
+  r.start("feat", WORK);
+  r.write("notes.md");
+  r.reviewed("feat", "work");
+  r.ok("continue", "feat");
+  expect(r.status("feat", "work")).toBe("AWAITING_OWNER");
+  expect(r.ok("start", "feat")).not.toContain("have not run on it");
+  r.write(".konductor/library/artifacts/notes/guide.md", "# Notes have a summary and a list of sources\n");
+  expect(r.ok("start", "feat")).toContain("they have not run on it: review (review the notes).");
+  expect(r.refused("continue", "feat", "--owner-approved")).toContain("step work cannot be approved yet");
 });
 
 // A state file an earlier fuse-flow wrote, without the reviews' identities.

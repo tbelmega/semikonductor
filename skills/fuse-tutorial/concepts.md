@@ -115,10 +115,11 @@ Menu: an independent review by another agent, repeated until it finds nothing th
   default) caps the rounds that end with a required fix; at the cap the step is blocked and you
   decide. A review guide sets what counts as a required fix; where it does not say, P0 and P1
   findings are required and P2 and P3 findings optional, fixed when cheap or listed as deferred.
-- Deep: which review guide applies, from the most specific: your local project policy, the team's
-  policy, the project library's `review.md` for the artifact, the gate's own `guide`, your policy,
-  your library, the shipped library. Without any, the agent reviews against the artifact's own
-  guide or the gate's text.
+- Deep: the reviewer gets every guide that applies to each artifact: its `guide.md` and its
+  `review.md`, from the most specific library that has the artifact (the project's, yours, then the
+  shipped one), and the gate's guide. Your local project policy or the team's policy can replace
+  the gate's guide, and the gate's guide replaces your policy's. Without any guide, the agent
+  reviews against the gate's text.
 - In Komposer: "reviews against" under an agent gate shows the guide in effect for each artifact.
 
 ## owner gates

@@ -543,7 +543,7 @@ library/artifacts/<id>/
   entry.yml         optional; `description:` says what the artifact is (library-entry.schema.json)
   guide.md          how to produce the artifact
   template.<ext>    optional structure for the artifact
-  review.md         optional review guide
+  review.md         optional review guide, applied with the guide by every review of the artifact
 ```
 
 The engine points the agent to a template but does not copy it. It searches the project's
@@ -647,10 +647,14 @@ project, then user policy; so do `launch`, while `reviewers` merges by author mo
 from every file apply. Artifact paths use local or project policy, then the workflow; a workflow
 always gives each artifact a path, so user policy may not set `artifacts` and is refused when it
 does. Review `max_rounds` uses local or project policy, then
-the gate, then user policy, then the engine default. A review guide uses local or project policy,
-the project's artifact `review.md`, the gate's `guide`, user policy, then the user and package
-artifact review guides. Only the guide that applies is checked: a command refuses when it is not
-a file, and a guide it replaces may be missing.
+the gate, then user policy, then the engine default. A review gate's reviewer gets, for each
+artifact it reviews, every guide that applies: the artifact's `guide.md` as the definition of a
+good artifact, its `review.md`, both from the library entry that wins, and the gate's guide. The
+gate's guide is local or project policy's `review.guide`, else the gate's `guide`, else user
+policy's. With no artifact, the gate's guide alone applies. Every guide that applies is part of
+the review's identity, so editing one, an authoring guide included, means a review that passed or
+that the owner accepted runs again. Only guides that apply are checked: a command refuses when one
+is not a file, and a gate's guide that a policy's replaces may be missing.
 
 ### Decisions
 

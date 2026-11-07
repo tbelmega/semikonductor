@@ -140,8 +140,10 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      In a step with an `owner-action` gate, it goes on with any later reviews of the step, then
      finishes the step and names each fix no reviewer has seen, so the owner decides at that gate;
      in a step without one, it reports the step blocked and the owner decides. `guide:` names a
-     review guide relative to the workflow file. The guide decides what counts as a required fix
-     and when a round passes; where it does not say, or without a guide, P0 and P1 findings are
+     review guide relative to the workflow file: how this workflow reviews, and any criteria of
+     its own. The reviewer gets it together with each reviewed artifact's `guide.md` and
+     `review.md`, so do not repeat an artifact's criteria in it. The guides decide what counts as
+     a required fix and when a round passes; where it does not say, or without a guide, P0 and P1 findings are
      required and P2 and P3 findings optional, fixed when cheap or listed as deferred. The cap and
      its exit still apply.
    - **`workflow: <name>`.** The step waits for a child workstream that follows another workflow,
@@ -470,7 +472,8 @@ A workflow should work out of the box and leave room for each project's house ru
 hooks fuse-flow offers, instead of writing one project's rules into the workflow:
 
 - `check: default` instead of a build command; each project binds it in its policy.
-- Review guides that a project can replace, through its own library entry or its policy.
+- Review guides that a project can replace: an artifact's through its own library entry, a gate's
+  through its policy's `review.guide`.
 - Artifact paths with `{slug}`, which a project's policy can move.
 - Library entries a project can override with its own guide or template, by the same id.
 - A `condition` where a step does not apply everywhere, instead of a second copy of the workflow.

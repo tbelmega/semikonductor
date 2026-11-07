@@ -24,7 +24,7 @@ import { FlowError } from "../../flow/src/errors.ts";
 import { summarizeRun, runEvents } from "../../flow/src/history.ts";
 import { crossCheck } from "../../flow/src/links.ts";
 import { formatIssue, parseWorkflowText } from "../../flow/src/parse.ts";
-import { display, libraryEntry, listLibrary, loadProject, reviewGuideProblems, reviewGuideSource } from "../../flow/src/policy.ts";
+import { display, listLibrary, loadProject, reviewGuideProblems, reviewGuides as appliedGuides } from "../../flow/src/policy.ts";
 import { findRepoRoot, findWorkflow, isDirectory, isWorkflowPath, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
 import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
 import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
@@ -740,8 +740,8 @@ export function startServer(options: ServerOptions): KomposerServer {
     };
   };
 
-  // The review guide each agent gate of the sent text uses for each artifact
-  // of its step, with the layer it comes from (the engine's own rule), the
+  // The guides each agent gate of the sent text applies to each artifact of
+  // its step, with the layer each comes from (the engine's own rule), the
   // gate's own guide, and the text of every file named that may be read. The
   // text sent is the open version, saved or not; a gate's guide is relative to
   // the workflow file, as the engine reads it.
@@ -780,12 +780,10 @@ export function startServer(options: ServerOptions): KomposerServer {
         if (gate.kind !== "agent") return [];
         const resolved = { ...gate, ...(gate.guide ? { guide: isAbsolute(gate.guide) ? gate.guide : resolve(dirname(path), gate.guide) } : {}) };
         const artifacts = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
-        const reviews = (artifacts.length ? artifacts : [undefined]).map((artifact) => {
-          const found = reviewGuideSource(p, resolved, artifact);
-          if (found) return { ...(artifact ? { artifact } : {}), guide: { ...ref(found.path), source: found.source } };
-          const own = artifact ? libraryEntry(p, artifact)?.guide : undefined;
-          return { ...(artifact ? { artifact } : {}), ...(own ? { ownGuide: ref(own) } : {}) };
-        });
+        const reviews = (artifacts.length ? artifacts : [undefined]).map((artifact) => ({
+          ...(artifact ? { artifact } : {}),
+          guides: appliedGuides(p, resolved, artifact).map((found) => ({ ...ref(found.path), source: found.source, role: found.role })),
+        }));
         return [
           {
             step: stepIndex,

@@ -32,11 +32,11 @@ import {
   launchSetting,
   reviewer,
   reviewers,
+  gateReviewGuide,
   ownersReviewGuide,
-  reviewGuide,
   refuseBadReviewGuides,
   reviewGuideProblems,
-  reviewGuideSource,
+  reviewGuides,
   rulings,
 } from "./policy.ts";
 import { debugLog, decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
@@ -196,10 +196,10 @@ function reviewNumbered(step: Step, n: number): Gate {
 const reviewLabel = (n: number, g: Gate) => `review ${n} (${g.text})`;
 
 // The guides review `g` follows now, as the review text names them: for each
-// artifact it reviews, the review guide that applies, else the artifact's own
-// guide, with the artifact it applies to; with no artifact, the review guide
-// alone. Each with a digest of its content, so an edit of the guide's text
-// counts as a change of the review.
+// artifact it reviews, every guide that applies to it (its authoring guide,
+// its review guide and the gate's), with the artifact it applies to; with no
+// artifact, the gate's guide alone. Each with a digest of its content, so an
+// edit of any of them counts as a change of the review.
 function reviewGuidesNow(c: Ctx, step: Step, g: Gate): string[] {
   const named = (path: string) => {
     let digest = "unreadable";
@@ -210,13 +210,12 @@ function reviewGuidesNow(c: Ctx, step: Step, g: Gate): string[] {
   };
   const ids = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
   if (!ids.length) {
-    const guide = reviewGuide(c.p, g, undefined);
-    return guide ? [named(guide)] : [];
+    const guide = gateReviewGuide(c.p, g);
+    return guide ? [named(guide.path)] : [];
   }
-  return ids.flatMap((id) => {
-    const guide = reviewGuide(c.p, g, id) ?? libraryEntry(c.p, id)?.guide;
-    return guide ? [`${named(guide)} for ${id}`] : [];
-  });
+  // A file that applies twice for one artifact, such as a gate's guide that
+  // is also the artifact's own, is read and named once.
+  return [...new Set(ids.flatMap((id) => reviewGuides(c.p, g, id).map((guide) => `${named(guide.path)} for ${id}`)))];
 }
 
 // A review's identity, as the state file records it: its label, and the
@@ -1981,9 +1980,15 @@ function launchesText(c: Ctx, g: Gate, step: Step): string {
 class Guides {
   readonly owned: string[] = [];
   readonly shipped: string[] = [];
+  // A file found both ways, such as a policy's guide that is also a shipped
+  // artifact's guide, is the owner's: the owner chose it.
   private add(path: string, owners: boolean) {
-    const list = owners ? this.owned : this.shipped;
-    if (!list.includes(path)) list.push(path);
+    if (this.owned.includes(path)) return;
+    if (owners) {
+      this.owned.push(path);
+      const at = this.shipped.indexOf(path);
+      if (at >= 0) this.shipped.splice(at, 1);
+    } else if (!this.shipped.includes(path)) this.shipped.push(path);
   }
   addAuthoring(entry: { level: string; guide?: string } | undefined) {
     if (entry?.guide) this.add(entry.guide, entry.level !== "package");
@@ -2072,26 +2077,26 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
   const authoring: string[] = [];
   const precedence = new Guides();
   for (const a of reviewed) {
-    // Every artifact's authoring guide counts for precedence, whether or not a
-    // review guide replaces it as the reviewer's checklist.
-    precedence.addAuthoring(libraryEntry(c.p, a.artifact.artifact));
-    precedence.addReview(c.p, reviewGuideSource(c.p, g, a.artifact.artifact), g);
-    const guide = reviewGuide(c.p, g, a.artifact.artifact);
-    if (guide) {
-      guided.push(guide);
-      parts.push(`${a.path} against ${display(c.p, guide)}`);
-    } else {
-      const own = libraryEntry(c.p, a.artifact.artifact)?.guide;
-      if (own) authoring.push(own);
-      parts.push(own ? `${a.path}, with its guide ${display(c.p, own)} as the definition of a good artifact` : a.path);
-    }
+    // The reviewer gets every guide that applies: the artifact's authoring
+    // guide as the definition of a good artifact, and its review guide and the
+    // gate's as the checks.
+    const applied = reviewGuides(c.p, g, a.artifact.artifact);
+    for (const guide of applied) precedence.addReview(c.p, guide, g);
+    const checks = [...new Set(applied.filter((guide) => guide.role !== "authoring").map((guide) => guide.path))];
+    const own = applied.find((guide) => guide.role === "authoring")?.path;
+    for (const guide of checks) if (!guided.includes(guide)) guided.push(guide);
+    if (own) authoring.push(own);
+    let part = a.path;
+    if (checks.length) part += ` against ${checks.map((guide) => display(c.p, guide)).join(" and ")}`;
+    if (own) part += `, with its guide ${display(c.p, own)} as the definition of a good artifact`;
+    parts.push(part);
   }
   if (reviewed.length === 0) {
-    const guide = reviewGuide(c.p, g, undefined);
-    precedence.addReview(c.p, reviewGuideSource(c.p, g, undefined), g);
+    const guide = gateReviewGuide(c.p, g);
+    precedence.addReview(c.p, guide, g);
     if (guide) {
-      guided.push(guide);
-      text += ` Follow the review guide ${display(c.p, guide)}.`;
+      guided.push(guide.path);
+      text += ` Follow the review guide ${display(c.p, guide.path)}.`;
     }
   } else {
     text += ` It reviews ${parts.join("; ")}.`;
@@ -2149,7 +2154,9 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
     " Classify each finding as a required fix, optional or a false positive, with the reason; a finding the owner " +
     "already accepted or deferred is not a required fix. " +
     (guided.length
-      ? `The review guide decides what counts as a required fix and when a round passes; where it does not say, ${levels}`
+      ? guided.length > 1
+        ? `The review guides decide what counts as a required fix and when a round passes; where they do not say, ${levels}`
+        : `The review guide decides what counts as a required fix and when a round passes; where it does not say, ${levels}`
       : capitalize(levels)) +
     " Fix what is required and review again, until a round ends with no required fix. That round passes and ends " +
     "the review: fixing optional findings after it starts no further round.";

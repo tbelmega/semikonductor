@@ -106,14 +106,18 @@ export interface FileRef {
 export type ReviewGuideSource =
   "local policy" | "team policy" | "project library" | "gate" | "user policy" | "user library" | "package library";
 
-// For each agent gate of the open text: the review guide the engine gives it
-// for each artifact of its step, and the gate's own guide.
+// What a guide is to the review: the artifact's authoring guide, its review
+// guide, or the guide the gate applies to every artifact.
+export type ReviewGuideRole = "authoring" | "review" | "gate";
+
+// For each agent gate of the open text: every guide the engine gives its
+// reviewer for each artifact of its step, and the gate's own guide.
 export interface ReviewGuides {
   gates: {
     step: number;
     gate: number;
     gateGuide?: FileRef & { exists: boolean };
-    reviews: { artifact?: string; guide?: FileRef & { source: ReviewGuideSource }; ownGuide?: FileRef }[];
+    reviews: { artifact?: string; guides: (FileRef & { source: ReviewGuideSource; role: ReviewGuideRole })[] }[];
   }[];
   // The text of every file named above that exists and can be read, by path.
   files: Record<string, string>;

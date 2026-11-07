@@ -62,8 +62,9 @@ export const PolicySchema = z
         guide: z.string().min(1).optional().meta({
           description:
             "A review guide for every agent gate, relative to this file or absolute. In the team's or the local " +
-            "policy it replaces the gates' guides and every artifact review guide; in the user's policy it applies " +
-            "only where neither the project's library nor the gate gives one. Engine effect: printed with the gate.",
+            "policy it replaces the gates' guides; in the user's policy it applies only to gates that give none. " +
+            "Either way it applies together with each reviewed artifact's guide and review guide. Engine effect: " +
+            "printed with the gate.",
         }),
         reviewer: z.string().min(1).optional().meta({
           description: "Who reviews, in words, such as a model or a harness. Engine effect: printed with the gate.",

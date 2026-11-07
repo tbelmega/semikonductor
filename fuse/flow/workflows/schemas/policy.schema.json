@@ -37,7 +37,7 @@
           "minimum": 1
         },
         "guide": {
-          "description": "A review guide for every agent gate, relative to this file or absolute. In the team's or the local policy it replaces the gates' guides and every artifact review guide; in the user's policy it applies only where neither the project's library nor the gate gives one. Engine effect: printed with the gate.",
+          "description": "A review guide for every agent gate, relative to this file or absolute. In the team's or the local policy it replaces the gates' guides; in the user's policy it applies only to gates that give none. Either way it applies together with each reviewed artifact's guide and review guide. Engine effect: printed with the gate.",
           "type": "string",
           "minLength": 1
         },

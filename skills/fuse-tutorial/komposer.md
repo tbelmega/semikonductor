@@ -89,7 +89,7 @@ what they see when something matters. Celebrate briefly, never at length. The st
 8. Under **Gates**, click **+ check** (the text is `default`: the project's own check command,
    which fuse-flow asks for the first time) and then **+ agent**, with the text
    `review the change against the spec`. Point out "reviews against" under the agent gate: which
-   review guide applies to each artifact.
+   guides apply to each artifact.
 9. Open the **YAML** tab and show the user the file Komposer wrote. Mention that Komposer keeps
    comments and layout when it edits a file.
 10. Click **Save…** at the top, then **Save** in the dialog. The workflow is now listed under

@@ -224,28 +224,32 @@ export type ReviewGuideSource =
   | "user library"
   | "package library";
 
-// The review guide an agent gate uses for one of the step's artifacts, and
-// which layer it comes from, or undefined when there is none: the generic
-// review text applies then.
-export function reviewGuideSource(
-  p: Project,
-  gate: Gate,
-  artifactId: string | undefined,
-): { path: string; source: ReviewGuideSource } | undefined {
-  const dirs = libraryDirs(p.root);
-  // Only the winning entry's review.md counts: the entry wins as a whole, as
-  // for its guide and template, and the libraries it replaces are not looked at.
-  const winner = artifactId ? libraryEntry(p, artifactId)?.folder : undefined;
-  const inLibrary = (dir: string) =>
-    winner && winner.startsWith(join(dir, "artifacts") + sep) ? existing(join(winner, "review.md")) : undefined;
+// What a guide is to a review: the artifact's authoring guide, which says how
+// a good artifact is built; the artifact's own review guide, its review.md;
+// or the guide of the gate, which says how this workflow reviews.
+export type ReviewGuideRole = "authoring" | "review" | "gate";
+
+export interface AppliedGuide {
+  path: string;
+  source: ReviewGuideSource;
+  role: ReviewGuideRole;
+}
+
+const LIBRARY_SOURCE: Record<LibraryLevel, ReviewGuideSource> = {
+  project: "project library",
+  user: "user library",
+  package: "package library",
+};
+
+// The guide a gate applies to every artifact it reviews, and which layer it
+// comes from: a team's or local policy's review.guide replaces the gate's
+// guide, which replaces the user's policy's. Undefined when there is none.
+export function gateReviewGuide(p: Project, gate: Gate): { path: string; source: ReviewGuideSource } | undefined {
   const order: [ReviewGuideSource, () => string | undefined][] = [
     ["local policy", () => policyGuide(p.local)],
     ["team policy", () => policyGuide(p.team)],
-    ["project library", () => inLibrary(dirs.project)],
     ["gate", () => gate.guide],
     ["user policy", () => policyGuide(p.user)],
-    ["user library", () => inLibrary(dirs.user)],
-    ["package library", () => inLibrary(dirs.package)],
   ];
   for (const [source, find] of order) {
     const path = find();
@@ -254,8 +258,28 @@ export function reviewGuideSource(
   return undefined;
 }
 
-export function reviewGuide(p: Project, gate: Gate, artifactId: string | undefined): string | undefined {
-  return reviewGuideSource(p, gate, artifactId)?.path;
+// Every guide an agent gate's reviewer follows for one of the step's
+// artifacts, or for the step itself when `artifactId` is undefined: the
+// artifact's authoring guide, its review.md and the gate's guide, in that
+// order. An artifact's guides come from the winning library entry only: the
+// entry wins as a whole, and the libraries it replaces are not looked at. The
+// guides add up, so a gate's guide never hides how the artifact is built or
+// checked. Two of them may be the same file; each keeps its own role and
+// source, so the gate's guide is still checked and a policy's is still the
+// owner's. Callers that read or show the files name each file once.
+export function reviewGuides(p: Project, gate: Gate, artifactId: string | undefined): AppliedGuide[] {
+  const found: AppliedGuide[] = [];
+  const add = (g: AppliedGuide) => found.push(g);
+  const entry = artifactId ? libraryEntry(p, artifactId) : undefined;
+  if (entry) {
+    const source = LIBRARY_SOURCE[entry.level];
+    if (entry.guide) add({ path: entry.guide, source, role: "authoring" });
+    const review = existing(join(entry.folder, "review.md"));
+    if (review) add({ path: review, source, role: "review" });
+  }
+  const fromGate = gateReviewGuide(p, gate);
+  if (fromGate) add({ ...fromGate, role: "gate" });
+  return found;
 }
 
 // Why a review guide cannot be followed, or undefined when it can: the step
@@ -272,9 +296,11 @@ function notAGuide(path: string): string | undefined {
 
 // The review guides the workflow's agent gates use, once the policy files and
 // the libraries have had their say, that cannot be followed: one line each,
-// naming where the guide was set. A guide that a more specific one replaces is
-// never read, so it need not exist. `file` is the workflow file. With
-// `only`, the steps it names; the step block prints the guides of those alone.
+// naming where the guide was set. A gate's guide that a policy's replaces is
+// never read, so it need not exist. An authoring guide that cannot be read is
+// the author's concern, and the step block says so. `file` is the workflow
+// file. With `only`, the steps it names; the step block prints the guides of
+// those alone.
 export function reviewGuideProblems(p: Project, wf: Workflow, file: string, only?: (step: Step) => boolean): string[] {
   const problems = new Set<string>();
   wf.steps.forEach((step, i) => {
@@ -282,10 +308,10 @@ export function reviewGuideProblems(p: Project, wf: Workflow, file: string, only
     const ids = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
     for (const gate of step.gates) {
       if (gate.kind !== "agent") continue;
-      for (const id of ids.length ? ids : [undefined]) {
-        const found = reviewGuideSource(p, gate, id);
-        const why = found && notAGuide(found.path);
-        if (!found || !why) continue;
+      const applied = (ids.length ? ids : [undefined]).flatMap((id) => reviewGuides(p, gate, id).map((found) => ({ id, found })));
+      for (const { id, found } of applied) {
+        const why = found.role !== "authoring" && notAGuide(found.path);
+        if (!why) continue;
         const layer = { "local policy": p.local, "team policy": p.team, "user policy": p.user }[found.source as string];
         if (layer) problems.add(`${layer.file} sets review.guide to ${layer.policy.review?.guide}, and ${found.path} ${why}`);
         else if (found.source === "gate") problems.add(`${file}: steps.${i} (${step.id}): the review guide of ${describeGate(gate)} ${why}: ${found.path}`);

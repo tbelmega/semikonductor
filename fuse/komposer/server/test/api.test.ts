@@ -1519,7 +1519,7 @@ steps:
       - agent: look it over
 `;
 
-  test("names the review guide each agent gate uses, where it comes from, and the gate's own guide", async () => {
+  test("names every guide each agent gate applies, where each comes from, and the gate's own guide", async () => {
     const path = write(join(root, ".konductor", "workflows", "reviewed.yml"), FLOW);
     write(join(root, ".konductor", "workflows", "rules", "review.md"), "gate rules\n");
     write(join(root, ".konductor", "library", "artifacts", "essay", "review.md"), "project essay rules\n");
@@ -1527,25 +1527,32 @@ steps:
     const out = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text: FLOW }) });
     const gateGuide = join(root, ".konductor", "workflows", "rules", "review.md");
     const essayRules = join(root, ".konductor", "library", "artifacts", "essay", "review.md");
+    const notesGuide = join(root, ".konductor", "library", "artifacts", "notes", "guide.md");
+    const viaGate = { path: gateGuide, display: ".konductor/workflows/rules/review.md", source: "gate", role: "gate" };
     expect(out.gates).toEqual([
       {
         step: 0,
         gate: 1,
         gateGuide: { path: gateGuide, display: ".konductor/workflows/rules/review.md", exists: true },
         reviews: [
-          // The project's library replaces the gate's guide for essay ...
-          { artifact: "essay", guide: { path: essayRules, display: ".konductor/library/artifacts/essay/review.md", source: "project library" } },
-          // ... and the gate's guide applies to notes.
-          { artifact: "notes", guide: { path: gateGuide, display: ".konductor/workflows/rules/review.md", source: "gate" } },
+          // Each artifact's own guides apply together with the gate's guide.
+          {
+            artifact: "essay",
+            guides: [{ path: essayRules, display: ".konductor/library/artifacts/essay/review.md", source: "project library", role: "review" }, viaGate],
+          },
+          {
+            artifact: "notes",
+            guides: [{ path: notesGuide, display: ".konductor/library/artifacts/notes/guide.md", source: "project library", role: "authoring" }, viaGate],
+          },
         ],
       },
-      { step: 1, gate: 0, reviews: [{}] },
+      { step: 1, gate: 0, reviews: [{ guides: [] }] },
     ]);
     expect(out.files[gateGuide]).toBe("gate rules\n");
     expect(out.files[essayRules]).toBe("project essay rules\n");
   });
 
-  test("an artifact with no review guide falls back to its own guide", async () => {
+  test("an artifact without a review guide is reviewed against its own guide", async () => {
     const text = FLOW.replace("        guide: rules/review.md\n", "");
     const path = write(join(root, ".konductor", "workflows", "reviewed.yml"), text);
     write(join(root, ".konductor", "library", "artifacts", "notes", "guide.md"), "notes guide\n");
@@ -1554,7 +1561,10 @@ steps:
     expect(out.gates[0]).toEqual({
       step: 0,
       gate: 1,
-      reviews: [{ artifact: "essay" }, { artifact: "notes", ownGuide: { path: notesGuide, display: ".konductor/library/artifacts/notes/guide.md" } }],
+      reviews: [
+        { artifact: "essay", guides: [] },
+        { artifact: "notes", guides: [{ path: notesGuide, display: ".konductor/library/artifacts/notes/guide.md", source: "project library", role: "authoring" }] },
+      ],
     });
     expect(out.files[notesGuide]).toBe("notes guide\n");
   });
@@ -1567,7 +1577,7 @@ steps:
     expect(out.gates[0].gateGuide).toEqual({ path: missing, display: ".konductor/workflows/rules/missing.md", exists: false });
     expect(out.gates[0].reviews[1]).toEqual({
       artifact: "notes",
-      guide: { path: missing, display: ".konductor/workflows/rules/missing.md", source: "gate" },
+      guides: [{ path: missing, display: ".konductor/workflows/rules/missing.md", source: "gate", role: "gate" }],
     });
     expect(out.files[missing]).toBeUndefined();
   });
@@ -1587,8 +1597,8 @@ steps:
     }
   });
 
-  test("names every source of a review guide, in the engine's order", async () => {
-    // design ships with a review guide, so the package library applies first.
+  test("names every source of a review guide, as the engine applies them", async () => {
+    // design ships with a guide and a review guide, so the package library applies first.
     const text = (guide: string) => `version: 1
 name: one
 steps:
@@ -1603,28 +1613,36 @@ steps:
     const path = write(join(root, ".konductor", "workflows", "one.yml"), text(""));
     const ask = async (t: string) => {
       const out = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text: t }) });
-      const guide = out.gates[0].reviews[0].guide;
-      return { source: guide.source, path: guide.path, text: out.files[guide.path] };
+      return out.gates[0].reviews[0].guides.map((g: any) => ({ source: g.source, role: g.role, path: g.path, text: out.files[g.path] }));
     };
-    const shipped = realpathSync(resolve(import.meta.dir, "..", "..", "..", "flow", "library", "artifacts", "design", "review.md"));
-    expect(await ask(text(""))).toEqual({ source: "package library", path: shipped, text: readFileSync(shipped, "utf8") });
+    const shipped = (file: string) => realpathSync(resolve(import.meta.dir, "..", "..", "..", "flow", "library", "artifacts", "design", file));
+    expect(await ask(text(""))).toEqual([
+      { source: "package library", role: "authoring", path: shipped("guide.md"), text: readFileSync(shipped("guide.md"), "utf8") },
+      { source: "package library", role: "review", path: shipped("review.md"), text: readFileSync(shipped("review.md"), "utf8") },
+    ]);
 
-    const steps: [string, string, string][] = [
-      ["user library", join(home, ".konductor", "library", "artifacts", "design", "review.md"), ""],
-      ["user policy", join(home, ".konductor", "user-review.md"), ""],
-      ["gate", join(root, ".konductor", "workflows", "gate-review.md"), "\n        guide: gate-review.md"],
-      ["project library", join(root, ".konductor", "library", "artifacts", "design", "review.md"), "\n        guide: gate-review.md"],
-      ["team policy", join(root, ".konductor", "team-review.md"), "\n        guide: gate-review.md"],
-      ["local policy", join(root, ".konductor", "local-review.md"), "\n        guide: gate-review.md"],
+    // Each step adds a more specific source. A library entry replaces the
+    // less specific one as a whole; a policy's or the gate's guide is the
+    // gate's one guide, applied with the entry's.
+    const userEntry = join(home, ".konductor", "library", "artifacts", "design", "review.md");
+    const projectEntry = join(root, ".konductor", "library", "artifacts", "design", "review.md");
+    const steps: [string, string, string, [string, string, string][]][] = [
+      ["user library", userEntry, "", [["user library", "review", userEntry]]],
+      ["user policy", join(home, ".konductor", "user-review.md"), "", [["user library", "review", userEntry], ["user policy", "gate", join(home, ".konductor", "user-review.md")]]],
+      ["gate", join(root, ".konductor", "workflows", "gate-review.md"), "\n        guide: gate-review.md", [["user library", "review", userEntry], ["gate", "gate", join(root, ".konductor", "workflows", "gate-review.md")]]],
+      ["project library", projectEntry, "\n        guide: gate-review.md", [["project library", "review", projectEntry], ["gate", "gate", join(root, ".konductor", "workflows", "gate-review.md")]]],
+      ["team policy", join(root, ".konductor", "team-review.md"), "\n        guide: gate-review.md", [["project library", "review", projectEntry], ["team policy", "gate", join(root, ".konductor", "team-review.md")]]],
+      ["local policy", join(root, ".konductor", "local-review.md"), "\n        guide: gate-review.md", [["project library", "review", projectEntry], ["local policy", "gate", join(root, ".konductor", "local-review.md")]]],
     ];
-    for (const [source, file, gateLine] of steps) {
+    const rulesOf = (file: string) => steps.find(([, f]) => f === file)![0];
+    for (const [source, file, gateLine, expected] of steps) {
       write(file, `${source} rules\n`);
       if (source === "user policy") write(join(home, ".konductor", "policy-overrides.yml"), "review:\n  guide: user-review.md\n");
       if (source === "team policy") write(join(root, ".konductor", "policy-overrides.yml"), "review:\n  guide: team-review.md\n");
       if (source === "local policy") {
         write(join(root, ".konductor", "policy-overrides.local.yml"), "review:\n  guide: local-review.md\n");
       }
-      expect(await ask(text(gateLine))).toEqual({ source, path: file, text: `${source} rules\n` });
+      expect(await ask(text(gateLine))).toEqual(expected.map(([s, role, p]) => ({ source: s, role, path: p, text: `${rulesOf(p)} rules\n` })));
     }
   });
 
@@ -1637,7 +1655,7 @@ steps:
     const out = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text }) });
     expect(out.gates[0].reviews[1]).toEqual({
       artifact: "notes",
-      ownGuide: { path: notesGuide, display: ".konductor/library/artifacts/notes/guide.md" },
+      guides: [{ path: notesGuide, display: ".konductor/library/artifacts/notes/guide.md", source: "project library", role: "authoring" }],
     });
   });
 
@@ -1670,7 +1688,7 @@ steps:
       [1, 0, ["essay", "notes", "code"]],
     ]);
     // The shipped code entry has a review guide.
-    expect(out.gates[0].reviews[2].guide.source).toBe("package library");
+    expect(out.gates[0].reviews[2].guides.map((g: any) => [g.source, g.role])).toContainEqual(["package library", "review"]);
   });
 
   test("uses the text sent, not the file on disk, and refuses a path outside the workflow locations", async () => {
@@ -1702,7 +1720,7 @@ steps:
 
     const expectRefused = (out: any) => {
       expect(out.gates[0].gateGuide).toEqual({ path: secret, display: secret, outside: true, exists: false });
-      expect(out.gates[0].reviews[1].guide).toEqual({ path: secret, display: secret, outside: true, source: "gate" });
+      expect(out.gates[0].reviews[1].guides).toEqual([{ path: secret, display: secret, outside: true, source: "gate", role: "gate" }]);
       expect(out.files[secret]).toBeUndefined();
       expect(Object.values(out.files)).not.toContain("not for Komposer\n");
     };
@@ -1733,7 +1751,7 @@ steps:
       const text = FLOW.replace("        guide: rules/review.md\n", "");
       const path = write(join(root, ".konductor", "workflows", "reviewed.yml"), text);
       const out = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text }) });
-      const refs = out.gates[0].reviews.flatMap((r: any) => [r.guide, r.ownGuide].filter(Boolean));
+      const refs = out.gates[0].reviews.flatMap((r: any) => r.guides);
       expect(refs.length).toBeGreaterThan(0);
       for (const ref of refs.filter((r: any) => r.path === link || r.path === secret)) {
         expect(ref.outside).toBe(true);
@@ -1791,7 +1809,7 @@ steps:
       const text = FLOW.replace("artifact: essay", "artifact: code").replace("        guide: rules/review.md\n", "");
       const path = write(join(root, ".konductor", "workflows", "reviewed.yml"), text);
       const shipped = await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text }) });
-      const guide = shipped.gates[0].reviews[0].guide;
+      const guide = shipped.gates[0].reviews[0].guides.find((g: any) => g.role === "review");
       expect(guide.source).toBe("package library");
       expect(guide.outside).toBeUndefined();
       expect(shipped.files[guide.path]).toBe(readFileSync(guide.path, "utf8"));

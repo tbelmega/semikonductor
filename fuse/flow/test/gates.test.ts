@@ -4,7 +4,7 @@
 // blocked, and the owner's decisions on them.
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { FLOW_DIR, Repo } from "./helpers";
 
@@ -457,13 +457,17 @@ steps:
     // A project review guide that is a symlink is a house rule too.
     r.write("skills/essay-review/SKILL.md", "# review\n");
     symlinkSync("../../../../skills/essay-review/SKILL.md", join(r.root, ".konductor/library/artifacts/essay/review.md"));
+    // It adds to the gate's shipped guide, which still applies.
     const reviewed = r.ok("start", "feat");
-    expect(reviewed).toContain("It reviews essay.md against skills/essay-review/SKILL.md.");
     expect(reviewed).toContain(
-      "Give the reviewer the step instruction as well: The guides skills/essay-writing/SKILL.md, skills/essay-review/SKILL.md " +
-        "come from this project's or the owner's own library or policy, so they are house rules",
+      "It reviews essay.md against skills/essay-review/SKILL.md and shipped-review.md, with its guide " +
+        "skills/essay-writing/SKILL.md as the definition of a good artifact.",
     );
-    expect(reviewed).not.toContain("the instruction wins");
+    expect(reviewed).toContain(
+      "Give the reviewer the step instruction as well: where it and a guide that ships with fuse disagree, the " +
+        "instruction wins, so following the instruction is not a required fix. The guides skills/essay-writing/SKILL.md, " +
+        "skills/essay-review/SKILL.md come from this project's or the owner's own library or policy, so they are house rules",
+    );
   } finally {
     r.cleanup();
   }
@@ -505,7 +509,7 @@ steps:
   }
 });
 
-test("a review guide decides the pass rule; a project's own replaces the workflow's gate guide", () => {
+test("a review guide decides the pass rule; a project's review guide adds to the gate's guide, and a policy's replaces it", () => {
   const r = new Repo();
   try {
     r.write("flows/review-rules.md", "# rules\n");
@@ -536,14 +540,151 @@ steps:
     );
 
     r.write(".konductor/library/artifacts/essay/review.md", "# house rules\n");
-    expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/library/artifacts/essay/review.md.");
+    expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/library/artifacts/essay/review.md and flows/review-rules.md.");
     // An entry in a folder below artifacts/ is found the same way.
     r.cleanupPath(".konductor/library/artifacts/essay");
     r.write(".konductor/library/artifacts/prose/essay/review.md", "# house rules\n");
-    expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/library/artifacts/prose/essay/review.md.");
+    expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/library/artifacts/prose/essay/review.md and flows/review-rules.md.");
     r.write(".konductor/review.md", "# policy guide\n");
     r.write(".konductor/policy-overrides.yml", "review:\n  guide: review.md\n");
-    expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/review.md.");
+    expect(r.ok("start", "feat")).toContain("It reviews essay.md against .konductor/library/artifacts/prose/essay/review.md and .konductor/review.md.");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a review gate applies the artifact's guide, its review guide and the gate's guide together", () => {
+  const r = new Repo();
+  try {
+    r.write("flows/review-rules.md", "# how to review\n");
+    r.write(
+      "flows/wf.yml",
+      `version: 1
+name: w
+steps:
+  - id: write
+    instruction: Write it.
+    produces:
+      - artifact: essay
+        path: essay.md
+    gates:
+      - agent: review the essay
+        guide: review-rules.md
+  - id: check
+    instruction: Check it.
+    gates:
+      - agent: look it over
+        guide: review-rules.md
+`,
+    );
+    r.write(".konductor/library/artifacts/essay/guide.md", "# how to write an essay\n");
+    r.write(".konductor/library/artifacts/essay/review.md", "# essay criteria\n");
+    const out = r.ok("start", "feat", "--workflow", `${r.root}/flows/wf.yml`);
+    expect(out).toContain(
+      "It reviews essay.md against .konductor/library/artifacts/essay/review.md and flows/review-rules.md, with its " +
+        "guide .konductor/library/artifacts/essay/guide.md as the definition of a good artifact.",
+    );
+    expect(out).toContain("The review guides decide what counts as a required fix and when a round passes; where they do not say,");
+
+    // With no reviewed artifact, the gate's guide alone.
+    r.write("essay.md", "# essay\n");
+    r.reviewed("feat", "write");
+    r.ok("continue", "feat");
+    const unreviewed = r.ok("start", "feat");
+    expect(unreviewed).toContain("Have an independent agent look it over. Follow the review guide flows/review-rules.md.");
+    expect(unreviewed).toContain("The review guide decides what counts as a required fix and when a round passes; where it does not say,");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a policy's review guide replaces only the gate's guide; the artifact's guides still apply", () => {
+  const r = new Repo();
+  try {
+    r.write("flows/review-rules.md", "# how to review\n");
+    r.write(
+      "flows/wf.yml",
+      `version: 1
+name: w
+steps:
+  - id: write
+    instruction: Write it.
+    produces:
+      - artifact: essay
+        path: essay.md
+    gates:
+      - agent: review the essay
+        guide: review-rules.md
+`,
+    );
+    r.write(".konductor/library/artifacts/essay/guide.md", "# how to write an essay\n");
+    r.write(".konductor/library/artifacts/essay/review.md", "# essay criteria\n");
+    r.write(".konductor/review.md", "# the project's review method\n");
+    r.write(".konductor/policy-overrides.yml", "review:\n  guide: review.md\n");
+    const out = r.ok("start", "feat", "--workflow", `${r.root}/flows/wf.yml`);
+    expect(out).toContain(
+      "It reviews essay.md against .konductor/library/artifacts/essay/review.md and .konductor/review.md, with its " +
+        "guide .konductor/library/artifacts/essay/guide.md as the definition of a good artifact.",
+    );
+    expect(out).not.toContain("flows/review-rules.md");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a gate's guide that is also the artifact's guide is still checked as the gate's, and refused when it is a folder", () => {
+  const r = new Repo();
+  try {
+    r.write(".konductor/library/artifacts/essay/entry.yml", 'description: "An essay."\n');
+    mkdirSync(join(r.root, ".konductor/library/artifacts/essay/guide.md"));
+    const shared = join(r.root, ".konductor/library/artifacts/essay/guide.md");
+    const wf = r.write(
+      "wf.yml",
+      `version: 1
+name: w
+steps:
+  - id: write
+    instruction: Write it.
+    produces:
+      - artifact: essay
+        path: essay.md
+    gates:
+      - agent: review the essay
+        guide: ${shared}
+`,
+    );
+    expect(r.refused("start", "feat", "--workflow", wf)).toContain(
+      `the review guide of agent(review the essay) is a folder, not a file: ${shared}`,
+    );
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a local policy's review guide that is also a shipped artifact's guide stays the owner's house rule", () => {
+  const r = new Repo();
+  try {
+    const skill = realpathSync(join(FLOW_DIR, "..", "..", "skills", "testing-strategy", "SKILL.md"));
+    r.write(".konductor/policy-overrides.local.yml", `review:\n  guide: ${skill}\n`);
+    const out = r.start(
+      "feat",
+      `version: 1
+name: w
+steps:
+  - id: build
+    instruction: Build it.
+    updates:
+      - artifact: code
+        path: src/
+    gates:
+      - agent: review the change
+`,
+    );
+    expect(out).toContain(
+      "Give the reviewer the step instruction as well: where it and a guide that ships with fuse disagree, the " +
+        "instruction wins, so following the instruction is not a required fix. " +
+        `The guide ${skill} comes from this project's or the owner's own library or policy, so it is a house rule`,
+    );
   } finally {
     r.cleanup();
   }

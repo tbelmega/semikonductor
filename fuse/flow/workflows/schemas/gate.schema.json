@@ -168,7 +168,7 @@
           "minimum": 1
         },
         "guide": {
-          "description": "A review guide for this gate, relative to the workflow file or absolute. It replaces the review guides of the step's artifacts and decides what counts as a required fix and when a round passes. A project's policy or its own library can replace it. Engine effect: printed with the step.",
+          "description": "A review guide for this gate, relative to the workflow file or absolute: how this workflow reviews, and any criteria of its own. It applies together with each reviewed artifact's guide and review guide, and with them decides what counts as a required fix and when a round passes. A team's or local policy's review.guide replaces it. Engine effect: printed with the step.",
           "type": "string"
         }
       },
