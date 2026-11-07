@@ -141,19 +141,29 @@ race conditions (409), downstream service failures (502, 503) and throttling (42
 
 ### 6. Testing Strategy
 
-- Unit test scope: what to mock and what to test in isolation.
-- Integration test scope: which component interactions to verify.
+Name each test's level, the lowest that can show its behavior, with the levels of the
+`testing-strategy` skill (`skills/testing-strategy/SKILL.md` in the fuse-konductor clone). For a
+level above unit, say why a lower one cannot show it. No test replaces the feature's own code
+with a test double; only what lies outside the system is faked.
+
+- Unit test scope: the pure logic, such as validation rules and calculations.
+- Component test scope: each component through its public interface, with all of the system's
+  code real and the services outside it faked.
+- External-system test scope: the calls that need a real instance of another service, such as a
+  local DynamoDB, to show the behavior.
 - End-to-end test scope: the critical user journeys to validate.
 - Test data: fixtures, factories, seed data.
 
 ```
 Unit Tests:
-- MonitorService.createMonitor: validates input, calls repository, returns monitor
-- MonitorService.createMonitor: throws ConflictError on duplicate name
+- validateMonitorInput: rejects an empty name
 
-Integration Tests:
-- POST /monitors → creates monitor in DynamoDB → returns 201
+Component Tests:
+- POST /monitors → creates the monitor, with DynamoDB faked → returns 201
 - POST /monitors with duplicate name → returns 409
+
+External-System Tests:
+- MonitorRepository.put with a duplicate name against a local DynamoDB → conditional check fails
 
 E2E Tests:
 - Create monitor → verify in dashboard → receive first alert
@@ -194,7 +204,7 @@ diagrams are easier to read than one large one.
    does not own, and list the integration points with external services and other features.
 4. **Write the six sections.** Typed signatures in Components and Interfaces, typed fields in Data
    Models, the error scenarios from the acceptance criteria plus the standard errors above, and
-   concrete test cases at each level.
+   concrete test cases, each at the lowest level that can show it.
 5. **Check it** against the checks below before you present it.
 
 ## Quality checks
@@ -212,7 +222,8 @@ diagrams are easier to read than one large one.
 
 - No diagram, in the house rules' diagram tool or else Mermaid.
 - Missing error scenarios for operations that call external services or accept user input.
-- A testing strategy without one of the three levels: unit, integration, end-to-end.
+- A testing strategy that does not name each test's level, or that replaces the feature's own
+  code with a test double.
 - Shared components designed again in full instead of referenced.
 - More than 300 lines without a split into sub-features.
 

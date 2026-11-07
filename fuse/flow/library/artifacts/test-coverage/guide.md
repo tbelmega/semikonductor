@@ -14,22 +14,14 @@ Use the paths the step or its consumed artifacts give you; search only for what 
 - The test plan or test strategy, when there is one.
 - The source and test directories.
 
-## 1. Choose the testing model
+## 1. Choose the test levels
 
-When the house rules set a testing model or a test distribution for the project, judge the tests
-against it. Otherwise find the architecture type from the code and the design, and judge the test
-distribution against the model below that fits it; the ratios are rules of thumb, not targets:
-
-| Architecture                      | Model         | Expected distribution                                          |
-| --------------------------------- | ------------- | -------------------------------------------------------------- |
-| Backend, API, library             | Pyramid       | Unit 70-80%, integration 15-20%, end-to-end 5-10%              |
-| Frontend, user interface          | Trophy        | Unit 20-30%, integration 50-60%, end-to-end 15-20%, static analysis as the base |
-| Full stack, serverless            | Hybrid        | Unit 40-50%, integration 35-45%, end-to-end 10-15%             |
-| Microservices                     | Microservices | Unit 40-50%, integration 30-40%, contract 15-20%, end-to-end 5-10% |
-
-The model decides what good coverage means. On a frontend, component unit tests usually test
-implementation details and belong in integration tests; serverless code needs more integration
-tests with the cloud services it calls; microservices need contract tests between services.
+When the house rules set a testing model or test levels for the project, judge the tests against
+them. Otherwise use the test levels of the `testing-strategy` skill
+(`skills/testing-strategy/SKILL.md` in the fuse-konductor clone): type check, unit, component,
+external-system and end-to-end, each defined by what runs for real. Good coverage does not mean a
+share of tests per level: it means each behavior is shown by a test at the lowest level that can
+show it, and no test replaces the project's own code with a test double.
 
 ## 2. Count and classify the tests
 
@@ -39,23 +31,23 @@ such as `pytest --collect-only` or `playwright test --list`. Test files are not 
 often holds ten to fifty tests, and counting files instead of cases misstates the distribution by
 an order of magnitude.
 
-To see which tests pass, you may run the local unit and integration tests. Run tests that call a
+To see which tests pass, you may run the local unit and component tests. Run tests that call a
 deployed system, such as a deployed app, a cloud account or live endpoints, only with the owner's
 authorization for that target: such a run can create records, send messages or start workflows.
 A calling workflow says whether it has that authorization; used on its own, ask the owner. Record
 every test that did not run as not run, never as passing.
 
-- **Unit:** one function or class in isolation, dependencies mocked, fast.
-- **Integration:** several components working together, with real or mocked services.
-- **Contract:** in the microservices model, one service's API or message schema checked against
-  what its consumers expect, without running the services together.
-- **End-to-end:** a complete user workflow through the full stack.
+Classify each test by the level it runs at, and check it against the lowest level that can show
+its behavior:
 
-Compare the distribution with the model. Every type within 10 points of the model is aligned;
-a type off by 10 to 25 points is misaligned; more than 25 points is severely misaligned. Too many
-unit tests usually means implementation details are tested instead of behavior; too few
-integration tests means components are not tested together; end-to-end tests belong on the
-critical journeys only.
+- **At the lowest level:** no lower level could show the behavior.
+- **Too high:** a lower level could show the same behavior, such as an end-to-end test of a rule
+  that a unit test of a pure function would show.
+- **Test double of own code:** the test replaces part of the project's own code with a mock,
+  stub, spy or fake. It shows that the replaced code was called, not that the behavior works.
+
+A contract test, which checks one service's API or message schema against what its consumers
+expect, counts at the level it runs at.
 
 ## 3. Map tests to acceptance criteria and test plans
 
@@ -94,13 +86,14 @@ covered; classify it as **wrong kind**, not as missing.
 
 List every integration point in the system design: source, target, mechanism, synchronous or
 asynchronous, and how critical it is. Include the implicit ones, such as logging, metrics, tracing
-and authentication. Each integration point needs an integration test that covers its failure
-path as well as its success path. Mark an integration point **mocked** when its only tests replace
-the real service with a mock: such a test checks the component's side of the boundary, not the
-integration itself.
+and authentication. Each integration point needs tests that cover its failure path as well as
+its success path: a component test with the other system faked shows this project's side, and an
+external-system test shows the integration itself. Mark an integration point **mocked** when its
+only tests replace the real service with a mock: such a test checks the component's side of the
+boundary, not the integration itself.
 
-In the microservices model, also map each inter-service API and each message or event schema to
-the contract tests that cover it.
+In a system of several services, also map each inter-service API and each message or event schema
+to the contract tests that cover it.
 
 ## 6. Classify the gaps
 
@@ -111,23 +104,25 @@ the contract tests that cover it.
 - Core functionality untested: authentication, data persistence, critical workflows.
 - A security requirement or a security-sensitive operation without tests.
 - A non-functional requirement with no test at all.
-- A critical integration point without an integration test.
-- In the microservices model, an inter-service API or message schema without a contract test.
+- A critical integration point without a test.
+- In a system of several services, an inter-service API or message schema without a contract test.
 - Error handling paths or error scenarios without negative tests.
 
 **Warning (should fix):**
 
 - An acceptance criterion with partial coverage, or a planned test only partly implemented.
 - Edge cases and boundary conditions untested.
-- Integration tests that cover only the success path, integration points that are only mocked,
-  or secondary integrations, such as logging, monitoring or asynchronous messaging, without tests.
+- Tests of an integration point that cover only the success path, integration points that are
+  only mocked, or secondary integrations, such as logging, monitoring or asynchronous messaging,
+  without tests.
 - A non-functional requirement tested only with the wrong kind of test, or an operation with a
   service-level target and no performance test.
 
 **Manual testing required:** complex interactions such as drag-and-drop, third-party services
 such as payment providers, browser compatibility, assistive technology, and user experience.
 
-Also note low-value tests and test anti-patterns where they distort the picture: tests of
+Also note low-value tests and test anti-patterns where they distort the picture: tests that
+replace the project's own code with a test double, tests above the level they need, tests of
 implementation details, flaky tests that depend on timing, tests that depend on execution order
 or share state, setup without matching cleanup, tests without assertions or with assertions too
 vague to fail, commented-out tests, and tests of the wrong type for their scenario.
@@ -143,19 +138,18 @@ case, error scenario, edge case, non-functional, integration) and the priority.
 
 ## Summary
 
-**Testing model:** <model>, because <architecture>
+**Test levels:** <the house rules' model, or the testing-strategy levels>
 **Acceptance criteria covered:** <M>/<N>
 **Critical gaps:** <N> | **Warnings:** <N> | **Manual tests:** <N>
 
-| Test type   | Tests | Expected | Actual |
-| ----------- | ----- | -------- | ------ |
-| Unit        | <N>   | <X>%     | <Y>%   |
-| Integration | <N>   | <X>%     | <Y>%   |
-| Contract    | <N>   | <X>%     | <Y>%   |
-| End-to-end  | <N>   | <X>%     | <Y>%   |
+| Level           | Tests | Too high | Test double of own code |
+| --------------- | ----- | -------- | ----------------------- |
+| Unit            | <N>   | <N>      | <N>                     |
+| Component       | <N>   | <N>      | <N>                     |
+| External-system | <N>   | <N>      | <N>                     |
+| End-to-end      | <N>   | <N>      | <N>                     |
 
-Keep the Contract row for the microservices model only. Tests run: <N> passed, <N> failed,
-<N> not run, with the reason the rest did not run.
+Tests run: <N> passed, <N> failed, <N> not run, with the reason the rest did not run.
 
 ## Coverage by feature
 
@@ -171,7 +165,7 @@ Keep the Contract row for the microservices model only. Tests run: <N> passed, <
 | Item    | Requirement or integration | Test kind needed | Status            |
 | ------- | -------------------------- | ---------------- | ----------------- |
 | NFR-P1  | <requirement>              | Load test        | ❌ or wrong kind  |
-| INT-001 | <source> → <target>        | Integration      | ⚠️ mocked         |
+| INT-001 | <source> → <target>        | External-system  | ⚠️ mocked         |
 
 ## Gaps
 
