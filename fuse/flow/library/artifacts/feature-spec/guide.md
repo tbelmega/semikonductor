@@ -15,7 +15,9 @@ are checked against.
 3. **What and for whom:** the request in one or two sentences, and the outcome the owner wants.
 4. **Scope:** what the feature includes, and what it does not.
 5. **How it fits the code:** the files, modules or interfaces it changes or adds, found by reading
-   the code, with paths.
+   the code, with paths. For each new mechanism, name the existing one you checked and why it does
+   not fit. Mark each claim about another service or library as checked, with the code path or
+   document, or as unchecked.
 6. **Acceptance tests:** one per behavior the feature must have, each written so that a test can
    check it, from the request and not from an implementation you have in mind. Give each test's
    level, the lowest that can show the behavior, and for a level above unit, why a lower one
