@@ -71,7 +71,12 @@ steps:
       behavior that repeats, retries or reconciles, also test a repeat run on the finished state
       that changes nothing, and each failure path through to recovery; each test fails without the
       feature. Where there are genuinely different approaches, propose them with your
-      recommendation. Ask every remaining question whose answer changes the design, give your
+      recommendation. For each call to another system that the feature adds or multiplies, find its
+      limits, throttling and failure states in its code or documentation, and design for them or ask
+      the owner; where its source is available, trace the paths the feature calls and check that
+      they behave as the design expects. A checkout of that system next to this project, in the same
+      parent folder, means the owner wants it reviewed and possibly fixed: report where it does not
+      behave as expected, and ask the owner before changing it. Ask every remaining question whose answer changes the design, give your
       recommended answer with each, and decide the rest yourself as recorded assumptions, labeled
       as your decisions so the owner can object. Record what is deferred. Keep the spec as short
       as the feature allows, and have it state the current result: resolved questions, approvals

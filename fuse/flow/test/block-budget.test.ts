@@ -13,8 +13,9 @@ beforeEach(() => {
 });
 afterEach(() => repo.cleanup());
 
-// About 10% above the block's size when the budget was set (6,565 bytes).
-const DESIGN_BLOCK_BUDGET = 7_200;
+// About 10% above the block's size when the budget was last raised (7,602 bytes), when the
+// design step took on the research of each system the feature calls.
+const DESIGN_BLOCK_BUDGET = 8_400;
 
 test("the design step block of the feature workflow, with one review gate, stays within its byte budget", () => {
   repo.write(".konductor/policy-overrides.local.yml", 'checks:\n  default: "true"\n');

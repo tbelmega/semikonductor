@@ -119,7 +119,12 @@ steps:
       than guess. If the owner agrees and the experiment is small, run it here as a throwaway
       prototype, as the prototypes step does, and record its result and evidence in a research
       note; a larger one is the owner's call to send back to the prototypes step. Check every claim
-      about existing code or services against the source. Leave the build order to the feature
+      about existing code or services against the source. For each other system the design calls,
+      find its limits, throttling and failure states in its code or documentation, and design for
+      them or put the question to the owner; where its source is available, trace the paths the
+      design relies on and check that they behave as it expects. A checkout of that system next to
+      this project, in the same parent folder, means the owner wants it reviewed and possibly fixed:
+      report where it does not behave as expected, and ask the owner before changing it. Leave the build order to the feature
       split: the design has no implementation plan or task list. Put the design's open questions
       and the trade-offs only the owner can decide first in the hand-over, with your
       recommendation for each.
