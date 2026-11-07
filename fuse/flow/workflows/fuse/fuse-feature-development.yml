@@ -83,7 +83,11 @@ steps:
       library/artifacts/glossary/guide.md in fuse-flow: prefer existing terms, and where sources
       disagree, pick one and record the synonyms not to use. Keep the spec as short
       as the feature allows, and have it state the current result: resolved questions, approvals
-      and review history go to the decisions file, not the spec. When nothing material is open, order the spec for review: the
+      and review history go to the decisions file, not the spec. List each published contract the
+      feature changes: one that something outside this change reads or writes, such as other
+      repositories, deployed clients, stored data or files that users write. For each, say whether
+      the change is additive or breaking, and put its versioning and migration plan, following the
+      project's versioning rules if it has any, to the owner as a decision in the spec. When nothing material is open, order the spec for review: the
       decisions the owner must make or check, and your own decisions and assumptions, come first,
       most important first. The implementation and code review steps run the project's default
       check at their gates without the owner, so if the project's policy binds no command to it
