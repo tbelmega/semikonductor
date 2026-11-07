@@ -24,6 +24,8 @@ CRITICAL, is a P0 or P1.
 - Type safety violations, such as `as any` or unchecked casts.
 - Missing error handling on external calls.
 - Atomicity issues: read-modify-write without conditions.
+- A behavior change the spec does not ask for, such as a different result for an existing caller
+  of shared code.
 
 **P2:**
 

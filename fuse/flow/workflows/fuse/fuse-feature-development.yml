@@ -120,7 +120,11 @@ steps:
       your code, and see each one fail before the code makes it pass, or break the code briefly
       and see it go red. Start every bug fix with a test that reproduces the bug and fails. How
       you test the rest is your call, within one rule: test each behavior at the lowest level that
-      can show it, and never replace the project's own code with a test double. Never weaken a test to get to green. If the feature is part
+      can show it, and never replace the project's own code with a test double. Shared code keeps
+      its existing callers' behavior unless the spec says otherwise: show it with a control test at
+      the lowest level that can show it, or name the existing test that already covers those
+      callers. Put changes the spec does not need in a separate commit, or ask the owner first.
+      Never weaken a test to get to green. If the feature is part
       of a system, also use the system end to end, with the features landed so far, for the
       requirements this feature covers. If the default check does not run the acceptance tests
       you wrote, change its binding where it is set, so that it does, without dropping what it
