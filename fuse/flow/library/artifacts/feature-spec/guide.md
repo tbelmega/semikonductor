@@ -21,7 +21,9 @@ are checked against.
    level, the lowest that can show the behavior, and for a level above unit, why a lower one
    cannot show it. No test replaces the project's own code with a test double. The
    `testing-strategy` skill (`skills/testing-strategy/SKILL.md` in the fuse-konductor clone)
-   defines the levels.
+   defines the levels. For behavior that repeats, retries or reconciles, include a test that runs
+   it again on the finished state and changes nothing, and a test for each failure path that
+   follows it through to recovery. Each test fails without the feature.
 7. **Deferred:** ideas and extensions that came up but are not part of this feature, so they are
    recorded instead of built.
 
