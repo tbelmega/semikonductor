@@ -84,7 +84,9 @@ Fix every required finding in one pass. In code, start the fix of each defect, a
 the code does the wrong thing, with a test that reproduces it and fails; how you show that other
 fixes hold, such as a missing test or a convention, is your call. Never weaken a test to get to
 green. Run the checks, then start the next round with a fresh reviewer on the whole
-artifact again, told how each earlier finding was handled. The reviewer marks an earlier finding
+artifact again, told how each earlier finding was handled. From the second round on, give the
+reviewer the diff since the last reviewed round and the earlier findings to start from; the whole
+artifact stays in scope. The reviewer marks an earlier finding
 that was fixed and has come back as `regressed` in the findings file's list of earlier findings,
 and does not report it again as a new finding. A round passes when it leaves no P0 or
 P1 open, and a passing round ends the review: fixing its optional findings starts no further
