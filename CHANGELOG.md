@@ -92,6 +92,12 @@ script installs plain skills and an always-on instruction block that every suppo
     disagreement; the review request tells the reviewer the same. A guide from the project's or
     the owner's own library or policy is a house rule instead: the agent follows the owner's
     ruling, else the guide when it clearly applies, and asks when it is unclear.
+  - A review gate's reviewer gets every guide that applies to each artifact it reviews: the
+    artifact's guide as the definition of a good artifact, its review guide from the library entry
+    that wins, and the gate's guide, so a gate's guide no longer hides an artifact's criteria. A
+    team's or local policy's `review.guide` replaces only the gate's guide. Every applied guide
+    is part of the review's identity, so editing any of them, an authoring guide included, makes a
+    passed or accepted review run again.
   - When the owner sends work back, from the current step in any status, the files the steps
     wrote stay recorded as draft and each reopened step's next pass lists them to keep, update or
     redo. Review rounds count per pass, with the pass in the findings file names from the second
@@ -139,8 +145,16 @@ script installs plain skills and an always-on instruction block that every suppo
     workflows can sit in their own folders or symlinked repositories.
   - An artifact library in `fuse/flow/library/artifacts/` holds a guide for each kind of
     document, often with a template and a review guide, for requirements, user stories, designs,
-    specs, feature splits, implementation plans, research notes, test coverage and more. A project
-    or a user can override any entry.
+    specs, feature splits, implementation plans, research notes, test coverage, a project's
+    glossary and more. A project or a user can override any entry. The `code` entry's guide is the
+    `testing-strategy` skill, so every step and review of code gets the test levels, and its
+    review guide rates a behavior change the spec does not ask for as P1. The test-coverage and
+    Kiro design guides judge each test by the lowest level that can show its behavior, instead of
+    mocked dependencies and percentage targets per architecture. The feature-spec guide asks for
+    each acceptance test's level, repeat-run and failure-recovery tests for behavior that repeats,
+    retries or reconciles, the existing mechanism checked for each new one, and each claim about
+    another service or library marked as checked or unchecked; its review guide makes a published
+    contract changed without a compatibility plan a P1 finding.
   - Policy files (`~/.konductor/policy-overrides.yml`, the project's `.konductor/policy-overrides.yml`
     and `.konductor/policy-overrides.local.yml`) set check commands, artifact paths, the reviewer
     model for each author model and how the reviewer is launched, and the owner's standing
@@ -171,7 +185,14 @@ script installs plain skills and an always-on instruction block that every suppo
     fails on the same code as a defect to fix rather than rerun or loosen, and runs the checks
     with `fuse-flow check` or cuts test output to the summary and the failures. The code review
     leaves fuse's files under `.konductor/` out of the commits unless the owner asked for them,
-    and never edits the project's ignore files to hide them. The shipped workflows leave branching to the project's own rules: when there
+    and never edits the project's ignore files to hide them. The design step plans each test at
+    the lowest level that can show its behavior; researches the limits, throttling and failure
+    states of each system the feature calls, tracing its source where available and treating a
+    checkout of it next to the project as a request to review it; keeps the project's terms in
+    its glossary; and puts a compatibility plan for each published contract the feature changes
+    to the owner in the spec. The implementation step keeps the behavior of shared code's existing
+    callers, shown by a control test, and commits changes the spec does not need separately or
+    asks first. The shipped workflows leave branching to the project's own rules: when there
     are none and the checkout is on the integration branch, the agent asks the owner once whether
     to create a branch.
   - `fuse-pull-request`, a change through the project's pull request or code review process, the
@@ -186,7 +207,8 @@ script installs plain skills and an always-on instruction block that every suppo
     rehearsal by an agent, and a build order whose features are then built with
     `fuse-feature-development`. The owner approves the prototype findings or sends the work back
     to the requirements. The owner approves the design, or answers its open questions, before the
-    build order is written; the design step may run a small experiment the owner agrees to.
+    build order is written; the design step may run a small experiment the owner agrees to, and
+    researches the limits and failure states of each system the design calls.
   - `fuse-dependency-migration`, a migration or refactoring that must keep the behavior: catalogue
     the checks, add missing ones, record a baseline, migrate in increments and compare.
   - `fuse-rapid-prototyping`, a new product idea explored as a runnable prototype: a short
@@ -226,7 +248,8 @@ script installs plain skills and an always-on instruction block that every suppo
   diagram, edits it without losing the file's comments and layout, browses the artifact library,
   and shows the runs of a project's workstreams. It keeps unsaved edits as a working copy, warns
   before a save affects a running workstream, follows the system's light or dark theme, and
-  serves only to 127.0.0.1 behind a token.
+  serves only to 127.0.0.1 behind a token. Its Review in effect box lists every guide an agent
+  gate's reviewer gets for each artifact, with where each comes from.
   - It refuses to save a workflow that fuse-flow would refuse, judges every read and write by the
     real path it leads to, and lists workflows, workstreams and their states as fuse-flow reads
     them.
@@ -257,6 +280,10 @@ script installs plain skills and an always-on instruction block that every suppo
     installs Fuse-Konductor with the user after checking their harnesses and conflicting skills or
     instructions, explains the repository, and teaches hands-on: choosing a workflow, working on a
     real project, building a greenfield demo project, or shaping a workflow to how the user works.
+  - `testing-strategy`: the test levels fuse workflows use, defined by what runs for real (type
+    check, unit, component, external-system and end-to-end), with the rules that no test replaces
+    the project's own code with a test double and that each test sits at the lowest level that can
+    show its behavior. It yields to a project's established testing conventions.
   - `aws-mcp-usage`: confirmation rules for AWS MCP tools that act on an account, and which AWS
     guidance to load for common tasks, taken from the removed architect and developer agents.
 - **The always-on block** `AGENTS.fuse.md`, which `install.sh` writes into instruction files. It
@@ -450,6 +477,13 @@ prints:
   it, you can delete an untracked one yourself.
 - `fuse-feature-development` now binds a newly found check command in
   `.konductor/policy-overrides.local.yml`. A check already bound in the team file keeps working.
+- Review gates now apply the artifact's guide and review guide alongside a gate's guide, and a
+  policy's `review.guide` replaces only the gate's guide. A review's identity now names every
+  applied guide, so a review that passed or that the owner accepted before the upgrade runs again
+  when its step resumes if it now applies more guides than before, and editing an artifact's
+  authoring guide now makes a passed review of that artifact run again. A project that relied on
+  a policy guide to replace an artifact's review guide can override the artifact's library entry
+  instead.
 
 ## [1.0.0] - 2026-09-23
 
