@@ -17,7 +17,11 @@ are checked against.
 5. **How it fits the code:** the files, modules or interfaces it changes or adds, found by reading
    the code, with paths.
 6. **Acceptance tests:** one per behavior the feature must have, each written so that a test can
-   check it, from the request and not from an implementation you have in mind.
+   check it, from the request and not from an implementation you have in mind. Give each test's
+   level, the lowest that can show the behavior, and for a level above unit, why a lower one
+   cannot show it. No test replaces the project's own code with a test double. The
+   `testing-strategy` skill (`skills/testing-strategy/SKILL.md` in the fuse-konductor clone)
+   defines the levels.
 7. **Deferred:** ideas and extensions that came up but are not part of this feature, so they are
    recorded instead of built.
 

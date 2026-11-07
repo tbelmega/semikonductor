@@ -65,7 +65,9 @@ steps:
     instruction: >
       Turn the draft into the agreed spec: what the feature does and for whom, how it fits the
       existing code, and the acceptance tests that will show it works, one for each behavior it
-      must have. Where there are genuinely different approaches, propose them with your
+      must have. Plan each test at the lowest level that can show its behavior, never with a test
+      double for the project's own code, as the testing-strategy skill
+      (skills/testing-strategy/SKILL.md in the fuse-konductor clone) defines the levels. Where there are genuinely different approaches, propose them with your
       recommendation. Ask every remaining question whose answer changes the design, give your
       recommended answer with each, and decide the rest yourself as recorded assumptions, labeled
       as your decisions so the owner can object. Record what is deferred. Keep the spec as short
@@ -102,7 +104,8 @@ steps:
       Build the approved spec. Write the spec's acceptance tests from the spec's wording, not from
       your code, and see each one fail before the code makes it pass, or break the code briefly
       and see it go red. Start every bug fix with a test that reproduces the bug and fails. How
-      you test the rest is your call. Never weaken a test to get to green. If the feature is part
+      you test the rest is your call, within one rule: test each behavior at the lowest level that
+      can show it, and never replace the project's own code with a test double. Never weaken a test to get to green. If the feature is part
       of a system, also use the system end to end, with the features landed so far, for the
       requirements this feature covers. If the default check does not run the acceptance tests
       you wrote, change its binding where it is set, so that it does, without dropping what it

@@ -5,7 +5,7 @@ description: Use whenever planning, implementing or reviewing automated tests. D
 
 # Testing strategy
 
-Which level of test shows a behaviour, and what a test may replace with a test double. Use it to
+Which level of test shows a behavior, and what a test may replace with a test double. Use it to
 plan the tests of a change, to write them, and to review them.
 
 ## The project's conventions come first
@@ -43,14 +43,14 @@ A level is defined by what runs for real, not by the tool, the folder or the fil
   move the boundary so that the code under test becomes pure.
 - **Fake only what lies outside our system.** That includes the clock and randomness: pass them
   in, so a test can fix them.
-- **Use the first level that can show the behaviour.** Start at the type check and go up only
+- **Use the first level that can show the behavior.** Start at the type check and go up only
   when the level below cannot show it. A higher level is slower and fails for more reasons.
 - **Push checks down to the types.** Where the language allows it, make an invalid state
   impossible to write, with strict types, rather than testing that it is rejected.
 
 ## Acceptance tests
 
-An acceptance test is defined by its purpose, not by its level: it shows one behaviour the spec
+An acceptance test is defined by its purpose, not by its level: it shows one behavior the spec
 promises, written at the lowest level that can show it. The spec names each acceptance test's
 level and, for a level above unit, why a lower one cannot show it.
 
