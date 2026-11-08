@@ -11,3 +11,11 @@ If you edit a workflow while a workstream runs, and replace a finished step with
 The review cost shown in `status` also includes those old files.
 
 This only happens after such an edit. To avoid it, give the new step a name that none of the old step's findings files start with.
+
+## Komposer can save a workflow whose broken policy review guide fuse-flow would refuse
+
+Komposer's validation opens no guide, so it cannot tell whether a gate's own guide hands the judgement to the working agent. On a gate with a guide of its own, a policy's or an artifact's review guide that is missing or is not a file is therefore a warning in Komposer, and the workflow can be saved.
+
+`fuse-flow validate` reads the guide. When the gate's guide does not declare the working agent, it refuses the same workflow, and so does `start`. When the gate's guide does declare it, no review guide of a policy applies, and both accept the workflow.
+
+A problem with the gate's own guide, and any problem on a gate with no guide of its own, is an error in Komposer as well.

@@ -120,6 +120,13 @@ export const GATE_FIELD_DOCS = {
   rerun: komposerDoc("rerun", "Which items get a new child when the owner sends the work back; the others are carried over."),
   rerunOverride: komposerDoc("rerun_override", "Whether the owner can name the items that get a new child on a send-back."),
   retries: komposerDoc("retries", "How many times failed items get a new child by themselves, with the previous attempt's documents."),
+  // A loop gate's settings, in Komposer's own words (rule 5).
+  repeatFrom: komposerDoc(
+    "repeat_from",
+    "Makes this a **loop gate**: while it does not pass, the steps from the chosen one to this one run again, without asking the owner.",
+  ),
+  interval: komposerDoc("interval", "About how long the agent waits before each new cycle, such as 15m or 2h."),
+  maxCycles: komposerDoc("max_cycles", "How many cycles the loop may run before the owner decides; no limit when empty."),
 };
 
 function komposerDoc(yamlKey: string, description: string): FieldDoc {

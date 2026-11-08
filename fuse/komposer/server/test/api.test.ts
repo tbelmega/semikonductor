@@ -197,6 +197,59 @@ describe("workflows", () => {
     expect(readFileSync(path, "utf8")).toBe(text);
   });
 
+  test("saves a loop gate set in the editor with repeat_from, interval and max_cycles, and the saved workflow validates", async () => {
+    const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
+    // The owner-action gate on polish is its only gate, so it can become the loop gate.
+    const text = applyEdit(TWO_STEPS, { op: "setGate", step: 1, index: 0, fields: { repeat_from: "draft", interval: "15m", max_cycles: 300 } });
+    const res = await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text }) });
+    expect(res.hash).toBe(hash(text));
+    const gate = loadWorkflow(path).steps[1].gates[0];
+    expect(gate).toMatchObject({ kind: "owner-action", repeat_from: "draft", interval: "15m", max_cycles: 300, route_back_to: ["draft"] });
+    expect(flow("validate", path)).toContain("valid:");
+  });
+
+  test("reads a guide's front matter only inside the guide scope", async () => {
+    // A guide outside the project and the libraries is not read, so it hands nothing to the working agent.
+    const outside = write(join(mkdtempSync(join(tmpdir(), "komposer-outside-")), "exit.md"), "---\njudged_by: working-agent\n---\n");
+    const inside = write(join(root, ".konductor", "workflows", "exit.md"), "---\njudged_by: working-agent\n---\n");
+    const path = join(root, ".konductor", "workflows", "judged.yml");
+    const text = (guide: string) =>
+      `version: 1\nname: judged\nsteps:\n  - id: watch\n    instruction: Watch.\n    gates:\n      - agent: done\n        guide: ${guide}\n        repeat_from: watch\n`;
+    write(path, text(inside));
+    const judged = async (guide: string) =>
+      (await json("/api/review-guides", { method: "POST", body: JSON.stringify({ path, text: text(guide) }) })).gates[0].workingAgent;
+    expect(await judged(inside)).toBe(true);
+    expect(await judged(outside)).toBeUndefined();
+  });
+
+  test("validation reads no guide, so an unverifiable policy guide is a warning that does not stop a save", async () => {
+    // fuse-flow validate reads the working-agent declaration, so a policy review guide that does not
+    // exist is no problem for a gate whose guide declares it. Komposer's validation reads no guide at
+    // all; for a gate that has a guide of its own it cannot tell, so it warns instead of refusing.
+    const guide = write(join(root, ".konductor", "workflows", "exit.md"), "---\njudged_by: working-agent\n---\n");
+    write(join(root, ".konductor", "policy-overrides.yml"), "review:\n  guide: missing-policy-guide.md\n");
+    const text = `version: 1\nname: judged\nsteps:\n  - id: watch\n    instruction: Watch.\n    gates:\n      - agent: done\n        guide: ${guide}\n        repeat_from: watch\n`;
+    const path = write(join(root, ".konductor", "workflows", "judged.yml"), text);
+    expect(flow("validate", path)).toContain("valid:");
+    const out = await json("/api/validate", { method: "POST", body: JSON.stringify({ path, text }) });
+    expect(out.errors).toEqual([]);
+    expect(out.warnings.join("\n")).toContain("missing-policy-guide.md");
+    expect(out.problems.map((p: any) => p.severity)).toEqual(["warning"]);
+    // Both save routes take it.
+    const edited = text.replace("name: judged", "name: judged\ndescription: saved");
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(text), text: edited }) });
+    const created = await json("/api/workflows", { method: "POST", body: JSON.stringify({ location: "project", file: "judged-copy", text: edited.replace("name: judged", "name: judged-copy") }) });
+    expect(created.path).toContain("judged-copy.yml");
+  });
+
+  test("a gate with no guide of its own still has an unavailable policy guide refused", async () => {
+    write(join(root, ".konductor", "policy-overrides.yml"), "review:\n  guide: missing-policy-guide.md\n");
+    const text = `version: 1\nname: plain\nsteps:\n  - id: only\n    instruction: Do.\n    gates:\n      - agent: review it\n`;
+    const path = write(join(root, ".konductor", "workflows", "plain.yml"), text);
+    const out = await json("/api/validate", { method: "POST", body: JSON.stringify({ path, text }) });
+    expect(out.errors.join("\n")).toContain("missing-policy-guide.md");
+  });
+
   test("refuses to update a file that changed on disk since the base hash", async () => {
     const path = write(join(root, ".konductor", "workflows", "two-steps.yml"), TWO_STEPS);
     writeFileSync(path, `${TWO_STEPS}# edited elsewhere\n`);

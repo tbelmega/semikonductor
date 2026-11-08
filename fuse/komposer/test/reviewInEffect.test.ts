@@ -17,6 +17,12 @@ const rows = (gate: GateReviewGuides) =>
 describe("reviewInEffectRows", () => {
   const viaGate = { path: gatePath, display: gateGuide.display, source: "gate" as const, role: "gate" as const };
 
+  test("a gate guide that hands the judgement to the working agent is said to apply alone", () => {
+    expect(rows({ gateGuide, workingAgent: true, reviews: [{ artifact: "essay", guides: [viaGate] }] })).toEqual([
+      { name: gateGuide.display, from: "gate guide; the agent that did the work judges by it alone, with no reviewer" },
+    ]);
+  });
+
   test("the artifacts' own guides apply together with the gate guide", () => {
     expect(
       rows({

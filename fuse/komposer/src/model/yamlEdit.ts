@@ -71,6 +71,11 @@ export interface GateFields {
   max_rounds?: number | null;
   guide?: string | null;
   route_back_to?: string[];
+  // A loop gate's settings: null removes the key. Removing repeat_from also
+  // removes interval and max_cycles, which mean nothing without it.
+  repeat_from?: string | null;
+  interval?: string | null;
+  max_cycles?: number | null;
   // A workflow gate's settings: null, an empty list or the engine's default removes the key,
   // as the engine reads a missing key as that default.
   slug?: string | null;
@@ -117,7 +122,8 @@ export type Edit =
 const ROOT_KEY_ORDER = ["version", "name", "description", "inputs", "hands_off_to", "steps"] as const;
 const STEP_KEY_ORDER = ["id", "title", "phase", "mode", "description", "instruction", "condition", "consumes", "produces", "optional_produces", "updates", "gates"] as const;
 const OUTPUT_KEY_ORDER = ["artifact", "path", "description"] as const;
-const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to"] as const;
+const LOOP_GATE_KEYS = ["repeat_from", "interval", "max_cycles"] as const;
+const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to", ...LOOP_GATE_KEYS] as const;
 const CONDITION_KEY_ORDER = [...GATE_KINDS, "description"] as const;
 
 // Folded scalars that Komposer writes are wrapped at this many columns.
@@ -324,6 +330,9 @@ interface GateItem {
   guide?: string;
   max_rounds?: number;
   route_back_to: string[];
+  repeat_from?: string;
+  interval?: string;
+  max_cycles?: number;
   slug?: unknown;
   returns?: unknown;
   for_each?: unknown;
@@ -345,6 +354,9 @@ function readGateItem(item: unknown): GateItem {
     if (optional("description") !== undefined) gate.description = optional("description");
     if (optional("guide") !== undefined) gate.guide = optional("guide");
     if (typeof item.max_rounds === "number") gate.max_rounds = item.max_rounds;
+    if (optional("repeat_from") !== undefined) gate.repeat_from = optional("repeat_from");
+    if (optional("interval") !== undefined) gate.interval = optional("interval");
+    if (typeof item.max_cycles === "number") gate.max_cycles = item.max_cycles;
     for (const key of WORKFLOW_GATE_KEYS) if (item[key] !== undefined) gate[key] = item[key];
     return gate;
   }
@@ -373,6 +385,18 @@ function patchGate(current: GateItem, fields: GateFields): GateItem {
   if ("max_rounds" in fields) set("max_rounds", fields.max_rounds ?? undefined);
   if ("guide" in fields) set("guide", fields.guide ?? undefined);
   if (fields.route_back_to !== undefined) next.route_back_to = [...fields.route_back_to];
+  if ("repeat_from" in fields) set("repeat_from", fields.repeat_from || undefined);
+  if ("interval" in fields) set("interval", fields.interval || undefined);
+  if ("max_cycles" in fields) set("max_cycles", fields.max_cycles ?? undefined);
+  // A workflow gate does not loop, and the loop's settings need repeat_from.
+  if (next.kind === "workflow") set("repeat_from", undefined);
+  if (next.repeat_from === undefined) {
+    set("interval", undefined);
+    set("max_cycles", undefined);
+  } else {
+    // A loop gate has no round cap; the engine refuses one.
+    set("max_rounds", undefined);
+  }
   if (next.kind !== "agent") {
     set("max_rounds", undefined);
     set("guide", undefined);
@@ -411,12 +435,13 @@ function writeGate(item: unknown, current: GateItem, next: GateItem): Obj {
     if (next.guide !== undefined) gate.guide = next.guide;
     if (next.max_rounds !== undefined) gate.max_rounds = next.max_rounds;
     if (next.route_back_to.length) gate.route_back_to = routeBack(next.route_back_to);
+    for (const key of LOOP_GATE_KEYS) if (next[key] !== undefined) gate[key] = next[key];
     return gate;
   }
   let gate = item;
   if (next.kind !== current.kind || next.text !== current.text) gate = renamedKey(gate, current.kind, next.kind, next.text);
   if (next.kind !== "workflow") for (const key of WORKFLOW_GATE_KEYS) gate = withoutKey(gate, key);
-  for (const key of [...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds"] as const) {
+  for (const key of [...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", ...LOOP_GATE_KEYS] as const) {
     if (deepEqual(next[key], current[key])) continue;
     gate = next[key] === undefined ? withoutKey(gate, key) : withKey(gate, key, next[key], GATE_KEY_ORDER);
   }
@@ -426,11 +451,15 @@ function writeGate(item: unknown, current: GateItem, next: GateItem): Obj {
   return gate;
 }
 
-// Rename every route_back_to target `from` in a step's gates to `to`.
+// Rename every route_back_to target and every repeat_from `from` in a step's
+// gates to `to`.
 function renameRoutes(step: unknown, from: string, to: string): unknown {
   if (!isObj(step)) return step;
-  const rename = (gate: unknown): unknown => {
-    if (!isObj(gate) || !Object.hasOwn(gate, "route_back_to")) return gate;
+  const rename = (raw: unknown): unknown => {
+    if (!isObj(raw)) return raw;
+    let gate = raw;
+    if (Object.hasOwn(gate, "repeat_from") && text(gate.repeat_from) === from) gate = { ...gate, repeat_from: to };
+    if (!Object.hasOwn(gate, "route_back_to")) return gate;
     const rbt = gate.route_back_to;
     if (Array.isArray(rbt)) return { ...gate, route_back_to: rbt.map((t) => (text(t) === from ? to : t)) };
     return text(rbt) === from ? { ...gate, route_back_to: to } : gate;

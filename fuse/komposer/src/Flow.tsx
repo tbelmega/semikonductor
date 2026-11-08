@@ -550,8 +550,11 @@ function StepCard({
                   </button>
                 );
               }
-              const extra = gate.kind === "agent" ? `×${gate.max_rounds ?? 2}${gate.guide ? " · guide" : ""}` : "";
-              const tip = `${gate.kind}: ${gate.text}${gate.guide ? `\nguide: ${gate.guide}` : ""}${gate.route_back_to.length ? `\nroute back to: ${gate.route_back_to.join(", ")}` : ""}`;
+              const extra = gate.kind === "agent" ? `${gate.repeat_from ? "" : `×${gate.max_rounds ?? 2}`}${gate.guide ? `${gate.repeat_from ? "" : " · "}guide` : ""}` : "";
+              const loop = gate.repeat_from
+                ? `\nloop: repeats from ${gate.repeat_from}${gate.interval ? `, about every ${gate.interval}` : ""}${gate.max_cycles ? `, at most ${gate.max_cycles} cycles` : ""}`
+                : "";
+              const tip = `${gate.kind}: ${gate.text}${gate.guide ? `\nguide: ${gate.guide}` : ""}${gate.route_back_to.length ? `\nroute back to: ${gate.route_back_to.join(", ")}` : ""}${loop}`;
               return (
                 <span key={k} className="gate-pill" data-tip={tip} style={{ background: style.bg, color: style.fg }}>
                   <span className="gate-num">{k + 1}</span>
@@ -561,6 +564,7 @@ function StepCard({
                   {gate.route_back_to.length > 0 && (
                     <span className="gate-route">↩ {gate.route_back_to.join(", ")}</span>
                   )}
+                  {gate.repeat_from && <span className="gate-route">↻ repeats from {gate.repeat_from}</span>}
                 </span>
               );
             })}

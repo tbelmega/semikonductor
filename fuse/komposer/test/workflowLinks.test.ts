@@ -103,6 +103,14 @@ describe("a workflow with inputs, hand-offs and a workflow gate", () => {
     ]);
   });
 
+  test("a loop gate runs after the step's reviews, as the engine runs it", () => {
+    const gates = [
+      { kind: "script", text: "test -f done", route_back_to: [], repeat_from: "a" },
+      { kind: "agent", text: "review it", route_back_to: [] },
+    ] as Parameters<typeof gatesInRunOrder>[0];
+    expect(gatesInRunOrder(gates).map(({ fileIndex }) => fileIndex)).toEqual([1, 0]);
+  });
+
   test("a returned document draws from the delegating step to the step that consumes it; an input draws nothing", () => {
     const layout = layoutEdges(stepViews(parent));
     expect(layout.buses.map((b) => [b.artifact, b.producerIndex, b.consumerIndices])).toEqual([

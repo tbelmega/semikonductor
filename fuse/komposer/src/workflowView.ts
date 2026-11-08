@@ -332,7 +332,7 @@ function guessCondition(raw: unknown): StepView["condition"] | null {
 
 function looseGate(raw: unknown): Gate | null {
   if (!raw || typeof raw !== "object") return null;
-  const { max_rounds, guide, route_back_to, description, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, ...rest } =
+  const { max_rounds, guide, route_back_to, description, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, repeat_from, interval, max_cycles, ...rest } =
     raw as Record<string, unknown>;
   const entries = Object.entries(rest).filter(([k]) => k !== "description");
   if (entries.length !== 1) return null;
@@ -353,6 +353,9 @@ function looseGate(raw: unknown): Gate | null {
     ...(typeof description === "string" ? { description } : {}),
     ...(typeof max_rounds === "number" ? { max_rounds } : {}),
     ...(typeof guide === "string" ? { guide } : {}),
+    ...(kind !== "workflow" && typeof repeat_from === "string" ? { repeat_from } : {}),
+    ...(typeof interval === "string" ? { interval } : {}),
+    ...(typeof max_cycles === "number" ? { max_cycles } : {}),
     ...(kind === "workflow" && typeof slug === "string" ? { slug } : {}),
     ...(inputMap ? { inputs: inputMap } : {}),
     ...(returnMap ? { returns: returnMap } : {}),
@@ -474,6 +477,9 @@ export function linkTo(
 // Gates run the workflow gate first (its child must be complete), then checks
 // and scripts, then agent, then owner. Conditions run the same order.
 const GATE_ORDER: Record<Gate["kind"], number> = { workflow: -1, check: 0, script: 0, agent: 1, "owner-action": 2 };
+// A loop gate decides whether the loop goes round again, so the engine runs
+// it after the step's other gates, before any owner action.
+const rank = (gate: Gate) => (gate.repeat_from !== undefined && gate.kind !== "owner-action" ? 1.5 : GATE_ORDER[gate.kind]);
 
 // The Mode select's value. No mode and an explicit "attended" both select
 // the attended default; any other value, the empty string included, selects
@@ -505,7 +511,7 @@ export function modeBadge(mode: string | undefined): { glyphs: ModeGlyph[]; labe
 export function gatesInRunOrder(gates: Gate[]): { gate: Gate; fileIndex: number }[] {
   return gates
     .map((gate, fileIndex) => ({ gate, fileIndex }))
-    .sort((a, b) => GATE_ORDER[a.gate.kind] - GATE_ORDER[b.gate.kind] || a.fileIndex - b.fileIndex);
+    .sort((a, b) => rank(a.gate) - rank(b.gate) || a.fileIndex - b.fileIndex);
 }
 
 export const stem = (file: string) => file.replace(/\.ya?ml$/, "");

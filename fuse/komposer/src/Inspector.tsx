@@ -809,7 +809,7 @@ function StepTab({
                   </label>
                   {gate.kind === "agent" && (
                     <div className="field-grid">
-                      <label className="mini-field">
+                      {gate.repeat_from === undefined && <label className="mini-field">
                         <span className="mini-label">
                           max_rounds <FieldLabel label="" doc={GATE_FIELD_DOCS.maxRounds} />
                         </span>
@@ -829,7 +829,7 @@ function StepTab({
                             })
                           }
                         />
-                      </label>
+                      </label>}
                       <label className="mini-field">
                         <span className="mini-label">
                           guide <FieldLabel label="" doc={GATE_FIELD_DOCS.guide} />
@@ -923,6 +923,65 @@ function StepTab({
                     </div>
                     {routeErr && <span className="field-error">{routeErr}</span>}
                   </label>
+                  {gate.kind !== "workflow" && (
+                    <div className="field-grid">
+                      <label className="mini-field">
+                        <span className="mini-label">
+                          repeat_from <FieldLabel label="" doc={GATE_FIELD_DOCS.repeatFrom} />
+                        </span>
+                        <select
+                          className="field-input"
+                          value={gate.repeat_from ?? ""}
+                          onChange={(e) =>
+                            onEdit({ op: "setGate", step: selectedIndex, index: fileIndex, fields: { repeat_from: e.target.value || null } })
+                          }
+                        >
+                          <option value="">no loop</option>
+                          {steps.slice(0, selectedIndex + 1).map((s, i) => (
+                            <option key={s.id} value={s.id}>
+                              {s.id}
+                              {i === selectedIndex ? " (this)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {gate.repeat_from !== undefined && (
+                        <>
+                          <label className="mini-field">
+                            <span className="mini-label">
+                              interval <FieldLabel label="" doc={GATE_FIELD_DOCS.interval} />
+                            </span>
+                            <DraftInput
+                              className="field-input"
+                              value={gate.interval ?? ""}
+                              placeholder="15m"
+                              onValue={(value) => onEdit({ op: "setGate", step: selectedIndex, index: fileIndex, fields: { interval: value || null } })}
+                            />
+                          </label>
+                          <label className="mini-field">
+                            <span className="mini-label">
+                              max_cycles <FieldLabel label="" doc={GATE_FIELD_DOCS.maxCycles} />
+                            </span>
+                            <input
+                              className="field-input"
+                              type="number"
+                              min={1}
+                              placeholder="no limit"
+                              value={gate.max_cycles ?? ""}
+                              onChange={(e) =>
+                                onEdit({
+                                  op: "setGate",
+                                  step: selectedIndex,
+                                  index: fileIndex,
+                                  fields: { max_cycles: e.target.value ? Number(e.target.value) : null },
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <label className="mini-field">
                     <span className="mini-label">
                       description <span className="field-tag is-optional">optional</span>
@@ -1563,7 +1622,7 @@ function gateTextLabel(kind: string) {
       {
         check: "check kind",
         script: "command",
-        agent: "what to review",
+        agent: "what the agent judges",
         "owner-action": "what the owner does",
         workflow: "child workflow, by name or path",
       } as Record<string, string>

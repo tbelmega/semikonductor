@@ -370,6 +370,48 @@ steps:
     expect(parsed.workflow.steps[2].gates[0].route_back_to).toEqual(["first", "two"]);
   });
 
+  test("renaming id rewrites a loop gate's repeat_from, also on the step itself", () => {
+    const looping = `version: 1
+name: demo
+steps:
+  - id: poll
+    instruction: Poll.
+  - id: respond
+    instruction: Respond.
+    gates:
+      - script: test -f done
+        repeat_from: poll
+  - id: watch
+    instruction: Watch.
+    gates:
+      - agent: the job is done
+        repeat_from: watch
+`;
+    const renamedPoll = applyEdit(looping, { op: "setStepField", step: 0, key: "id", value: "check-prs" });
+    const parsed = parseWorkflowText(renamedPoll);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.workflow.steps[1].gates[0].repeat_from).toBe("check-prs");
+    const renamedWatch = parseWorkflowText(applyEdit(looping, { op: "setStepField", step: 2, key: "id", value: "observe" }));
+    expect(renamedWatch.ok).toBe(true);
+    if (renamedWatch.ok) expect(renamedWatch.workflow.steps[2].gates[0].repeat_from).toBe("observe");
+  });
+
+  test("making an agent gate a loop gate removes its max_rounds, which a loop gate does not take", () => {
+    const capped = `version: 1
+name: demo
+steps:
+  - id: watch
+    instruction: Watch.
+    gates:
+      - agent: the job is done
+        max_rounds: 3
+`;
+    const edited = applyEdit(capped, { op: "setGate", step: 0, index: 0, fields: { repeat_from: "watch" } });
+    expect(edited).not.toContain("max_rounds");
+    expect(parseWorkflowText(edited).ok).toBe(true);
+  });
+
   test("no-op on id returns identical string", () => {
     const edited = applyEdit(text, { op: "setStepField", step: 0, key: "id", value: "one" });
     expect(edited).toBe(text);

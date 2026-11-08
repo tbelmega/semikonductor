@@ -24,7 +24,7 @@ import { FlowError } from "../../flow/src/errors.ts";
 import { summarizeRun, runEvents } from "../../flow/src/history.ts";
 import { crossCheck } from "../../flow/src/links.ts";
 import { formatIssue, parseWorkflowText } from "../../flow/src/parse.ts";
-import { display, listLibrary, loadProject, reviewGuideProblems, reviewGuides as appliedGuides } from "../../flow/src/policy.ts";
+import { display, listLibrary, loadProject, READS_NO_GUIDE, reviewGuideFindings, reviewGuides as appliedGuides, workingAgentJudges } from "../../flow/src/policy.ts";
 import { findRepoRoot, findWorkflow, isDirectory, isWorkflowPath, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
 import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
 import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
@@ -724,6 +724,42 @@ export function startServer(options: ServerOptions): KomposerServer {
   // such exception. A path that does not exist is judged by its own form, so
   // the answer for a path outside these locations does not tell whether the
   // file exists.
+  // Komposer reads no guide to look for a working-agent declaration. Inspection takes it
+  // from the guide text the server already reads to show it, under the guide scope
+  // like every file it sends to the browser. Validation reads nothing: a read of a
+  // path checked a moment before could be led outside the scope by a link swapped
+  // between the two, and four review rounds each found another way round a fix.
+  // So whether a gate's own guide declares the working agent is not known there. A
+  // problem with a policy's or an artifact's review guide on such a gate is reported
+  // as a warning, which does not stop a save; fuse-flow validate, which does read the
+  // guide, gives the final word. Every other problem stays an error.
+  //
+  // Step-back note (review epoch 2, rounds 1 and 2). Both rounds were mostly findings
+  // on the fixes themselves, so the unit was laid out whole before another patch. The
+  // unit is how Komposer validates review guides without opening one. Its invariants:
+  //   1. Validation opens no guide; inspection takes the declaration from the guide
+  //      text the server already reads to show it, under the guide scope.
+  //   2. Whether a gate's own guide declares the working agent is therefore unknown in
+  //      validation, and a gate with no guide of its own can never declare it.
+  //   3. A problem with the gate's own guide is certain: a guide that is missing or no
+  //      file declares nothing. It is an error.
+  //   4. On a gate with no guide of its own, every problem is certain. It is an error.
+  //   5. On a gate with a guide of its own, a problem with a policy's or an artifact's
+  //      review guide is uncertain, since that guide may make it irrelevant. It is a
+  //      warning and does not stop a save.
+  //   6. A workflow reached through a hand-off or a workflow gate is judged by the same
+  //      rules, through the same reader.
+  //   7. The warnings and the problems the editor shows agree in severity, so what the
+  //      owner sees is what a save does.
+  //   8. fuse-flow validate and start read the guide and have the final word.
+  // Decision: continue, not remove or rewrite. Removing the family would mean declaring
+  // the working agent in the workflow file instead of the guide, so that no read is
+  // needed anywhere; that reverses the owner's choice of a declaration in the guide's
+  // front matter, so it is not made here. The rules above leave one gap, by design: a
+  // team or local policy's review guide that is broken is only a warning on a gate with
+  // a guide of its own, though fuse-flow would refuse that workflow if the guide does
+  // not declare the working agent. It is listed in docs/known-limitations.md.
+  // Obligations covered: E2-R2-F1 and E2-R2-F2.
   const guideScope = () => {
     const bases = [root, ...Object.values(libraryDirs(root)), ...locations.map((l) => l.path)];
     const roots = [...new Set([...bases, ...bases.filter((b) => existsSync(b)).map((b) => realpathSync(b))])];
@@ -779,16 +815,22 @@ export function startServer(options: ServerOptions): KomposerServer {
       step.gates.flatMap((gate, gateIndex) => {
         if (gate.kind !== "agent") return [];
         const resolved = { ...gate, ...(gate.guide ? { guide: isAbsolute(gate.guide) ? gate.guide : resolve(dirname(path), gate.guide) } : {}) };
+        // The front matter comes from the text the server reads to show the guide.
+        const scoped = (file: string) => {
+          ref(file);
+          return files[file]?.slice(0, 16 * 1024);
+        };
         const artifacts = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
         const reviews = (artifacts.length ? artifacts : [undefined]).map((artifact) => ({
           ...(artifact ? { artifact } : {}),
-          guides: appliedGuides(p, resolved, artifact).map((found) => ({ ...ref(found.path), source: found.source, role: found.role })),
+          guides: appliedGuides(p, resolved, artifact, scoped).map((found) => ({ ...ref(found.path), source: found.source, role: found.role })),
         }));
         return [
           {
             step: stepIndex,
             gate: gateIndex,
             ...(resolved.guide ? { gateGuide: gateGuide(resolved.guide) } : {}),
+            ...(workingAgentJudges(resolved, scoped) ? { workingAgent: true } : {}),
             reviews,
           },
         ];
@@ -857,8 +899,11 @@ export function startServer(options: ServerOptions): KomposerServer {
     for (const handOff of wf.hands_off_to) handOff.workflow = near(handOff.workflow);
     try {
       const p = loadProject(root);
-      const guides = reviewGuideProblems(p, wf, path);
-      const { errors, warnings } = crossCheck(root, path, wf);
+      const read = READS_NO_GUIDE;
+      const found = reviewGuideFindings(p, wf, path, undefined, read);
+      const guides = found.filter((f) => !f.uncertain).map((f) => f.line);
+      const guideWarnings = found.filter((f) => f.uncertain).map((f) => f.line);
+      const { errors, warnings } = crossCheck(root, path, wf, undefined, read);
       const stem = basename(path).replace(/\.ya?ml$/, "");
       const name = wf.name !== stem ? nameWarning(wf.name, stem, path) : undefined;
       if (name) warnings.push(name);
@@ -872,17 +917,17 @@ export function startServer(options: ServerOptions): KomposerServer {
         step.gates.forEach((gate, g) => {
           if (gate.kind !== "agent") return;
           const alone = { ...wf, steps: wf.steps.map((s, j) => (j === i ? { ...s, gates: [gate] } : s)) };
-          for (const line of reviewGuideProblems(p, alone, path, (s) => s === alone.steps[i])) {
+          for (const { line } of reviewGuideFindings(p, alone, path, (s) => s === alone.steps[i], read)) {
             const own = line.startsWith(`${path}: steps.${i} (${step.id}): `);
             guidePlaces.set(line, [...(guidePlaces.get(line) ?? []), { step: i, gate: g, ...(own ? { field: "guide" as const } : {}) }]);
           }
         }),
       );
-      const guideProblem = (line: string): Problem => {
+      const guideProblem = (severity: Problem["severity"]) => (line: string): Problem => {
         const at = guidePlaces.get(line) ?? [];
         const own = at.find((a) => a.field === "guide");
         const prefix = own ? `${path}: steps.${own.step} (${wf.steps[own.step!].id}): ` : "";
-        return { severity: "error", line, detail: line.startsWith(prefix) ? line.slice(prefix.length) : line, at };
+        return { severity, line, detail: line.startsWith(prefix) ? line.slice(prefix.length) : line, at };
       };
 
       // crossCheck starts each line with the hand-off or workflow gate it is
@@ -910,8 +955,13 @@ export function startServer(options: ServerOptions): KomposerServer {
       };
       return {
         errors: [...guides, ...errors],
-        warnings,
-        problems: [...guides.map(guideProblem), ...crossProblems("error", errors), ...crossProblems("warning", warnings)],
+        warnings: [...guideWarnings, ...warnings],
+        problems: [
+          ...guides.map(guideProblem("error")),
+          ...guideWarnings.map(guideProblem("warning")),
+          ...crossProblems("error", errors),
+          ...crossProblems("warning", warnings),
+        ],
       };
     } catch (e) {
       if (!(e instanceof FlowError)) throw e;

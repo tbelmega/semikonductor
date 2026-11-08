@@ -22,6 +22,9 @@ export interface FileRef {
 }
 export interface GateReviewGuides {
   gateGuide?: FileRef;
+  // The gate guide's front matter hands the judgement to the working agent:
+  // it applies alone, and no reviewer is started.
+  workingAgent?: boolean;
   reviews: { artifact?: string; guides: (FileRef & { source: ReviewGuideSource; role: ReviewGuideRole })[] }[];
 }
 
@@ -81,6 +84,8 @@ export function reviewInEffectRows(gate: GateReviewGuides): ReviewRow[] {
     const level = SOURCE_LEVEL[guide.source];
     if (guide.role === "authoring") return { from: `${level} guide${forWhich}; how a good artifact is built`, title: `Guide · ${artifacts.join(", ")}` };
     if (guide.role === "review") return { from: `${level} review guide${forWhich}`, title: `Review guide · ${artifacts.join(", ")}` };
+    if (guide.source === "gate" && gate.workingAgent)
+      return { from: "gate guide; the agent that did the work judges by it alone, with no reviewer", title: "Gate guide" };
     if (guide.source === "gate") return { from: "gate guide; applies with the artifacts' own guides", title: "Gate guide" };
     return { from: `${level}${gate.gateGuide ? "; replaces the gate guide" : ""}`, title: "Review guide · the step" };
   };
