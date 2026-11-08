@@ -68,9 +68,10 @@ bun run start -- <project directory>
 ```
 
 Leave the directory out to use the current one. The command prints the URL, such as
-`http://127.0.0.1:4807`; open it in your browser. `--port <n>` picks another port.
+`http://127.0.0.1:4807`; open it in your browser. `--port <n>` picks another port. `bun run start`
+builds the app first, so a restart after pulling changes serves the current code.
 
-Run the two installs and `bun run build` again after pulling changes. For working on Komposer
+Run the two installs again after pulling changes that update dependencies. For working on Komposer
 itself, `bun run dev` serves the app with Vite on port 5173 and passes `/api` to the server
 started with `bun run start`.
 

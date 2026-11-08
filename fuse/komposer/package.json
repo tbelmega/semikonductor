@@ -6,6 +6,7 @@
   "description": "Komposer: edit fuse-flow workflows in all three locations and view their workstreams. A local server (server/) serves the app and the files of one project.",
   "license": "Apache-2.0",
   "scripts": {
+    "prestart": "bun run build",
     "start": "bun server/main.ts",
     "dev": "bun --bun vite",
     "build": "tsc --noEmit && bun --bun vite build",
