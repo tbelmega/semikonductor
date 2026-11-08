@@ -1,0 +1,2 @@
+# yaml-language-server: $schema=../../../workflows/schemas/library-entry.schema.json
+description: "The working record of a set of pull requests an agent babysits: each pull request's state, the feedback seen and what was done about it, and the report the loop ends with."

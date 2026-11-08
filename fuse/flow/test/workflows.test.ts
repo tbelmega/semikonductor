@@ -402,7 +402,7 @@ describe("the workflows shipped in fuse/flow/workflows", () => {
     expect(unattended("fuse-system-development.yml")).toEqual(["system-design", "feature-splitting"]);
     expect(unattended("fuse-rapid-prototyping.yml")).toEqual(["brief"]);
     expect(unattended("fuse-dependency-migration.yml")).toEqual(["guardrails", "migration", "verification"]);
-    expect(unattended("fuse-pull-request.yml")).toEqual(["feedback", "merge"]);
+    expect(unattended("fuse-pull-request.yml")).toEqual(["poll", "fix", "respond"]);
     expect(unattended("fuse-bug-bash.yml")).toEqual(["catalogue", "discovery", "fix", "confirm", "history"]);
     expect(unattended("fuse-usability-review.yml")).toEqual(["inventory", "discovery"]);
     for (const file of ["fuse-feature-development.yml", "fuse-dependency-migration.yml"]) {

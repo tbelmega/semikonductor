@@ -1,15 +1,18 @@
 # $schema: ../schemas/workflow.schema.json
 # yaml-language-server: $schema=../schemas/workflow.schema.json
 #
-# A change through the project's pull request or code review process, the way the project runs it:
-# open the request, answer the reviewers' feedback with fixes that an independent agent review
-# checks first, and finish once the change is merged. It is its own workstream, so a project with
-# no such process never runs it: fuse-feature-development and fuse-dependency-migration offer a
-# pull request at their last gate only where they find evidence of one, and hand off here only
-# when the owner approves the work for it. It can also be started on its own, for a change or pull request that already exists.
+# A change through the project's pull request or code review process, the way the project runs it,
+# for one pull request or a set of them: open them, or take the ones the owner names, agree with
+# the owner once how much the agent may do, then poll them all in a loop, act on feedback within
+# that level, and end with a report of what merged and what is blocked. It is its own workstream, so
+# a project with no such process never runs it: fuse-feature-development and
+# fuse-dependency-migration offer a pull request at their last gate only where they find evidence
+# of one, and hand off here only when the owner approves the work for it. It can also be started on
+# its own, for a change or for pull requests that already exist ("babysit these").
 # The change may be on a feature branch, on a fixed branch per worktree, or committed directly on
 # the integration branch; the house rules decide how it reaches review.
-# review.md next to this file is the review guide for its agent gate.
+# review.md next to this file is the review guide for the fixes; babysit-exit.md says when the
+# loop is done, and the agent judges that itself from the ledger.
 #
 # Start a workstream with:  fuse-flow start <slug> --workflow fuse-pull-request
 # or after a feature or a migration:
@@ -17,9 +20,10 @@
 version: 1
 name: fuse-pull-request
 description: >
-  A change through the project's pull request or code review process, the way the project runs
-  it: open the request, answer each round of reviewer feedback with fixes that pass an agent review
-  first, and finish once the change is merged.
+  A change through the project's pull request or code review process, for one pull request or
+  several: open them or take the ones given, agree once how much the agent may do, then poll them
+  about every 15 minutes, act on feedback within that level with fixes that pass an agent review
+  first, and end with a report of what merged and what is blocked.
 inputs:
   - artifact: feature-spec
     description: The approved spec of the feature, when the change comes from fuse-feature-development.
@@ -31,67 +35,145 @@ inputs:
     description: The migration report the owner approved, when the change comes from fuse-dependency-migration.
 steps:
   - id: open
-    title: Open the pull request
+    title: Open the pull requests
     phase: Pull request
+    condition:
+      agent: no pull request exists yet for this change; when the owner names existing pull requests to babysit, skip this step
     instruction: >
       Find how pull requests or code reviews work in this project, from the house rules,
       including the history of the integration branch and what you remember of this project. Find
       the tool, such as gh, glab or the team's own, where a request is opened from and to, what the
       description must contain, who reviews, and who merges. Some processes review a branch
       pushed for the change; others review commits made on the integration branch itself or on a
-      fixed branch, as a code review raised from the local integration branch does. Open the
-      request from where the work already is when the process allows it; create or push a branch
-      only when the process needs one and the house rules do not say otherwise. If you find no
-      such process, tell the owner and ask how to proceed before you push anything. If a request
-      for this change already exists, use it; otherwise open one that way. Write a
-      description that a reviewer without this session's context can follow: what the change
-      does and why, how it was verified, and which agent reviews it passed, with the reviewers'
-      models where you know them. For a migration, take what changed, the checks before and
-      after, and the behavior changes accepted on purpose from its report and catalogue. Do not merge it yourself unless the house rules say the author
-      merges.
+      fixed branch, as a code review raised from the local integration branch does. If you find no
+      such process, tell the owner and ask how to proceed before you push anything.
+      Open one pull request by default. Propose several only where that helps the reviewer, such
+      as one per release or version set the change touches, or a refactoring apart from the
+      feature it prepares. Tell the owner which pull requests you would open, from where, and any
+      branch or checkout you would create, push or switch to for them, and do that only once the
+      owner agrees. Open each from where the work already is when the process allows it. Write
+      each description so that a reviewer without this session's context can follow it: what the
+      change does and why, how it was verified, and which agent reviews it passed, with the
+      reviewers' models where you know them. For a migration, take what changed, the checks
+      before and after, and the behavior changes accepted on purpose from its report and
+      catalogue. Start the ledger with every pull request you opened.
     consumes: [feature-spec, migration-spec, check-catalogue, migration-report]
+    optional_produces:
+      - artifact: pull-request-ledger
+        path: .konductor/pull-requests/{slug}.md
     gates:
       - check: default
 
-  - id: feedback
-    title: Answer the feedback
+  - id: autonomy
+    title: Agree how much the agent may do
+    phase: Pull request
+    instruction: >
+      Make sure the ledger lists every pull request of the set: the ones the open step opened, or
+      the ones the owner named, by their links. Then settle with the owner, in one exchange, what
+      the loop may do on its own, and record it in the ledger. Ask which level of autonomy the
+      owner grants, as the ledger's guide lists them: fix mechanical failures only; also fix
+      trivial feedback; also answer human questions; or act on all feedback you agree with.
+      Propose, for each pull request, where its fixes are made: the current checkout when it has
+      that pull request's branch or revision checked out, otherwise a separate checkout you create
+      for the babysit and remove at the end; fixes run one pull request at a time, in parallel only
+      across separate checkouts. Ask whether you may merge a pull request once its approvals and
+      checks hold, where the house rules let the author merge. Name the commands the loop will need,
+      such as pushing or publishing a revision, and ask for permission only for those you are not
+      already allowed to run.
+    updates:
+      - artifact: pull-request-ledger
+        path: .konductor/pull-requests/{slug}.md
+    gates:
+      - owner-action: approve the autonomy level, where each pull request's fixes are made, whether the agent may merge, and the permissions the loop needs
+
+  - id: poll
+    title: Poll the pull requests
+    phase: Pull request
+    mode: unattended
+    instruction: >
+      Do this cycle's wait first, as the WAIT line and the ledger's guide say (the first cycle has
+      none), then poll every
+      pull request in the set, merged and blocked ones included while others are open. Compare
+      each with its fingerprint in the ledger, read in full only what changed, and add each new
+      comment, review or tool result that asks for something as an open feedback item. Mark a pull
+      request merged when it is, however it got there. A wake that cannot act, such as one whose
+      credentials expired or whose tool approvals time out, tells the owner once and marks no pull
+      request blocked. Report the ledger with --updated.
+    updates:
+      - artifact: pull-request-ledger
+        path: .konductor/pull-requests/{slug}.md
+
+  - id: fix
+    title: Fix what the feedback asks
     phase: Pull request
     mode: unattended
     condition:
-      agent: the pull request has review feedback that is not yet answered, such as comments or a request for changes
+      agent: some open feedback item in the ledger calls for a code change that the granted autonomy level allows and that you agree with
     instruction: >
-      Read every unanswered comment and review on the pull request. Check each against the code
-      before you act on it: fix what is right, and reply with your reasons where it is wrong or
-      out of scope. Find the root cause of each confirmed finding and look for other instances of
-      it in the change. Start the fix of each confirmed defect with a test that reproduces it and
-      fails; how you show that other fixes hold, such as naming or style, is your call. Commit
-      the fixes the way the house rules ask, but keep them local until this step's check and its
-      agent review have passed. Then publish them to the request the way the process found in the
-      first step does, such as a new revision of a code review or a push to the request's branch;
-      push only when that process needs it. Reply to each comment with what you did. Do not
-      resolve a reviewer's thread unless the house rules say the author does. For a migration, a
-      fix keeps every must-pass check of the catalogue passing unchanged, and a fix that changes
-      behavior the spec does not accept goes to the owner first.
-    consumes: [feature-spec, migration-spec, check-catalogue, migration-report]
+      Fix each open feedback item that calls for a code change the granted level allows, in the
+      place the ledger names for its pull request, one pull request at a time unless they have
+      separate checkouts. Check each against the code before you act on it. Find the root cause of
+      each confirmed finding and look for other instances of it in the change. Start the fix of
+      each confirmed defect with a test that reproduces it and fails; how you show that other fixes
+      hold, such as naming or style, is your call. Run each separate checkout's checks as well as
+      this one's. Commit the fixes the way the house rules ask, but keep them local: the respond
+      step publishes them once this step's check and review have passed. Brief the reviewer with,
+      for each pull request with fixes, its checkout, its base revision and the diff of the fixes.
+      For a migration, a fix keeps every must-pass check of the catalogue passing unchanged, and a
+      fix that changes behavior the spec does not accept goes to the owner first. Leave the ledger
+      as it is in this step: the review covers the fixes, and the respond step records what passed.
+    consumes: [pull-request-ledger, feature-spec, migration-spec, check-catalogue, migration-report]
     updates:
       - artifact: code
         path: .
     gates:
       - check: default
-      - agent: review the changes made for the feedback, against the feedback and the approved spec when there is one, and for a migration against its catalogue's must-pass checks
+      - agent: review the changes made for the feedback, in every checkout the brief names, against the feedback and the approved spec when there is one, and for a migration against its catalogue's must-pass checks
         guide: review.md
         max_rounds: 2
 
-  - id: merge
-    title: Wait for the merge
+  - id: respond
+    title: Answer the feedback
     phase: Pull request
     mode: unattended
     instruction: >
-      Wait until the pull request is merged or gets new feedback. If your harness can watch it
-      for you, with a monitor or a scheduled check, use that, and tell the owner when either
-      happens. Otherwise tell the owner to come back to this workstream when either happens, and
-      end your turn. If the house rules say the author merges, merge it once the reviewers
-      approve it and the owner agrees.
+      Record in the ledger each revision that passed this cycle's review, if the fix step ran.
+      Check each pull request's state again first. Publish nothing to one that was merged in the
+      meantime: mark it merged, and keep any of its fixes that was not published for the report.
+      For the others, publish the fixes whose revision passed this cycle's review, or that the
+      owner accepted or waived, in the owner's words, the way the process found in the first step
+      does, such as a new revision of a code review or a push to the request's branch. Reply only
+      where the granted level allows it: on the items you fixed, with what you did; from the third
+      level on, also with the answer to a question; and with full autonomy, also with your reasons
+      where the feedback is wrong or out of scope. Feedback the level does not cover gets no reply
+      from you; the owner decides it. Do not resolve a reviewer's
+      thread unless the house rules say the author does. Close the items that are done. Mark a pull
+      request blocked when it has feedback the level does not allow you to act on, or that you
+      disagree with, and stalled after about three days with no reviewer activity. Merge where
+      the owner granted it, once its approvals and checks hold for the revision you merge. For each
+      pull request that became blocked or stalled in this cycle, tell the owner what is asked, why
+      you cannot act, and what you suggest, and record that you did. End with the status line.
+    updates:
+      - artifact: pull-request-ledger
+        path: .konductor/pull-requests/{slug}.md
     gates:
-      - owner-action: confirm the pull request is merged
-        route_back_to: feedback
+      - agent: every pull request is merged or blocked
+        guide: babysit-exit.md
+        repeat_from: poll
+        interval: 15m
+        max_cycles: 300
+
+  - id: report
+    title: Report
+    phase: Pull request
+    instruction: >
+      Write the report as the ledger's last section, as its guide says, and print it for the
+      owner: what merged, what is blocked or stalled, each blocker with what is asked, why you could
+      not act and what you suggest, and any reviewed fix left unpublished because its pull request
+      merged first. Remove each separate checkout you created for the babysit once all of its fixes
+      are published. Keep a checkout that holds a fix that was not published, and name it in the
+      report: whether to drop that fix or send it again is the owner's decision. Give what is left for the owner, such as each blocked or
+      stalled pull request, with --left-open on this step's continue.
+    updates:
+      - artifact: pull-request-ledger
+        path: .konductor/pull-requests/{slug}.md

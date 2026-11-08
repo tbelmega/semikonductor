@@ -172,6 +172,17 @@ script installs plain skills and an always-on instruction block that every suppo
     and sets the mode as the Autonomy Mode. A step card shows the mode as glyphs, an owner and an
     agent for attended and the agent alone for unattended, and gate pills carry the same owner and
     agent glyphs, with a cog for checks and scripts.
+  - Loop gates: any owner-action, check, script or agent gate with `repeat_from` repeats the
+    steps from there to its own step, cycle after cycle, until it passes, without an owner
+    decision per cycle. A check or script decides by its exit code; at an agent loop gate the
+    agent runs `continue --again`, at an owner-action one the owner does. `interval` is printed as
+    the wait before each later cycle, which the agent does with its harness's own tools; fuse-flow
+    keeps no clock. `max_cycles` blocks the step at the cap, and the owner grants more cycles with
+    `--more-cycles`. Komposer edits the three fields and keeps `repeat_from` when a step is
+    renamed.
+  - An agent gate names what an agent judges. Without a guide it is an independent review, as
+    before; a guide whose front matter says `judged_by: working-agent` hands the judgement to the
+    agent that did the work, with no reviewer and no policy review guide in its place.
 - **Shipped workflows:**
   - `fuse-feature-development`, one feature in an existing codebase: intake, design,
     implementation and code review, with agent reviews before the owner approves the spec and
@@ -196,8 +207,13 @@ script installs plain skills and an always-on instruction block that every suppo
     are none and the checkout is on the integration branch, the agent asks the owner once whether
     to create a branch.
   - `fuse-pull-request`, a change through the project's pull request or code review process, the
-    way the project runs it: open the request, answer each round of reviewer feedback with fixes
-    that pass an agent review first, and finish once the change is merged.
+    way the project runs it, for one pull request or a set of them: open them or take the ones the
+    owner names, agree once on how much the agent may do, then poll them all about every 15
+    minutes in a loop, fix what that level allows behind a check and an agent review, reply, and
+    end with a report of what merged and what is blocked. Every cycle ends with a one-line status
+    of the set; a pull request that becomes blocked is reported to the owner at once, and quiet
+    ones are polled less often and count as stalled after about three days. A pull request
+    ledger in `.konductor/pull-requests/` keeps the loop's state.
     `fuse-feature-development` offers a pull request at its last gate only where the house rules,
     the project's history or the agent's memory show such a process, and hands off to it when the
     owner approves the work for one; it can also be started on its own. The change may be on a
