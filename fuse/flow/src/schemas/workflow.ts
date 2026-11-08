@@ -97,7 +97,14 @@ export const WorkflowSchema = z
     // values that step was written with, so read lists defensively.
     const list = <T>(v: T[] | unknown): T[] => (Array.isArray(v) ? v : []);
     type Written = { artifact: string };
-    type WrittenGate = { kind?: string; route_back_to?: string[]; inputs?: Record<string, string>; returns?: Record<string, string>; for_each?: string };
+    type WrittenGate = {
+      kind?: string;
+      route_back_to?: string[];
+      inputs?: Record<string, string>;
+      returns?: Record<string, string>;
+      for_each?: string;
+      repeat_from?: string;
+    };
     const written = (step: (typeof wf.steps)[number]) =>
       [...list<Written>(step.produces), ...list<Written>(step.optional_produces), ...list<Written>(step.updates)].map((a) => a?.artifact);
     // An input stands for a document from outside, so no step may write one.
@@ -116,6 +123,9 @@ export const WorkflowSchema = z
     // one input cannot take; a later plain writer makes the id ordinary again.
     const perItem = new Map<string, string>();
     const perItemRefusal = (id: string) => `, which step ${perItem.get(id)} returns once per item; one input cannot take one document per item`;
+    // Each loop: the step that carries its gate and the indexes of the first
+    // and last step it repeats.
+    const loops: { step: string; from: number; to: number; at: number }[] = [];
     wf.steps.forEach((step, i) => {
       if (earlier.has(step.id)) {
         ctx.addIssue({ code: "custom", path: ["steps", i, "id"], message: `duplicate step id "${step.id}"` });
@@ -162,6 +172,36 @@ export const WorkflowSchema = z
       const delegations = gates.filter((g) => g?.kind === "workflow");
       if (delegations.length > 1) {
         ctx.addIssue({ code: "custom", path: ["steps", i, "gates"], message: `"${step.id}" has ${delegations.length} workflow gates; a step waits for one child` });
+      }
+      const loopGates = gates.filter((g) => g?.repeat_from !== undefined);
+      if (loopGates.length > 1) {
+        ctx.addIssue({ code: "custom", path: ["steps", i, "gates"], message: `"${step.id}" has ${loopGates.length} loop gates; a step has at most one` });
+      }
+      const loop = loopGates[0];
+      if (loop) {
+        const at = ["steps", i, "gates", gates.indexOf(loop)];
+        // The loop gate decides last, so it is written last.
+        if (gates[gates.length - 1] !== loop) {
+          ctx.addIssue({ code: "custom", path: at, message: `the loop gate of "${step.id}" must be its last gate` });
+        }
+        // A step that may be skipped would end the loop by being skipped.
+        if (step.condition !== undefined) {
+          ctx.addIssue({ code: "custom", path: ["steps", i, "condition"], message: `"${step.id}" carries a loop gate, so it must be mandatory: remove its condition` });
+        }
+        // At the owner's gate the owner decides the loop; a second one would ask twice.
+        if (gates.some((g) => g !== loop && g?.kind === "owner-action")) {
+          ctx.addIssue({ code: "custom", path: ["steps", i, "gates"], message: `"${step.id}" carries a loop gate, so it has no other owner-action gate` });
+        }
+        const from = wf.steps.findIndex((s) => s.id === loop.repeat_from);
+        if (!earlier.has(loop.repeat_from!)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [...at, "repeat_from"],
+            message: `"${step.id}" repeats from "${loop.repeat_from}", which is not this step or a step listed before it`,
+          });
+        } else {
+          loops.push({ step: step.id, from, to: i, at: i });
+        }
       }
       gates.forEach((g, j) => {
         // A gate routes back to this step or one listed before it.
@@ -243,6 +283,28 @@ export const WorkflowSchema = z
           else perItem.delete(id);
         }
       }
+    });
+    // Loops neither nest nor overlap, so each step is in one loop at most and
+    // a cycle's count never has to be defined for an inner loop.
+    loops.forEach((loop, k) => {
+      const other = loops.slice(0, k).find((o) => o.from <= loop.to && loop.from <= o.to);
+      if (other) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["steps", loop.at, "gates"],
+          message: `the loop at "${loop.step}" overlaps the loop at "${other.step}"; loops may neither nest nor overlap`,
+        });
+      }
+      // A child workstream per cycle is not designed, so a loop holds no workflow gate.
+      wf.steps.slice(loop.from, loop.to + 1).forEach((s, offset) => {
+        if (list<WrittenGate>(s.gates).some((g) => g?.kind === "workflow")) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["steps", loop.from + offset, "gates"],
+            message: `"${s.id}" has a workflow gate inside the loop at "${loop.step}"; a loop cannot repeat a child workstream`,
+          });
+        }
+      });
     });
   })
   // Last, because a refinement returns a new schema that does not carry metadata.

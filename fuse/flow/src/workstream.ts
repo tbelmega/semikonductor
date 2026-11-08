@@ -127,7 +127,8 @@ export function closedError(slug: string, closed: { date: string; reason: string
 // private to the engineer's checkout, so each directory carries its own
 // .gitignore.
 function prepareWorkstreamsDir(root: string): void {
-  for (const dir of [workstreamsDir(root), join(root, ".konductor", "reviews"), decisionsDir(root)]) {
+  // pull-requests holds the ledgers of the pull request workflow, working state too.
+  for (const dir of [workstreamsDir(root), join(root, ".konductor", "reviews"), decisionsDir(root), join(root, ".konductor", "pull-requests")]) {
     mkdirSync(dir, { recursive: true });
     const gitignore = join(dir, ".gitignore");
     if (!existsSync(gitignore)) writeFileSync(gitignore, "*\n");

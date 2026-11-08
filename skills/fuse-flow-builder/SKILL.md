@@ -132,7 +132,8 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      exit 0. Use it for a fact that holds in every project, such as
      `test -z "$(git status --porcelain)"` for a clean tree. Keep it portable, and never put a
      project's build command here.
-   - **`agent: <what to review>`.** The maker obtains an independent review, classifies each
+   - **`agent: <what an agent judges>`.** The gate's `guide` says who judges and how. Without
+     one, and with any review guide, the maker obtains an independent review, classifies each
      finding as a required fix, optional or a false positive, fixes what is required and reviews
      again. A round with no required fix passes and ends the review; fixing its optional findings
      starts no further round. `max_rounds` (default 2) caps the rounds that end with a required
@@ -145,7 +146,19 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
      `review.md`, so do not repeat an artifact's criteria in it. The guides decide what counts as
      a required fix and when a round passes; where it does not say, or without a guide, P0 and P1 findings are
      required and P2 and P3 findings optional, fixed when cheap or listed as deferred. The cap and
-     its exit still apply.
+     its exit still apply. A guide whose front matter says `judged_by: working-agent` hands the
+     judgement to the maker itself, for a question the maker can answer from its own records,
+     such as whether a loop is done: no reviewer is started, and no policy or artifact review
+     guide replaces or joins that guide. Keep independent review the default for checking work.
+   - **Loop gates.** Any `owner-action`, `check`, `script` or `agent` gate with `repeat_from:
+     <step>` repeats the steps from there to this one, cycle after cycle, until the gate passes,
+     for work that waits on the outside world, such as polling pull requests. `interval: 15m`
+     is printed as the wait before each later cycle; the agent waits with its harness's own
+     tools, so the workflow need not say how. `max_cycles` caps the loop. The gate is the step's
+     last, on a mandatory step with no other `owner-action` gate; loops neither nest nor overlap
+     and hold no `workflow` gate. Put work that only some cycles need in an optional step inside
+     the loop, so most cycles stay cheap, and keep the state each cycle needs in a document the
+     loop updates, since a long loop outlives the conversation's memory.
    - **`workflow: <name>`.** The step waits for a child workstream that follows another workflow,
      for a procedure that has its own steps, gates and owner decisions, such as an adversarial
      review inside a code review. fuse-flow creates the child when the step is handed out and
@@ -217,7 +230,8 @@ Design within these limits instead of working around them:
 - **One checkout per workstream.** State is kept, and checks run, in the checkout where `start`
   ran. A workflow cannot move its work into a new worktree halfway. If isolation matters, the
   owner creates the worktree first and starts the workstream inside it.
-- **No loops and no parallel steps.** Work per item is either one step whose instruction covers
+- **No parallel steps, and loops only as loop gates.** A loop gate repeats a contiguous run of
+  steps; loops neither nest nor overlap, and no step inside one has a `workflow` gate. Work per item is either one step whose instruction covers
   every item, or one workstream per item. Parallel work happens inside a step, for example with
   subagents.
 - **No automatic routing.** `--back-to`, `--forward-to`, `start --from` and skipping a mandatory

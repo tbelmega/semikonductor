@@ -5,7 +5,7 @@
   "description": "What must hold before a step counts as done.",
   "anyOf": [
     {
-      "description": "The owner-action gate as a mapping: `owner-action: …`, optionally with `description` and `route_back_to`.",
+      "description": "The owner-action gate as a mapping: `owner-action: …`, optionally with `description`, `route_back_to` and, as a loop gate, `repeat_from`, `interval` and `max_cycles`.",
       "type": "object",
       "properties": {
         "owner-action": {
@@ -38,6 +38,30 @@
               }
             }
           ]
+        },
+        "repeat_from": {
+          "description": "Makes this a loop gate: the step it names, this step or one before it, is where the loop starts again. Engine effect: while the gate does not pass, `continue` starts the next cycle instead of refusing or blocking: every step from repeat_from to this one is handed out again in a new pass, without the owner, and what they wrote keeps its status. A check or script loop gate decides by its exit code; at an agent loop gate the agent runs `continue --again \"<why>\"` while it does not hold; at an owner-action loop gate the owner does. A loop gate is the step's last gate, on a mandatory step with no other owner-action gate, and loops neither nest nor overlap.",
+          "examples": [
+            "poll"
+          ],
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "interval": {
+          "description": "With repeat_from: about how long to wait before each cycle from the second on, such as 15m, 2h or 1d. Engine effect: printed in the first step block of each later cycle; the agent waits with its harness's own tools. fuse-flow keeps no clock and never enforces it.",
+          "examples": [
+            "15m"
+          ],
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smhd]$"
+        },
+        "max_cycles": {
+          "description": "With repeat_from: how many cycles the loop may run, the first included. Engine effect: when a cycle at the cap does not pass, the step is blocked, and the owner grants more with `--more-cycles <n>`, ends the loop with `--owner-approved`, or sends the work back. No cap unless set.",
+          "examples": [
+            300
+          ],
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [
@@ -46,7 +70,7 @@
       "additionalProperties": false
     },
     {
-      "description": "The check gate as a mapping: `check: …`, optionally with `description` and `route_back_to`.",
+      "description": "The check gate as a mapping: `check: …`, optionally with `description`, `route_back_to` and, as a loop gate, `repeat_from`, `interval` and `max_cycles`.",
       "type": "object",
       "properties": {
         "check": {
@@ -79,6 +103,30 @@
               }
             }
           ]
+        },
+        "repeat_from": {
+          "description": "Makes this a loop gate: the step it names, this step or one before it, is where the loop starts again. Engine effect: while the gate does not pass, `continue` starts the next cycle instead of refusing or blocking: every step from repeat_from to this one is handed out again in a new pass, without the owner, and what they wrote keeps its status. A check or script loop gate decides by its exit code; at an agent loop gate the agent runs `continue --again \"<why>\"` while it does not hold; at an owner-action loop gate the owner does. A loop gate is the step's last gate, on a mandatory step with no other owner-action gate, and loops neither nest nor overlap.",
+          "examples": [
+            "poll"
+          ],
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "interval": {
+          "description": "With repeat_from: about how long to wait before each cycle from the second on, such as 15m, 2h or 1d. Engine effect: printed in the first step block of each later cycle; the agent waits with its harness's own tools. fuse-flow keeps no clock and never enforces it.",
+          "examples": [
+            "15m"
+          ],
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smhd]$"
+        },
+        "max_cycles": {
+          "description": "With repeat_from: how many cycles the loop may run, the first included. Engine effect: when a cycle at the cap does not pass, the step is blocked, and the owner grants more with `--more-cycles <n>`, ends the loop with `--owner-approved`, or sends the work back. No cap unless set.",
+          "examples": [
+            300
+          ],
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [
@@ -87,7 +135,7 @@
       "additionalProperties": false
     },
     {
-      "description": "The script gate as a mapping: `script: …`, optionally with `description` and `route_back_to`.",
+      "description": "The script gate as a mapping: `script: …`, optionally with `description`, `route_back_to` and, as a loop gate, `repeat_from`, `interval` and `max_cycles`.",
       "type": "object",
       "properties": {
         "script": {
@@ -120,6 +168,30 @@
               }
             }
           ]
+        },
+        "repeat_from": {
+          "description": "Makes this a loop gate: the step it names, this step or one before it, is where the loop starts again. Engine effect: while the gate does not pass, `continue` starts the next cycle instead of refusing or blocking: every step from repeat_from to this one is handed out again in a new pass, without the owner, and what they wrote keeps its status. A check or script loop gate decides by its exit code; at an agent loop gate the agent runs `continue --again \"<why>\"` while it does not hold; at an owner-action loop gate the owner does. A loop gate is the step's last gate, on a mandatory step with no other owner-action gate, and loops neither nest nor overlap.",
+          "examples": [
+            "poll"
+          ],
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "interval": {
+          "description": "With repeat_from: about how long to wait before each cycle from the second on, such as 15m, 2h or 1d. Engine effect: printed in the first step block of each later cycle; the agent waits with its harness's own tools. fuse-flow keeps no clock and never enforces it.",
+          "examples": [
+            "15m"
+          ],
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smhd]$"
+        },
+        "max_cycles": {
+          "description": "With repeat_from: how many cycles the loop may run, the first included. Engine effect: when a cycle at the cap does not pass, the step is blocked, and the owner grants more with `--more-cycles <n>`, ends the loop with `--owner-approved`, or sends the work back. No cap unless set.",
+          "examples": [
+            300
+          ],
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [
@@ -128,11 +200,11 @@
       "additionalProperties": false
     },
     {
-      "description": "The agent gate as a mapping: `agent: …`, optionally with `max_rounds`, `guide`, `description` and `route_back_to`.",
+      "description": "The agent gate as a mapping: `agent: …`, optionally with `max_rounds`, `guide`, `description`, `route_back_to` and, as a loop gate, `repeat_from`, `interval` and `max_cycles`.",
       "type": "object",
       "properties": {
         "agent": {
-          "description": "What an independent agent reviews. The agent that did the work classifies each finding as a required fix (P0 or P1, unless the review guide says otherwise), optional (P2 or P3, fixed when cheap or deferred) or a false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the review guide says; fixing optional findings after that round starts no further round. Engine effect: the text, the review guide and the round cap are printed with the step, and the agent that did the work counts the rounds; `continue` is refused until the reviewer has written a findings file in the step's current pass, unless the review was accepted or `--waived` records that the owner waived it.",
+          "description": "What an agent judges. The gate's guide says who judges and how. Without a guide, and with any review guide, an independent agent reviews: the agent that did the work classifies each finding as a required fix (P0 or P1, unless the review guide says otherwise), optional (P2 or P3, fixed when cheap or deferred) or a false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the review guide says; fixing optional findings after that round starts no further round. Engine effect: the text, the review guide and the round cap are printed with the step, and the agent that did the work counts the rounds; `continue` is refused until the reviewer has written a findings file in the step's current pass, unless the review was accepted or `--waived` records that the owner waived it. A guide whose front matter says `judged_by: working-agent` hands the judgement to the agent that did the work: no reviewer is started, and no project or personal review.guide replaces that guide.",
           "type": "string"
         },
         "description": {
@@ -168,8 +240,32 @@
           "minimum": 1
         },
         "guide": {
-          "description": "A review guide for this gate, relative to the workflow file or absolute: how this workflow reviews, and any criteria of its own. It applies together with each reviewed artifact's guide and review guide, and with them decides what counts as a required fix and when a round passes. A team's or local policy's review.guide replaces it. Engine effect: printed with the step.",
+          "description": "A review guide for this gate, relative to the workflow file or absolute: how this workflow reviews, and any criteria of its own. It applies together with each reviewed artifact's guide and review guide, and with them decides what counts as a required fix and when a round passes. A team's or local policy's review.guide replaces it, unless its front matter says `judged_by: working-agent`: then the agent that did the work judges by this guide alone, and no reviewer is started. Engine effect: printed with the step.",
           "type": "string"
+        },
+        "repeat_from": {
+          "description": "Makes this a loop gate: the step it names, this step or one before it, is where the loop starts again. Engine effect: while the gate does not pass, `continue` starts the next cycle instead of refusing or blocking: every step from repeat_from to this one is handed out again in a new pass, without the owner, and what they wrote keeps its status. A check or script loop gate decides by its exit code; at an agent loop gate the agent runs `continue --again \"<why>\"` while it does not hold; at an owner-action loop gate the owner does. A loop gate is the step's last gate, on a mandatory step with no other owner-action gate, and loops neither nest nor overlap.",
+          "examples": [
+            "poll"
+          ],
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "interval": {
+          "description": "With repeat_from: about how long to wait before each cycle from the second on, such as 15m, 2h or 1d. Engine effect: printed in the first step block of each later cycle; the agent waits with its harness's own tools. fuse-flow keeps no clock and never enforces it.",
+          "examples": [
+            "15m"
+          ],
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smhd]$"
+        },
+        "max_cycles": {
+          "description": "With repeat_from: how many cycles the loop may run, the first included. Engine effect: when a cycle at the cap does not pass, the step is blocked, and the owner grants more with `--more-cycles <n>`, ends the loop with `--owner-approved`, or sends the work back. No cap unless set.",
+          "examples": [
+            300
+          ],
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [

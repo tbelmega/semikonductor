@@ -10,9 +10,10 @@ import { FailedResult, FlowError, UsageError } from "./errors.ts";
 import { ignoreLocalPolicy } from "./policy.ts";
 import { checkSlug, findRepoRoot, isDirectory, isWorkflowPath } from "./project.ts";
 
-// The most review rounds one --more-rounds grants, so that the rounds a step
-// is granted in total stay a number the state file can hold.
+// The most review rounds one --more-rounds grants, and cycles one
+// --more-cycles grants, so that the totals stay a number the state file can hold.
 const MAX_MORE_ROUNDS = 100;
+const MAX_MORE_CYCLES = 1000;
 
 const USAGE = `usage:
   fuse-flow start <slug> [--workflow <name or path>] [--from <step>]
@@ -57,6 +58,15 @@ const USAGE = `usage:
   fuse-flow continue <slug> --more-rounds <n> [--gate <n>] [--note <text>]
                                                 the owner grants the step's agent gates n more review rounds,
                                                 1 to 100 at a time; with --gate, only that review
+  fuse-flow continue <slug> --again <why> [--updated [<artifact>=]<file>]...
+                                                at a loop gate, the loop has not reached its end yet: the
+                                                agent at an agent loop gate, once its findings file of this
+                                                cycle exists and the step's other gates pass; the owner at an
+                                                owner-action loop gate. fuse-flow starts the next cycle at
+                                                the gate's repeat_from step
+  fuse-flow continue <slug> --more-cycles <n> [--note <text>]
+                                                the owner grants a loop blocked at its max_cycles n more
+                                                cycles, 1 to 1000 at a time, and the next cycle starts
   fuse-flow continue <slug> --back-to <step> [--rerun <item>[,<item>]...] [--updated [<artifact>=]<file>]... [--note <text>]
                                                 the owner sends the work back from the current step, whatever
                                                 its status, to <step>, it or an earlier one. --updated records
@@ -121,6 +131,8 @@ const OPTIONS = {
     skip: { type: "string" },
     waived: { type: "string" },
     "more-rounds": { type: "string" },
+    "more-cycles": { type: "string" },
+    again: { type: "string" },
     "back-to": { type: "string" },
     "forward-to": { type: "string" },
     note: { type: "string" },
@@ -257,12 +269,15 @@ function run(argv: string[]): string[] {
     case "continue": {
       const ownerApproved = Boolean(values["owner-approved"]);
       const moreRounds = values["more-rounds"] as string | undefined;
+      const moreCycles = values["more-cycles"] as string | undefined;
+      const again = values.again as string | undefined;
       const backTo = values["back-to"] as string | undefined;
       const forwardTo = values["forward-to"] as string | undefined;
       // The owner's decisions, and the agent's reports, are one each.
       const decisions = [
         ownerApproved && "--owner-approved",
         moreRounds !== undefined && "--more-rounds",
+        moreCycles !== undefined && "--more-cycles",
         backTo !== undefined && "--back-to",
         forwardTo !== undefined && "--forward-to",
       ].filter(Boolean) as string[];
@@ -272,22 +287,27 @@ function run(argv: string[]): string[] {
         Object.keys(unchanged).length > 0 && "--unchanged",
         Object.keys(notProduced).length > 0 && "--not-produced",
       ].filter(Boolean) as string[];
-      const actions = [...decisions, ...reports];
+      // --again reports the agent's work, as a plain continue does, or is the
+      // owner's decision at an owner-action loop gate; either way it is one
+      // action, and it takes the work reports a plain continue takes.
+      const actions = [...decisions, ...reports, ...(again !== undefined ? ["--again"] : [])];
+      const decided = [...decisions, ...reports];
+
       if (actions.length > 1) throw new UsageError(`${actions.join(" and ")} are different decisions; give one`);
       // A waiver goes with the agent's report that the work is done.
-      if (values.waived !== undefined && actions.length) throw new UsageError(`--waived goes with the report that the work is done; it does not go with ${actions[0]}`);
+      if (values.waived !== undefined && decided.length) throw new UsageError(`--waived goes with the report that the work is done; it does not go with ${decided[0]}`);
       // What is left open goes with the report that the work is done, or alone on a complete workstream.
       if (values["left-open"] !== undefined && actions.length) {
         throw new UsageError(`--left-open goes with the report that the work is done; it does not go with ${actions[0]}`);
       }
       // A send-back, and a block, may record what the current step wrote so far.
       const recordsWork = (backTo !== undefined || values.blocked !== undefined) && work.every((w) => w === "--updated");
-      if (actions.length && work.length && !recordsWork) {
+      if (decided.length && work.length && !recordsWork) {
         const recording = backTo !== undefined || values.blocked !== undefined;
-        throw new UsageError(`${work.find((w) => !recording || w !== "--updated")} reports the agent's work; it does not go with ${actions[0]}`);
+        throw new UsageError(`${work.find((w) => !recording || w !== "--updated")} reports the agent's work; it does not go with ${decided[0]}`);
       }
       if (values.note !== undefined && decisions.length === 0) {
-        throw new UsageError("--note goes with --owner-approved, --more-rounds, --back-to or --forward-to");
+        throw new UsageError("--note goes with --owner-approved, --more-rounds, --more-cycles, --back-to or --forward-to");
       }
       const rerun = values.rerun as string | undefined;
       if (rerun !== undefined && backTo === undefined) throw new UsageError("--rerun goes with --back-to: the owner names the items to re-run when sending the work back");
@@ -301,6 +321,10 @@ function run(argv: string[]): string[] {
       if (moreRounds !== undefined && !(/^[1-9][0-9]*$/.test(moreRounds) && Number(moreRounds) <= MAX_MORE_ROUNDS)) {
         throw new UsageError(`--more-rounds takes a whole number of rounds, 1 or more and at most ${MAX_MORE_ROUNDS}`);
       }
+      if (moreCycles !== undefined && !(/^[1-9][0-9]*$/.test(moreCycles) && Number(moreCycles) <= MAX_MORE_CYCLES)) {
+        throw new UsageError(`--more-cycles takes a whole number of cycles, 1 or more and at most ${MAX_MORE_CYCLES}`);
+      }
+      if (again !== undefined && !again.trim()) throw new UsageError("--again needs the reason, not blank text");
       return commands.continueWorkstream(root, slug, {
         ownerApproved,
         note: values.note as string | undefined,
@@ -309,6 +333,8 @@ function run(argv: string[]): string[] {
         skip: values.skip as string | undefined,
         waived: values.waived as string | undefined,
         moreRounds: moreRounds === undefined ? undefined : Number(moreRounds),
+        moreCycles: moreCycles === undefined ? undefined : Number(moreCycles),
+        ...(again !== undefined ? { again: again.trim() } : {}),
         backTo,
         ...(items ? { rerun: items } : {}),
         forwardTo,

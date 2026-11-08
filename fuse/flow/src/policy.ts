@@ -7,7 +7,7 @@
 // project.
 
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, type Stats, statSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import YAML from "yaml";
 import { FlowError } from "./errors.ts";
@@ -241,10 +241,66 @@ const LIBRARY_SOURCE: Record<LibraryLevel, ReviewGuideSource> = {
   package: "package library",
 };
 
+// How much of a guide is read to find its front matter.
+const FRONT_MATTER_BYTES = 16 * 1024;
+
+// The start of a guide, if it is a regular file; undefined otherwise. A
+// device or a pipe named as a guide is never read. `authorize`, given the
+// opened file's status, decides whether it may be read, so a caller that
+// limits which files it reads checks the file actually opened.
+export function guideStart(path: string, authorize?: (opened: Stats) => boolean): string | undefined {
+  try {
+    // Opened without blocking and checked through the descriptor, so a pipe
+    // swapped in after a check of the path cannot hold the read.
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || (authorize && !authorize(opened))) return undefined;
+      const buffer = Buffer.alloc(FRONT_MATTER_BYTES);
+      return buffer.toString("utf8", 0, readSync(fd, buffer, 0, buffer.length, 0));
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+// Whether a guide's text hands the gate's judgement to the agent that did the
+// work: its YAML front matter sets `judged_by: working-agent`.
+export function declaresWorkingAgent(text: string | undefined): boolean {
+  const front = text === undefined ? null : /^---\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/.exec(text);
+  if (!front) return false;
+  try {
+    const data = YAML.parse(front[1]);
+    return data !== null && typeof data === "object" && (data as Record<string, unknown>).judged_by === "working-agent";
+  } catch {
+    return false;
+  }
+}
+
+// Whether a guide file hands the judgement to the agent that did the work. A
+// guide that is not a regular file, or cannot be read, does not.
+export const judgedByWorkingAgent = (path: string | undefined) => (path ? declaresWorkingAgent(guideStart(path)) : false);
+
+// Whether the agent that did the work judges agent gate `gate` itself, by the
+// gate's own guide, rather than an independent reviewer. `read` gives the
+// guide's text; a caller that may read only some files, such as Komposer's
+// server, passes its own reader.
+export const workingAgentJudges = (gate: Gate, read: (path: string) => string | undefined = guideStart) =>
+  gate.kind === "agent" && gate.guide !== undefined && declaresWorkingAgent(read(gate.guide));
+
 // The guide a gate applies to every artifact it reviews, and which layer it
 // comes from: a team's or local policy's review.guide replaces the gate's
-// guide, which replaces the user's policy's. Undefined when there is none.
-export function gateReviewGuide(p: Project, gate: Gate): { path: string; source: ReviewGuideSource } | undefined {
+// guide, which replaces the user's policy's. Undefined when there is none. A
+// gate whose guide hands the judgement to the working agent keeps that guide:
+// a review guide written for reviewers does not say how to judge it.
+export function gateReviewGuide(
+  p: Project,
+  gate: Gate,
+  read?: (path: string) => string | undefined,
+): { path: string; source: ReviewGuideSource } | undefined {
+  if (workingAgentJudges(gate, read)) return { path: gate.guide!, source: "gate" };
   const order: [ReviewGuideSource, () => string | undefined][] = [
     ["local policy", () => policyGuide(p.local)],
     ["team policy", () => policyGuide(p.team)],
@@ -267,7 +323,10 @@ export function gateReviewGuide(p: Project, gate: Gate): { path: string; source:
 // checked. Two of them may be the same file; each keeps its own role and
 // source, so the gate's guide is still checked and a policy's is still the
 // owner's. Callers that read or show the files name each file once.
-export function reviewGuides(p: Project, gate: Gate, artifactId: string | undefined): AppliedGuide[] {
+export function reviewGuides(p: Project, gate: Gate, artifactId: string | undefined, read?: (path: string) => string | undefined): AppliedGuide[] {
+  // The working agent judges by the gate's guide alone; the artifacts' review
+  // guides are written for an independent reviewer.
+  if (workingAgentJudges(gate, read)) return [{ path: gate.guide!, source: "gate", role: "gate" }];
   const found: AppliedGuide[] = [];
   const add = (g: AppliedGuide) => found.push(g);
   const entry = artifactId ? libraryEntry(p, artifactId) : undefined;
@@ -277,7 +336,7 @@ export function reviewGuides(p: Project, gate: Gate, artifactId: string | undefi
     const review = existing(join(entry.folder, "review.md"));
     if (review) add({ path: review, source, role: "review" });
   }
-  const fromGate = gateReviewGuide(p, gate);
+  const fromGate = gateReviewGuide(p, gate, read);
   if (fromGate) add({ ...fromGate, role: "gate" });
   return found;
 }
@@ -301,25 +360,51 @@ function notAGuide(path: string): string | undefined {
 // the author's concern, and the step block says so. `file` is the workflow
 // file. With `only`, the steps it names; the step block prints the guides of
 // those alone.
-export function reviewGuideProblems(p: Project, wf: Workflow, file: string, only?: (step: Step) => boolean): string[] {
-  const problems = new Set<string>();
+export function reviewGuideProblems(
+  p: Project,
+  wf: Workflow,
+  file: string,
+  only?: (step: Step) => boolean,
+  read?: (path: string) => string | undefined,
+): string[] {
+  return reviewGuideFindings(p, wf, file, only, read).map((f) => f.line);
+}
+
+// A reader that reads no guide, for a caller that must not open files. With it,
+// whether a gate's own guide hands the judgement to the working agent is not known.
+export const READS_NO_GUIDE = (_path: string): string | undefined => undefined;
+
+// reviewGuideProblems with, for each line, whether it is uncertain: given
+// READS_NO_GUIDE, a line about a policy's or an artifact's review guide on a gate
+// that has a guide of its own is uncertain, since the gate's guide may declare the
+// working agent, and then no other review guide applies. Every other line is certain.
+export function reviewGuideFindings(
+  p: Project,
+  wf: Workflow,
+  file: string,
+  only?: (step: Step) => boolean,
+  read?: (path: string) => string | undefined,
+): { line: string; uncertain: boolean }[] {
+  const problems = new Map<string, boolean>();
+  const add = (line: string, uncertain: boolean) => problems.set(line, (problems.get(line) ?? true) && uncertain);
   wf.steps.forEach((step, i) => {
     if (only && !only(step)) return;
     const ids = [...step.produces, ...step.optional_produces, ...step.updates].map((a) => a.artifact);
     for (const gate of step.gates) {
       if (gate.kind !== "agent") continue;
-      const applied = (ids.length ? ids : [undefined]).flatMap((id) => reviewGuides(p, gate, id).map((found) => ({ id, found })));
+      const applied = (ids.length ? ids : [undefined]).flatMap((id) => reviewGuides(p, gate, id, read).map((found) => ({ id, found })));
       for (const { id, found } of applied) {
         const why = found.role !== "authoring" && notAGuide(found.path);
         if (!why) continue;
         const layer = { "local policy": p.local, "team policy": p.team, "user policy": p.user }[found.source as string];
-        if (layer) problems.add(`${layer.file} sets review.guide to ${layer.policy.review?.guide}, and ${found.path} ${why}`);
-        else if (found.source === "gate") problems.add(`${file}: steps.${i} (${step.id}): the review guide of ${describeGate(gate)} ${why}: ${found.path}`);
-        else problems.add(`the review guide ${found.path} of artifact ${id} ${why}`);
+        const uncertain = read === READS_NO_GUIDE && gate.guide !== undefined && found.source !== "gate";
+        if (layer) add(`${layer.file} sets review.guide to ${layer.policy.review?.guide}, and ${found.path} ${why}`, uncertain);
+        else if (found.source === "gate") add(`${file}: steps.${i} (${step.id}): the review guide of ${describeGate(gate)} ${why}: ${found.path}`, false);
+        else add(`the review guide ${found.path} of artifact ${id} ${why}`, uncertain);
       }
     }
   });
-  return [...problems];
+  return [...problems].map(([line, uncertain]) => ({ line, uncertain }));
 }
 
 // Refuse a workflow whose review guides, as they apply, cannot be followed;

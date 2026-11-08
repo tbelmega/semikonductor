@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { checkoutProblems, currentBase, resolveBase } from "./base.ts";
 import { FailedResult, FlowError } from "./errors.ts";
-import { conditionRun, EVENT, ownerNotes, runEvents, SKIP_REASON, stamp, summarizeRun } from "./history.ts";
+import { conditionRun, EVENT, opensPass, ownerNotes, passOpenedBy, runEvents, SKIP_REASON, stamp, summarizeRun } from "./history.ts";
 import { has, own } from "./own.ts";
 import {
   artifactPath,
@@ -38,6 +38,7 @@ import {
   reviewGuideProblems,
   reviewGuides,
   rulings,
+  workingAgentJudges,
 } from "./policy.ts";
 import { debugLog, decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
 import { type Artifact, type Condition, describeGate, type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
@@ -156,11 +157,42 @@ const position = (c: Ctx, step: Step) => `${c.wf.steps.indexOf(step) + 1} of ${c
 // reviews, then the owner, so that a reviewer and the owner see the child's
 // results, the cheap deterministic checks fail first and the owner sees only
 // work that has already passed review. Within a kind, the order the workflow
-// lists them in.
+// lists them in. A loop gate decides whether the loop goes round again, so it
+// comes after every other gate; a step with one has no other owner gate.
 function gatesInOrder(step: Step): Gate[] {
-  const rank = (g: Gate) => (g.kind === "workflow" ? -1 : g.kind === "check" || g.kind === "script" ? 0 : g.kind === "agent" ? 1 : 2);
+  const rank = (g: Gate) =>
+    g.kind === "workflow" ? -1 : g.repeat_from !== undefined ? 1.5 : g.kind === "check" || g.kind === "script" ? 0 : g.kind === "agent" ? 1 : 2;
   return [...step.gates].sort((a, b) => rank(a) - rank(b));
 }
+
+// The step's loop gate, if it carries one.
+const loopGate = (step: Step) => step.gates.find((g) => g.repeat_from !== undefined);
+
+interface Loop {
+  at: Step; // the step that carries the loop gate
+  gate: Gate;
+  from: Step; // the step each later cycle starts at
+  steps: Step[]; // every step the loop repeats, from `from` to `at`
+}
+
+// The loop that repeats `step`, if one does. Loops neither nest nor overlap.
+function loopOf(wf: Workflow, step: Step): Loop | undefined {
+  const i = wf.steps.indexOf(step);
+  for (const at of wf.steps.slice(i)) {
+    const gate = loopGate(at);
+    if (!gate) continue;
+    const from = wf.steps.findIndex((s) => s.id === gate.repeat_from);
+    if (from >= 0 && from <= i) return { at, gate, from: wf.steps[from], steps: wf.steps.slice(from, wf.steps.indexOf(at) + 1) };
+  }
+  return undefined;
+}
+
+// The loop's current cycle, 1 for the first.
+const cycleOf = (ws: Workstream, loop: Loop) => stateOf(ws, loop.at.id).cycle ?? 1;
+
+// How many cycles the loop may run, the owner's grants included; undefined
+// when it has no cap.
+const cycleCap = (state: StepState, gate: Gate) => (gate.max_cycles === undefined ? undefined : gate.max_cycles + (state.cycles_granted ?? 0));
 
 const ownerGates = (step: Step) => step.gates.filter((g) => g.kind === "owner-action");
 const routesBack = (step: Step) => [...new Set(step.gates.flatMap((g) => g.route_back_to))];
@@ -1342,6 +1374,27 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
     if (ran?.includes("condition")) lines.push(`CONDITION: ${ran.slice(ran.indexOf("condition"))}, so the step runs.`);
   }
   lines.push(modeLine(c, step));
+  const loop = loopOf(c.wf, step);
+  if (loop) {
+    const n = cycleOf(ws, loop);
+    const cap = cycleCap(stateOf(ws, loop.at.id), loop.gate);
+    lines.push(
+      `LOOP: cycle ${n} of the loop at ${loop.at.id}, which repeats from ${loop.from.id}${cap !== undefined ? `, at most ${cap} cycles` : ""}. ` +
+        `${step === loop.at ? "This step's" : `Step ${loop.at.id}'s`} loop gate decides whether the loop ends or goes round again. ` +
+        "Each cycle is a new pass of these steps, and what they wrote keeps its status.",
+    );
+    // The cycle's one wait, before its first step's work; a pass the owner
+    // opened by sending the work back starts at once.
+    const first = loop.steps.find((s) => stateOf(ws, s.id).status !== "SKIPPED") === step;
+    if (first && n > 1 && loop.gate.interval && passOpenedBy(state.history) === "cycle") {
+      lines.push(
+        `WAIT: before this step's work, wait about ${loop.gate.interval} since the last cycle, or longer where a guide this block ` +
+          "names says so, with your harness's own way to wait or to schedule a wake-up. If it has none, tell the owner and ask " +
+          'how to go on: the owner can say "continue" on coming back, you can wait within this turn for a limited time, or ' +
+          "the owner can approve a scheduled job that resumes the session. fuse-flow keeps no clock and does not check the wait.",
+      );
+    }
+  }
 
   const gate = childGate(step);
   const children = gate ? knownChildren(c, state, step) : [];
@@ -1585,7 +1638,12 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   if (nested.length) {
     lines.push(`FILES IN TWO ARTIFACTS: ${nested.join("; ")}. Name a file there with --updated <artifact>=<file>, once for each artifact it counts for.`);
   }
-  if (earlier.length) {
+  if (earlier.length && passOpenedBy(state.history) === "cycle") {
+    lines.push(
+      `EARLIER CYCLE: this step ran in an earlier cycle of the loop and wrote ${earlier.join(", ")}. Keep each up to date ` +
+        "with what this cycle finds; report each file you change with --updated.",
+    );
+  } else if (earlier.length) {
     lines.push(
       `EARLIER PASS: this step ran before the owner sent the work back, and wrote ${earlier.join(", ")}. Check each ` +
         (notes.length
@@ -1637,6 +1695,19 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
               `report the step blocked: run \`${ff} --blocked "<the reason>"\`, so the owner decides.`
           : `  ${++n}. Make sure ${named} ${them === "it" ? "is" : "are all"} complete. fuse-flow checks ${them} on continue and refuses the step until ${them === "it" ? "it is" : "all are"}.`,
       );
+    } else if ((g.kind === "check" || g.kind === "script") && g === loop?.gate) {
+      const m = mechanical(c, g);
+      const decides =
+        `fuse-flow runs it on continue: exit 0 ends the loop and completes the step, and any other exit starts the next cycle at ${loop.from.id}. ` +
+        "It says whether the loop is done, so do not change the work or the check only to make it pass.";
+      if (m.kind === "run") {
+        const what = g.kind === "check" ? `, the project's ${g.text} check (bound in ${display(c.p, checkBinding(c.p, g.text)!.file)})` : "";
+        lines.push(`  ${++n}. The loop gate: \`${byHand(c, step, m.command)}\`${what}. ${decides}`);
+      } else if (m.kind === "none") {
+        lines.push(`  ${++n}. The loop gate's ${g.text} check is not configured in this project (bound to none in ${m.file}), so it passes and the loop ends.`);
+      } else {
+        lines.push(`  ${++n}. ${bindInstruction(c, m.check)} It is the loop gate: ${decides}`);
+      }
     } else if (g.kind === "check" || g.kind === "script") {
       const m = mechanical(c, g);
       const again = "fuse-flow runs it again on continue and refuses the step while it fails.";
@@ -1657,13 +1728,17 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
           ? `  ${n}. The owner accepted this review (${g.text}) as it was; do not run it again.${so}`
           : passedEarlier.has(reviewId(c, step, n, g))
             ? `  ${n}. This review (${g.text}) passed earlier in this pass; do not run it again.${so}`
-            : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)} fuse-flow refuses continue until the ` +
-              `reviewer has written a findings file in this pass; if the owner waives the review, add \`--waived "<the owner's reason>"\` to the continue command below.`,
+            : workingAgentJudges(g)
+              ? `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)} fuse-flow refuses continue until that findings file exists in this pass.`
+              : `  ${n}. ${reviewText(c, ws, g, step, state, reviewed, n, notes.length > 0)} fuse-flow refuses continue until the ` +
+                `reviewer has written a findings file in this pass; if the owner waives the review, add \`--waived "<the owner's reason>"\` to the continue command below.`,
       );
     }
   }
 
   let last = `  ${++n}. Run \`${ff}\``;
+  // At an agent loop gate the same command reports the work and the judgement.
+  if (loop?.at === step && loop.gate.kind === "agent") last += `, or with --again "<why it does not hold yet>" while the loop gate above does not hold`;
   const updates = step.updates.map((a) => a.artifact);
   const produces = step.produces.map((a) => a.artifact);
   const parts: string[] = [];
@@ -1683,6 +1758,9 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   const owner = ownerGates(step);
   if (owner.length) {
     last += ` The step then waits for the owner to ${owner.map((g) => g.text).join(", and to ")}.`;
+    if (loop?.gate.kind === "owner-action" && step === loop.at) {
+      last += ` That is the loop gate: the owner's approval ends the loop, and the owner may instead ask for another cycle, which starts at ${loop.from.id}.`;
+    }
     const routes = routesBack(step);
     if (routes.length) last += ` If the owner rejects it, suggest sending the work back to ${routes.join(" or ")}.`;
   }
@@ -1959,6 +2037,8 @@ function launchesOf(g: Gate, step: Step, files: ReturnType<typeof stepFindings>)
 // What review `g` has cost so far, for the step block, the hand-over and
 // `status`, or nothing before the first launch.
 function launchesText(c: Ctx, g: Gate, step: Step): string {
+  // The working agent's own judgements start no reviewer.
+  if (workingAgentJudges(g)) return "";
   const { own, unassigned } = launchesOf(g, step, stepFindings(c, step));
   const parts: string[] = [];
   if (own.launches) {
@@ -2071,6 +2151,32 @@ function waiverOf(c: Ctx, step: Step, state: StepState, g: Gate) {
 // `n` is the gate's number in the step block's list; `notes` whether the
 // owner gave notes in this pass.
 function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepState, reviewed: Placed[], n: number, notes: boolean): string {
+  const ff = `${FUSE_FLOW} continue ${c.slug}`;
+  const loop = loopOf(c.wf, step);
+  const looping = loop?.gate === g ? loop : undefined;
+  const loopEnd = looping
+    ? ` If it does not hold yet, run \`${ff} --again "<why it does not hold yet>"\`: fuse-flow starts the next cycle at ${looping.from.id}, ` +
+      `and what it names is done there. If it holds, run \`${ff}\`, which ends the loop.`
+    : "";
+  const dir = display(c.p, reviewsDir(c.root, c.slug));
+  const findings = findingsFile(c, g, step, state);
+  const cycle = passOpenedBy(state.history) === "cycle";
+  // The guide hands the judgement to the agent that did the work: no reviewer
+  // is started, and the guide alone says how to judge.
+  if (workingAgentJudges(g)) {
+    let judged =
+      `Judge yourself whether ${g.text.replace(/\.$/, "")}, following the guide ${display(c.p, g.guide!)}; start no reviewer. ` +
+      `Write your judgement to ${findings}, where <n> is the round, following ${display(c.p, FINDINGS_SCHEMA)}: each reason it ` +
+      "does not hold yet is a finding with a required fix, and none says it holds.";
+    if (cycle && loop) judged += ` The judgement covers this cycle, cycle ${cycleOf(ws, loop)}; earlier cycles' files are in ${dir}/.`;
+    return (
+      judged +
+      (looping
+        ? loopEnd
+        : ` If it does not hold, fix what it names and judge again in the next round, until it holds. After ${capOf(c, g, step, state)} rounds ` +
+          `that end with a required fix, report the step blocked: run \`${ff} --blocked "<what is still open>" --gate ${n}\`.`)
+    );
+  }
   let text = `Have an independent agent ${g.text.replace(/\.$/, "")}.`;
   const guided: string[] = [];
   const parts: string[] = [];
@@ -2138,8 +2244,6 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
       "write the review request to, and {findings_file} with the findings file. A launch command must return once " +
       "the reviewer has written the findings file; one that has not returned has not finished the round.";
   }
-  const dir = display(c.p, reviewsDir(c.root, c.slug));
-  const findings = findingsFile(c, g, step, state);
   text +=
     ` The reviewer writes its findings to ${findings}, where <n> is the round, following ` +
     `${display(c.p, FINDINGS_SCHEMA)}; read them from there. When several reviewers review the same round, each ` +
@@ -2158,13 +2262,20 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
         ? `The review guides decide what counts as a required fix and when a round passes; where they do not say, ${levels}`
         : `The review guide decides what counts as a required fix and when a round passes; where it does not say, ${levels}`
       : capitalize(levels)) +
-    " Fix what is required and review again, until a round ends with no required fix. That round passes and ends " +
-    "the review: fixing optional findings after it starts no further round.";
+    (looping
+      ? " A round that ends with a required fix means the loop goes round again: make the fixes in the next cycle, not in " +
+        "this step. A round with no required fix ends the loop."
+      : " Fix what is required and review again, until a round ends with no required fix. That round passes and ends " +
+        "the review: fixing optional findings after it starts no further round.");
   if (guided.length || authoring.length) {
     text += ` Give the reviewer the step instruction as well: ${guidePrecedence(c, precedence, "reviewer")}`;
   }
   if (notes) text += " Give the reviewer the owner's notes as well.";
-  if (state.pass) {
+  if (state.pass && cycle && loop) {
+    text +=
+      ` This is cycle ${cycleOf(ws, loop)} of the loop at ${loop.at.id}: the review covers this cycle's work. Give the reviewer ` +
+      `the findings files of the earlier cycles, in ${dir}/, with how each finding was handled.`;
+  } else if (state.pass) {
     text +=
       ` This is pass ${state.pass} of this step, because the owner sent the work back: count only this pass's rounds ` +
       "against the cap. The review covers the whole artifact. Give the reviewer the findings files of the earlier " +
@@ -2172,6 +2283,14 @@ function reviewText(c: Ctx, ws: Workstream, g: Gate, step: Step, state: StepStat
       "need no agent review, make them, run the checks, and finish the step with `--waived \"<the owner's words>\"` " +
       "added to the continue command; if your changes go beyond the owner's notes, run the review anyway and say why " +
       "in the hand-over. Without such a note, run the review.";
+  }
+  // A loop gate's review has no round cap: a round that does not pass starts
+  // the next cycle, and max_cycles caps those.
+  if (looping) {
+    text += loopEnd;
+    const so = launchesText(c, g, step);
+    if (so) text += ` So far this review has had ${so}, counted from the findings files in ${dir}/.`;
+    return text;
   }
   // The same rule, in the same words, as the fuse review guide's.
   // When an owner gate follows in the same step, the owner rules on the
@@ -2284,6 +2403,16 @@ function reviewResult(c: Ctx, g: Gate, step: Step, state: StepState, rest: strin
   if (acceptedGates(c, step, state).includes(n)) return `review (${g.text}): accepted by the owner as it was${so}`;
   const waived = waiverOf(c, step, state, g);
   if (waived) return `review (${g.text}): waived by the owner: ${waived.reason}${so}`;
+  // A loop gate has no round cap: each round that does not pass is a cycle.
+  if (g.repeat_from !== undefined) {
+    if (state.status === "COMPLETED") return `review (${g.text}): the loop ended in cycle ${state.cycle ?? 1}${so}`;
+    const ran = reviewRan(c, g, step, state);
+    return (
+      `review (${g.text}): the loop has not ended; ` +
+      (ran ? `cycle ${state.cycle ?? 1} did not pass` : `its judgement has not run in cycle ${state.cycle ?? 1}`) +
+      `, ${rest}${so}`
+    );
+  }
   const back = takenBack(c, step, state).some((r) => r.n === n) ? " (the owner's acceptance of this review was taken back, since an edit changed it)" : "";
   return `review (${g.text}): <rounds used> of ${capOf(c, g, step, state)} rounds, ${rest}${back}${so}`;
 }
@@ -2531,6 +2660,11 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
     } else {
       lines.push(`  - ${capitalize(asks)}.`);
       commands.push(`  - The owner does what the step asks (${asks}): run \`${ff} --owner-approved --note "<what the owner said>"\`.`);
+      const loop = loopOf(c.wf, step);
+      if (loop?.gate.kind === "owner-action" && loop.at === step) {
+        lines.push(`  - Go round the loop again, starting at ${loop.from.id}, with what to look for in the next cycle.`);
+        commands.push(`  - The owner asks for another cycle: run \`${ff} --again "<the owner's reason>"\`.`);
+      }
     }
     lines.push(`  - ${backOption}`);
     commands.push(`  - ${backCommand}`);
@@ -2597,7 +2731,10 @@ function handOverLines(c: Ctx, ws: Workstream, step: Step | undefined): string[]
         commands.push(`  - The owner accepts the step as it is: ${accept}.`);
       }
     }
-    if (step.gates.some((g) => g.kind === "agent")) {
+    if (state.blocked_cycles) {
+      lines.push("  - Allow the loop more cycles, and how many; it then goes round again.");
+      commands.push(`  - The owner grants more cycles: run \`${ff} --more-cycles <n> --note "<the owner's decision>"\`.`);
+    } else if (step.gates.some((g) => g.kind === "agent")) {
       // With several reviews, rounds go to the review the step is blocked at.
       const at = blockedReview(c, step, state);
       const one = at !== undefined && step.gates.filter((g) => g.kind === "agent").length > 1 ? ` --gate ${at}` : "";
@@ -2785,6 +2922,8 @@ export interface Continue {
   skip?: string;
   waived?: string; // the owner waived the step's reviews that have not run, for this reason
   moreRounds?: number;
+  moreCycles?: number; // the owner grants a loop blocked at its max_cycles this many more cycles
+  again?: string; // at a loop gate: why the loop goes round again
   backTo?: string;
   rerun?: string[]; // with backTo: the items of the for_each step that get new children
   forwardTo?: string;
@@ -2836,7 +2975,7 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
   // moved the workstream past that step, as a condition that now skips it
   // does, the decision is not applied to the step the hand-out reached.
   const aimed = currentStep(c.wf, initial);
-  const decides = [input.forwardTo, input.skip, input.moreRounds, input.backTo].some((v) => v !== undefined) || input.ownerApproved;
+  const decides = [input.forwardTo, input.skip, input.moreRounds, input.moreCycles, input.again, input.backTo].some((v) => v !== undefined) || input.ownerApproved;
   if (decides && aimed && aimed !== step) {
     // The guide check above passed over the steps the decision would have
     // skipped; the decision is not applied, so the steps from the one the
@@ -2856,15 +2995,51 @@ export function continueWorkstream(root: string, slug: string, input: Continue):
   if (input.forwardTo !== undefined) return forwardTo(c, step, input.forwardTo, input.note);
   if (input.skip !== undefined) return skipStep(c, step, input.skip);
   if (input.moreRounds !== undefined) return grantRounds(c, step, input.moreRounds, input.note, input.gate);
+  if (input.moreCycles !== undefined) return grantCycles(c, step, input.moreCycles, input.note);
   if (input.backTo !== undefined) return sendBack(c, step, input.backTo, input.note, input.updated, input.rerun);
   if (input.ownerApproved && input.gate !== undefined) return acceptReview(c, step, input.gate, input.note);
   if (input.ownerApproved) return approveStep(c, step, input.note);
+  if (input.again !== undefined) {
+    const loop = loopGate(step);
+    if (!loop) throw new FlowError(`--again: step ${step.id} has no loop gate, so there is no loop to repeat; run continue without --again`);
+    if (loop.kind === "check" || loop.kind === "script") {
+      throw new FlowError(
+        `--again: the loop gate of step ${step.id} is a ${loop.kind}; its exit code decides whether the loop repeats, so run continue without --again`,
+      );
+    }
+    if (loop.kind === "owner-action") {
+      if (status !== "AWAITING_OWNER") {
+        throw new FlowError(
+          `--again at step ${step.id} is the owner's decision at its loop gate (${loop.text}), once the step awaits the owner; ` +
+            `the step is ${status}. Finish the step's work and run continue without --again`,
+        );
+      }
+      const reports = [
+        input.updated.length > 0 && "--updated",
+        Object.keys(input.unchanged).length > 0 && "--unchanged",
+        Object.keys(input.notProduced).length > 0 && "--not-produced",
+        input.waived !== undefined && "--waived",
+      ].filter(Boolean);
+      if (reports.length) {
+        throw new FlowError(
+          `${reports.join(", ")} report the agent's work; --again at step ${step.id}'s owner-action loop gate is the owner's decision and records none. ` +
+            "The work was recorded when the step awaited the owner.",
+        );
+      }
+      return ownerAgain(c, step, input.again);
+    }
+    if (status !== "IN_PROGRESS") {
+      throw new FlowError(`--again at step ${step.id} reports the agent's judgement of its loop gate, which the agent gives while the step is in progress; the step is ${status}`);
+    }
+  }
 
   if (status === "AWAITING_OWNER" || status === "BLOCKED") {
-    const rounds = status === "BLOCKED" && step.gates.some((g) => g.kind === "agent");
+    const rounds = status === "BLOCKED" && step.gates.some((g) => g.kind === "agent") && !stateOf(ws, step.id).blocked_cycles;
+    const cycles = status === "BLOCKED" && stateOf(ws, step.id).blocked_cycles;
+    const again = status === "AWAITING_OWNER" && loopGate(step)?.kind === "owner-action";
     throw new FlowError(
-      `step "${step.id}" is ${status}; only the owner can move it on, with --owner-approved, --back-to, ` +
-        `${rounds ? "--more-rounds, " : ""}--skip or --forward-to. Run \`${FUSE_FLOW} start ${c.slug}\` to print the hand-over block for the owner.`,
+      `step "${step.id}" is ${status}; only the owner can move it on, with --owner-approved, ${again ? "--again, " : ""}--back-to, ` +
+        `${rounds ? "--more-rounds, " : ""}${cycles ? "--more-cycles, " : ""}--skip or --forward-to. Run \`${FUSE_FLOW} start ${c.slug}\` to print the hand-over block for the owner.`,
     );
   }
   if (status === "PENDING") throw new FlowError(present(c).join("\n"));
@@ -3131,7 +3306,8 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
   // The checks run without holding the state file's lock, so a long test run
   // does not stall fuse-flow commands for other workstreams. A refusal records
   // every result so far, and the gates not run, for the hand-over block.
-  const mechanicalGates = gatesInOrder(step).filter((g) => g.kind === "check" || g.kind === "script");
+  const loop = loopGate(step);
+  const mechanicalGates = gatesInOrder(step).filter((g) => (g.kind === "check" || g.kind === "script") && g !== loop);
   const warnings: string[] = [];
   const failWith = (i: number, result: string, reason: string, output = "") => {
     verification.push(result, ...mechanicalGates.slice(i + 1).map((g) => `${mechanical(c, g).label}: not run`));
@@ -3163,12 +3339,62 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     }
   }
 
+  // The loop gate decides last, once every other gate has passed: whether
+  // the step completes or the loop goes round again. A check or script decides
+  // by its exit code; at an agent loop gate the agent's --again says it does
+  // not hold yet.
+  let repeat: string | undefined;
+  let repeatOutput = "";
+  if (loop && (loop.kind === "check" || loop.kind === "script")) {
+    const m = mechanical(c, loop);
+    if (m.kind === "unbound") {
+      verification.push(`${m.label}: not run, no command is bound`);
+      throw refuse(c, step, pass, bindInstruction(c, m.check), warnings.join("\n"), verification);
+    }
+    if (m.kind === "none") verification.push(`${m.label}: not configured in this project`);
+    else {
+      refuseClosed(c.root, c.slug);
+      const r = runCommand(c, m.command, step.id);
+      if (r.exitCode === 0) {
+        verification.push(`${m.label}: passed`);
+        const failure = failureLine(r.output);
+        if (failure) {
+          verification.push(checkWarning(m.label, failure));
+          warnings.push(
+            `${WARNING}${m.label} exited 0, so fuse-flow took it as a pass, but its output reports failures: "${failure}". ` +
+              "Check that the command exits non-zero when a test fails, fix it or the tests, and tell the owner.",
+          );
+        }
+      } else {
+        repeat = `${m.label} exited ${r.exitCode ?? "without a code, killed by a signal"}`;
+        repeatOutput = r.output.trim();
+        verification.push(`${m.label}: did not pass (exit ${r.exitCode ?? "none"}), so the loop repeats`);
+      }
+    }
+  } else if (loop?.kind === "agent" && input.again !== undefined) {
+    repeat = `the agent judged it does not hold yet: ${input.again}`;
+  }
+
   const awaitsOwner = ownerGates(step).length > 0;
+  let looped: string | undefined;
   updateWorkstream(c.root, c.slug, (ws) => {
     const state = expectState(c, ws, step, ["IN_PROGRESS"], pass);
     // A child's finish writes under this lock, so the reading the gate passed on still holds here.
     if (gate && (childNotDone(c, step) || retryDue(c, step, gate, state).length)) {
       throw new FlowError(`the child workstreams of step ${step.id} changed while continue ran; run it again`);
+    }
+    if (repeat !== undefined) {
+      // The cycle's work is done; the loop decides what comes next.
+      // As a completion records them, so a step blocked at its cycle cap
+      // keeps them for the owner; a new cycle clears them.
+      record(c, step, state, named, "done", "finish", input.notProduced);
+      setOrDelete(state, "unchanged", Object.keys(input.unchanged).length ? input.unchanged : undefined);
+      setOrDelete(state, "not_produced", Object.keys(input.notProduced).length ? input.notProduced : undefined);
+      setOrDelete(state, "verification", verification.length ? verification : undefined);
+      setOrDelete(state, "reviews_waived", waivers.length ? waivers.map(({ review, reason }) => ({ review, reason })) : undefined);
+      for (const w of waivers) state.history.push(stamp(EVENT.reviewWaived(w.n, w.g.text, w.reason)));
+      looped = repeatOrBlock(c, ws, step, repeat, false);
+      return;
     }
     // Without an owner gate no owner has approved the work: it is done, and
     // approved only once a later owner gate approves it with that gate's step.
@@ -3187,6 +3413,8 @@ function finishStep(c: Ctx, step: Step, given: Continue): string[] {
     state.history.push(stamp(awaitsOwner ? EVENT.awaitingOwner() : EVENT.completed()));
     if (input.leftOpen !== undefined) ws.left_open = input.leftOpen.trim();
   });
+  // The command's own words tell a loop that is not done yet from a command that is broken.
+  if (looped !== undefined) return [looped, ...(repeatOutput ? [`The loop gate's output ended with:\n${repeatOutput}`] : []), ...warnings, "", ...present(c)];
   const head = `${step.id}: ${awaitsOwner ? "work recorded; the step awaits the owner's action" : "COMPLETED"}`;
   const shown = present(c);
   return [head, ...warnings, ...leftOpenDropped(c, input.leftOpen), "", ...shown];
@@ -3479,9 +3707,14 @@ function skipStep(c: Ctx, step: Step, reason: string): string[] {
 // blocked step, which is handed back to the agent, or ahead of time on a step
 // in progress. With `gate`, only that review's cap is raised.
 function grantRounds(c: Ctx, step: Step, n: number, note?: string, gate?: number): string[] {
-  const reviews = gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" ? [{ g, n: i + 1 }] : []));
+  // A loop gate has no round cap; its cycles are granted with --more-cycles.
+  const reviews = gatesInOrder(step).flatMap((g, i) => (g.kind === "agent" && g.repeat_from === undefined ? [{ g, n: i + 1 }] : []));
   if (!reviews.length) {
-    throw new FlowError(`step "${step.id}" has no agent gate, so there are no review rounds to grant`);
+    throw new FlowError(
+      loopGate(step)
+        ? `step "${step.id}" has no review with a round cap; its loop gate is capped in cycles, which the owner grants with --more-cycles`
+        : `step "${step.id}" has no agent gate, so there are no review rounds to grant`,
+    );
   }
   const target = gate === undefined ? undefined : reviews.find((r) => r.n === gate);
   if (gate !== undefined && !target) {
@@ -3500,6 +3733,12 @@ function grantRounds(c: Ctx, step: Step, n: number, note?: string, gate?: number
   if (now === "PENDING") throw new FlowError(`step "${step.id}" has not been handed out yet, so there are no review rounds to grant`);
   updateWorkstream(c.root, c.slug, (ws) => {
     const state = expectState(c, ws, step, ["IN_PROGRESS", "BLOCKED"]);
+    // Review rounds do not release a block at the loop's cycle cap.
+    if (state.blocked_cycles) {
+      throw new FlowError(
+        `step "${step.id}" is blocked at its loop's max_cycles, which review rounds do not release; the owner grants cycles with --more-cycles, ends the loop with --owner-approved, or sends the work back`,
+      );
+    }
     // A step blocked at one review stays blocked when only another review
     // gets the rounds. Checked on the state as it is under the lock, since
     // the agent may have reported the block since this command read it.
@@ -3532,17 +3771,51 @@ function grantRounds(c: Ctx, step: Step, n: number, note?: string, gate?: number
   return [`${step.id}: owner granted ${rounds}${to}; the step is IN_PROGRESS`, "", ...present(c)];
 }
 
+// The owner grants a loop blocked at its max_cycles `n` more cycles, and the
+// next cycle starts: the gate had not passed when the step was blocked.
+function grantCycles(c: Ctx, step: Step, n: number, note?: string): string[] {
+  let out = "";
+  updateWorkstream(c.root, c.slug, (ws) => {
+    const state = stateOf(ws, step.id);
+    if (currentStep(c.wf, ws) !== step || state.status !== "BLOCKED" || !state.blocked_cycles || !loopGate(step)) {
+      throw new FlowError(
+        `--more-cycles goes to a step blocked at its loop's max_cycles; step "${step.id}" is ${state.status}` +
+          (state.status === "BLOCKED" ? " for another reason" : ""),
+      );
+    }
+    state.cycles_granted = (state.cycles_granted ?? 0) + n;
+    state.history.push(stamp(EVENT.cyclesGranted(n, note)));
+    const loop = loopOf(c.wf, step)!;
+    const next = openCycle(ws, loop, note ?? `the owner granted ${n} more cycle${n === 1 ? "" : "s"}`, note !== undefined);
+    out = `${step.id}: owner granted ${n} more cycle${n === 1 ? "" : "s"}, so cycle ${next} of the loop at ${step.id} starts at ${loop.from.id}`;
+  });
+  return [out, "", ...present(c)];
+}
+
+// The owner asks for another cycle at an owner-action loop gate, with the
+// reason, which the next cycle prints as the owner's note.
+function ownerAgain(c: Ctx, step: Step, why: string): string[] {
+  let out = "";
+  updateWorkstream(c.root, c.slug, (ws) => {
+    expectState(c, ws, step, ["AWAITING_OWNER"]);
+    out = repeatOrBlock(c, ws, step, why, true);
+  });
+  return [out, "", ...present(c)];
+}
+
 // Reopen `step` and everything after it: PENDING, its artifacts draft again.
 // The files the steps wrote stay where they are, and stay recorded: the next
-// pass of a step that ran is told about them, and reviews count from it.
-function reopen(state: StepState, line: string): void {
-  // Handed out since the last send-back: a step that ran and was then
-  // skipped still had a pass.
-  const sentBack = state.history.findLastIndex((h) => / owner sent the work back /.test(h));
-  const ran = state.history.slice(sentBack + 1).some((h) => /^\S+ handed out/.test(h));
+// pass of a step that ran is told about them, and reviews count from it. A
+// loop's next cycle reopens its steps the same way, but `keepStatus` leaves
+// what they wrote as it was: a cycle is not the owner rejecting the work.
+function reopen(state: StepState, line: string, keepStatus = false): void {
+  // Handed out since the last send-back or cycle: a step that ran and was
+  // then skipped still had a pass.
+  const opened = state.history.findLastIndex(opensPass);
+  const ran = state.history.slice(opened + 1).some((h) => /^\S+ handed out/.test(h));
   if (ran) state.pass = (state.pass ?? 1) + 1;
   state.status = "PENDING";
-  for (const a of [...state.artifacts, ...(state.files ?? [])]) if (a.status === "approved" || a.status === "done") a.status = "draft";
+  if (!keepStatus) for (const a of [...state.artifacts, ...(state.files ?? [])]) if (a.status === "approved" || a.status === "done") a.status = "draft";
   for (const f of state.files ?? []) f.pass = "earlier";
   for (const key of [
     "rounds_granted",
@@ -3558,10 +3831,47 @@ function reopen(state: StepState, line: string): void {
     "verification",
     "skip_reason",
     "retries_used",
+    "blocked_cycles",
   ] as const) {
     delete state[key];
   }
   state.history.push(line);
+}
+
+// Start the next cycle of `loop`, under the state file's lock: a new pass of
+// every step it repeats, handed out again from its first step, without the
+// owner. `why` is why the loop gate did not pass; `byOwner` marks it as the
+// owner's note, which the next cycle prints. Returns the new cycle's number.
+function openCycle(ws: Workstream, loop: Loop, why: string, byOwner: boolean): number {
+  const state = stateOf(ws, loop.at.id);
+  const n = (state.cycle ?? 1) + 1;
+  state.cycle = n;
+  const line = stamp(EVENT.cycleStarted(n, loop.at.id, loop.from.id, why, byOwner));
+  for (const s of loop.steps) reopen(stateOf(ws, s.id), line, true);
+  // The declaration was about work the loop now goes on with.
+  delete ws.outcome;
+  delete ws.left_open;
+  return n;
+}
+
+// The loop gate of `step` did not pass. Start the next cycle, or, when the
+// loop has run its max_cycles, block the step for the owner. Under the lock.
+function repeatOrBlock(c: Ctx, ws: Workstream, step: Step, why: string, byOwner: boolean): string {
+  const loop = loopOf(c.wf, step)!;
+  const state = stateOf(ws, step.id);
+  const n = state.cycle ?? 1;
+  const cap = cycleCap(state, loop.gate);
+  if (cap !== undefined && n >= cap) {
+    const reason =
+      `the loop at ${step.id} has run ${n} cycle${n === 1 ? "" : "s"}, its max_cycles${state.cycles_granted ? ` with the owner's grants` : ""}, ` +
+      `and its gate did not pass: ${why}`;
+    state.status = "BLOCKED";
+    state.blocked_cycles = true;
+    state.history.push(stamp(EVENT.blocked(reason)));
+    return `${step.id}: BLOCKED: ${reason}`;
+  }
+  const next = openCycle(ws, loop, why, byOwner);
+  return `${step.id}: ${byOwner ? "the owner asked for another cycle" : "the loop gate did not pass"}, so cycle ${next} of the loop at ${step.id} starts at ${loop.from.id}`;
 }
 
 // "If any of a, b keeps a status of its own ..." for the files whose guide
@@ -4203,6 +4513,11 @@ export function status(root: string, slug: string): string[] {
         return `${a.path} (${notes.join("; ")})`;
       });
     const details = [shown.join(", "), state.skip_reason ?? ""].filter(Boolean);
+    if (loopGate(step) && (state.cycle !== undefined || state.status !== "PENDING")) {
+      const loop = loopOf(c.wf, step)!;
+      const cap = cycleCap(state, loop.gate);
+      details.push(`cycle ${cycleOf(ws, loop)} of the loop at ${step.id}${cap !== undefined ? ` (at most ${cap})` : ""}, which repeats from ${loop.from.id}`);
+    }
     // A waiting step names the children of its current pass, recorded or not
     // yet created, and its earlier passes' children apart from them.
     const waiting = childGate(step) && !finished(state.status) && state.status !== "PENDING";
@@ -4225,7 +4540,8 @@ export function status(root: string, slug: string): string[] {
             if (g.kind !== "agent") return describeGate(g);
             const waived = waiverOf(c, step, state, g);
             const so = launchesText(c, g, step);
-            return `${describeGate(g)} [${waived ? `waived by the owner: ${waived.reason}` : `cap ${statusCap(c, g, step, state)}`}${so ? `; ${so}` : ""}]`;
+            const limit = g.repeat_from !== undefined ? "loop gate" : `cap ${statusCap(c, g, step, state)}`;
+            return `${describeGate(g)} [${waived ? `waived by the owner: ${waived.reason}` : limit}${so ? `; ${so}` : ""}]`;
           })
           .join(", ")
       : "none";

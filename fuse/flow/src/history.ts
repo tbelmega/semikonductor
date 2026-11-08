@@ -40,6 +40,13 @@ export const EVENT = {
   // The agent declared the workstream's outcome with `finish`. Written on the
   // step it was failed at, or on the last step when it was already complete.
   finished: (kind: "succeeded" | "failed", reason?: string) => (kind === "failed" ? `finished by the agent as failed: ${reason}` : "finished by the agent as succeeded"),
+  // A loop gate did not pass, so the engine opened the next cycle: a new pass
+  // of every step from repeat_from to the step that carries the gate. `why`
+  // is the agent's reason or the result of the check; the owner's reason is
+  // a note, as the owner's other decisions carry one.
+  cycleStarted: (n: number, at: string, from: string, why: string, byOwner: boolean) =>
+    `cycle ${n} of the loop at ${at} started at ${from}${byOwner ? " by the owner" : ""}: ${why}`,
+  cyclesGranted: (n: number, note?: string) => `owner granted ${n} more cycle${n === 1 ? "" : "s"} of the loop${withNote(note)}`,
   rerunSelected: (items: string[], note?: string) => `owner selected the items to re-run: ${items.join(", ")}${withNote(note)}`,
   autoRetry: (n: number, max: number, items: string[]) => `automatic retry ${n} of ${max} for items ${items.join(", ")}`,
 };
@@ -79,6 +86,7 @@ export type EventKind =
   | "review-accepted"
   | "review-waived"
   | "sent-back"
+  | "cycle"
   | "approved"
   | "child-created"
   | "finished"
@@ -145,6 +153,15 @@ const PATTERNS: [RegExp, (m: RegExpMatchArray) => Reading][] = [
     /^owner sent the work back from (\S+) to (\S+?)(?:: ([\s\S]*))?$/,
     (m) => ({ kind: "sent-back", to: "PENDING", actor: "owner", detail: m[3] ?? "", backFrom: m[1], backTo: m[2], note: m[3] }),
   ],
+  [
+    /^cycle (\d+) of the loop at (\S+) started at (\S+) by the owner: ([\s\S]*)$/,
+    (m) => ({ kind: "cycle", to: "PENDING", actor: "owner", detail: `cycle ${m[1]}: ${m[4]}`, note: m[4] }),
+  ],
+  [/^cycle (\d+) of the loop at (\S+) started at (\S+): ([\s\S]*)$/, (m) => ({ kind: "cycle", to: "PENDING", actor: "agent", detail: `cycle ${m[1]}: ${m[4]}` })],
+  [
+    /^owner granted \d+ more cycles? of the loop(?:: ([\s\S]*))?$/,
+    (m) => ({ kind: "rounds-granted", actor: "owner", detail: m[0].replace(/^owner /, ""), note: m[1] }),
+  ],
   [/^owner approved(?:: ([\s\S]*))?$/, (m) => ({ kind: "approved", to: "COMPLETED", actor: "owner", detail: m[1] ?? "", note: m[1] })],
   [/^created child workstream (\S+)$/, (m) => ({ kind: "child-created", detail: m[1] })],
   // The declaration itself moves no step; the skips it writes do.
@@ -174,9 +191,22 @@ export function ownerNotes(history: string[]): string[] {
   });
 }
 
-// One step's history since its current pass began: from the send-back that
-// reopened the step, or from the start.
-const thisPass = (history: string[]) => history.slice(Math.max(0, history.findLastIndex((h) => read(body(h)).kind === "sent-back")));
+// Whether a history line opened a new pass of its step: a send-back, or the
+// start of a loop's next cycle.
+export const opensPass = (line: string) => {
+  const kind = read(body(line)).kind;
+  return kind === "sent-back" || kind === "cycle";
+};
+
+// The kind of the line that opened the step's current pass, if any.
+export function passOpenedBy(history: string[]): "sent-back" | "cycle" | undefined {
+  const line = history.findLast(opensPass);
+  return line === undefined ? undefined : (read(body(line)).kind as "sent-back" | "cycle");
+}
+
+// One step's history since its current pass began: from the send-back or the
+// cycle that reopened the step, or from the start.
+const thisPass = (history: string[]) => history.slice(Math.max(0, history.findLastIndex(opensPass)));
 
 // Every event of the workstream, oldest first. Each step's events are
 // replayed from PENDING, so each event knows the state it left.

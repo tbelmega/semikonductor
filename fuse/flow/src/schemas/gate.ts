@@ -21,7 +21,9 @@ export type GateKind = (typeof GATE_KINDS)[number];
 // which items of a for_each gate get a new child after a send-back, whether
 // the owner may choose them, and how many passes the engine opens on its own
 // for failed items. route_back_to lists the steps to suggest sending the work
-// back to.
+// back to. repeat_from makes the gate a loop gate: while it does not pass,
+// the engine starts the steps from there again; interval is the wait it
+// prints before each later cycle, and max_cycles caps the cycles.
 export type Gate = {
   kind: GateKind;
   text: string;
@@ -37,6 +39,9 @@ export type Gate = {
   rerun_override?: boolean;
   retries?: number;
   route_back_to: string[];
+  repeat_from?: string;
+  interval?: string;
+  max_cycles?: number;
 };
 
 // The slug a workflow gate gives its child unless it says otherwise, and the
@@ -68,6 +73,10 @@ const HINT =
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 
+// The wait a loop gate prints before each later cycle: a whole number and a
+// unit, seconds, minutes, hours or days.
+export const INTERVAL = /^[1-9][0-9]*[smhd]$/;
+
 // An id map written as a list of ids (each maps to itself) or as a mapping of
 // ids, or why it is refused.
 function idMap(field: string, v: unknown, listAllowed: boolean): Record<string, string> | string {
@@ -92,8 +101,9 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   let text: unknown;
   let extra: Record<string, unknown> = {};
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, ...rest } = v as Record<string, unknown>;
-    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries };
+    const { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, repeat_from, interval, max_cycles, ...rest } =
+      v as Record<string, unknown>;
+    extra = { max_rounds, guide, description, route_back_to, slug, inputs, returns, for_each, accept, rerun, rerun_override, retries, repeat_from, interval, max_cycles };
     const entries = Object.entries(rest);
     if (entries.length !== 1) return `${HINT}; got ${JSON.stringify(v)}`;
     [kind, text] = entries[0];
@@ -115,11 +125,11 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   if (kind === "check" && !CHECK_KIND.test(trimmed)) {
     return `check names a kind of check, a single lower-case word such as default; for a command use \`script: ${trimmed}\``;
   }
-  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns, for_each: forEach, accept, rerun, rerun_override: rerunOverride, retries } = extra;
+  const { max_rounds: maxRounds, guide, description, route_back_to: routeBackTo, slug, inputs, returns, for_each: forEach, accept, rerun, rerun_override: rerunOverride, retries, repeat_from: repeatFrom, interval, max_cycles: maxCycles } = extra;
   if (description !== undefined && typeof description !== "string") return "description must be text";
   if (asCondition) {
     if (kind === "workflow") return "a condition cannot be a workflow; a workflow gate goes under gates";
-    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns", "for_each", "accept", "rerun", "rerun_override", "retries"] as const) {
+    for (const field of ["max_rounds", "guide", "route_back_to", "slug", "inputs", "returns", "for_each", "accept", "rerun", "rerun_override", "retries", "repeat_from", "interval", "max_cycles"] as const) {
       if (extra[field] !== undefined) return `a condition has no ${field}`;
     }
     return { kind, text: trimmed, ...(description !== undefined ? { description: description as string } : {}), route_back_to: [] };
@@ -131,6 +141,21 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
     return `max_rounds must be a whole number, 1 or more; got ${JSON.stringify(maxRounds)}`;
   }
   if (guide !== undefined && kind !== "agent") return "guide goes on an agent gate only";
+  // A loop repeats steps of this workflow; a child workstream per cycle is
+  // not designed, so a workflow gate does not loop.
+  if (repeatFrom !== undefined && kind === "workflow") return "a workflow gate cannot be a loop gate; repeat_from goes on an owner-action, check, script or agent gate";
+  if (repeatFrom !== undefined && !isStepId(repeatFrom)) return `repeat_from names a step id; got ${JSON.stringify(repeatFrom)}`;
+  if (interval !== undefined && repeatFrom === undefined) return "interval goes on a loop gate only, with repeat_from";
+  if (maxCycles !== undefined && repeatFrom === undefined) return "max_cycles goes on a loop gate only, with repeat_from";
+  if (interval !== undefined && (typeof interval !== "string" || !INTERVAL.test(interval))) {
+    return `interval is a duration such as 15m, 2h or 1d; got ${JSON.stringify(interval)}`;
+  }
+  if (maxCycles !== undefined && (!Number.isInteger(maxCycles) || (maxCycles as number) < 1)) {
+    return `max_cycles must be a whole number, 1 or more; got ${JSON.stringify(maxCycles)}`;
+  }
+  // A loop gate that does not pass starts another cycle, so a round cap of
+  // its own would count nothing.
+  if (repeatFrom !== undefined && maxRounds !== undefined) return "max_rounds does not go on a loop gate; max_cycles caps it";
   if (guide !== undefined && (typeof guide !== "string" || !guide.trim())) return "guide must be a path";
   for (const field of ["slug", "inputs", "returns", "for_each", "accept", "rerun", "rerun_override", "retries"] as const) {
     if (extra[field] !== undefined && kind !== "workflow") return `${field} goes on a workflow gate only`;
@@ -139,6 +164,9 @@ function parseGate(v: unknown, asCondition: boolean): Gate | string {
   if (description !== undefined) gate.description = description as string;
   if (maxRounds !== undefined) gate.max_rounds = maxRounds as number;
   if (guide !== undefined) gate.guide = (guide as string).trim();
+  if (repeatFrom !== undefined) gate.repeat_from = repeatFrom as string;
+  if (interval !== undefined) gate.interval = interval as string;
+  if (maxCycles !== undefined) gate.max_cycles = maxCycles as number;
   if (forEach !== undefined) {
     if (typeof forEach !== "string" || !ID.test(forEach)) return `for_each names an artifact id, lowercase letters, digits and hyphens; got ${JSON.stringify(forEach)}`;
     gate.for_each = forEach;
@@ -203,12 +231,15 @@ const KIND_DOCS: Record<GateKind, string> = {
     "A shell command, run from the repository root when the step is continued. Engine effect: `continue` is " +
     "refused unless the command exits 0.",
   agent:
-    "What an independent agent reviews. The agent that did the work classifies each finding as a required fix " +
+    "What an agent judges. The gate's guide says who judges and how. Without a guide, and with any review guide, " +
+    "an independent agent reviews: the agent that did the work classifies each finding as a required fix " +
     "(P0 or P1, unless the review guide says otherwise), optional (P2 or P3, fixed when cheap or deferred) or a " +
     "false positive, fixes what is required, and they repeat until a round ends with no required fix, or as the " +
     "review guide says; fixing optional findings after that round starts no further round. Engine effect: the text, the review guide and the round cap are printed with the " +
     "step, and the agent that did the work counts the rounds; `continue` is refused until the reviewer has written a findings file " +
-    "in the step's current pass, unless the review was accepted or `--waived` records that the owner waived it.",
+    "in the step's current pass, unless the review was accepted or `--waived` records that the owner waived it. A " +
+    "guide whose front matter says `judged_by: working-agent` hands the judgement to the agent that did the work: " +
+    "no reviewer is started, and no project or personal review.guide replaces that guide.",
   workflow:
     "The workflow a child workstream follows, by name or by a path relative to this workflow file: the step " +
     "waits for that procedure. Engine effect: when the step is handed out, fuse-flow creates the child " +
@@ -247,8 +278,38 @@ const GUIDE = z.string().optional().meta({
     "A review guide for this gate, relative to the workflow file or absolute: how this workflow reviews, and any " +
     "criteria of its own. It applies together with each reviewed artifact's guide and review guide, and with them " +
     "decides what counts as a required fix and when a round passes. A team's or local policy's review.guide " +
-    "replaces it. Engine effect: printed with the step.",
+    "replaces it, unless its front matter says `judged_by: working-agent`: then the agent that did the work judges " +
+    "by this guide alone, and no reviewer is started. Engine effect: printed with the step.",
 });
+
+const REPEAT_FROM = STEP_ID.optional().meta({
+  description:
+    "Makes this a loop gate: the step it names, this step or one before it, is where the loop starts again. Engine " +
+    "effect: while the gate does not pass, `continue` starts the next cycle instead of refusing or blocking: every " +
+    "step from repeat_from to this one is handed out again in a new pass, without the owner, and what they wrote " +
+    "keeps its status. A check or script loop gate decides by its exit code; at an agent loop gate the agent runs " +
+    "`continue --again \"<why>\"` while it does not hold; at an owner-action loop gate the owner does. A loop gate " +
+    "is the step's last gate, on a mandatory step with no other owner-action gate, and loops neither nest nor overlap.",
+  examples: ["poll"],
+});
+
+const INTERVAL_FIELD = z.string().regex(INTERVAL).optional().meta({
+  description:
+    "With repeat_from: about how long to wait before each cycle from the second on, such as 15m, 2h or 1d. Engine " +
+    "effect: printed in the first step block of each later cycle; the agent waits with its harness's own tools. " +
+    "fuse-flow keeps no clock and never enforces it.",
+  examples: ["15m"],
+});
+
+const MAX_CYCLES = z.number().int().min(1).optional().meta({
+  description:
+    "With repeat_from: how many cycles the loop may run, the first included. Engine effect: when a cycle at the cap " +
+    "does not pass, the step is blocked, and the owner grants more with `--more-cycles <n>`, ends the loop with " +
+    "`--owner-approved`, or sends the work back. No cap unless set.",
+  examples: [300],
+});
+
+const LOOP = { repeat_from: REPEAT_FROM, interval: INTERVAL_FIELD, max_cycles: MAX_CYCLES };
 
 // The shapes a gate may be written in. They only decide what editors offer;
 // parseGate then reads the value, so a value that matches a shape but breaks a
@@ -256,9 +317,11 @@ const GUIDE = z.string().optional().meta({
 const SHAPES = [
   ...(["owner-action", "check", "script"] as const).map((kind) =>
     z
-      .object({ [kind]: z.string().meta({ description: KIND_DOCS[kind] }), description: DESCRIPTION, route_back_to: ROUTE_BACK_TO })
+      .object({ [kind]: z.string().meta({ description: KIND_DOCS[kind] }), description: DESCRIPTION, route_back_to: ROUTE_BACK_TO, ...LOOP })
       .strict()
-      .meta({ description: `The ${kind} gate as a mapping: \`${kind}: …\`, optionally with \`description\` and \`route_back_to\`.` }),
+      .meta({
+        description: `The ${kind} gate as a mapping: \`${kind}: …\`, optionally with \`description\`, \`route_back_to\` and, as a loop gate, \`repeat_from\`, \`interval\` and \`max_cycles\`.`,
+      }),
   ),
   z
     .object({
@@ -267,9 +330,14 @@ const SHAPES = [
       route_back_to: ROUTE_BACK_TO,
       max_rounds: MAX_ROUNDS,
       guide: GUIDE,
+      ...LOOP,
     })
     .strict()
-    .meta({ description: "The agent gate as a mapping: `agent: …`, optionally with `max_rounds`, `guide`, `description` and `route_back_to`." }),
+    .meta({
+      description:
+        "The agent gate as a mapping: `agent: …`, optionally with `max_rounds`, `guide`, `description`, `route_back_to` and, " +
+        "as a loop gate, `repeat_from`, `interval` and `max_cycles`.",
+    }),
   z
     .object({
       workflow: z.string().meta({ description: KIND_DOCS.workflow }),

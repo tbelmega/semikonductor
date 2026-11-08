@@ -9,7 +9,7 @@ import { type Dirent, existsSync, readdirSync, realpathSync, statSync } from "no
 import { posix, resolve } from "node:path";
 import { FlowError } from "./errors.ts";
 import { has, own } from "./own.ts";
-import { artifactPath, loadProject, reviewGuideProblems } from "./policy.ts";
+import { artifactPath, loadProject, reviewGuideFindings } from "./policy.ts";
 import { findWorkflow, isDirectory } from "./project.ts";
 import { DEFAULT_CHILD_SLUG, DEFAULT_CHILD_SLUG_PER_ITEM } from "./schemas/gate.ts";
 import { type Gate, loadWorkflow, type Step, type Workflow } from "./workflow.ts";
@@ -371,7 +371,15 @@ export function documentsOf(wf: Workflow): Set<string> {
 // leads back to this workflow. A hand-off whose target takes none of this
 // workflow's documents is only a warning. A child's review guides are checked
 // only for the steps `only` keeps, the steps a new workstream will reach.
-export function crossCheck(root: string, file: string, wf: Workflow, only: (step: Step) => boolean = () => true): { errors: string[]; warnings: string[] } {
+// `read` gives a guide's text where the caller limits which files may be
+// read, as Komposer's server does; without it fuse-flow reads the guide itself.
+export function crossCheck(
+  root: string,
+  file: string,
+  wf: Workflow,
+  only: (step: Step) => boolean = () => true,
+  read?: (path: string) => string | undefined,
+): { errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
   const load = (ref: string): { wf: Workflow; path: string } | string => {
@@ -386,7 +394,9 @@ export function crossCheck(root: string, file: string, wf: Workflow, only: (step
   // The review guides of a workflow this one starts, as they apply in this
   // project: the new workstream could not start without them.
   const guides = (at: string, target: { wf: Workflow; path: string }) => {
-    for (const problem of reviewGuideProblems(loadProject(root), target.wf, target.path)) errors.push(`${at}: ${problem}`);
+    for (const { line, uncertain } of reviewGuideFindings(loadProject(root), target.wf, target.path, undefined, read)) {
+      (uncertain ? warnings : errors).push(`${at}: ${line}`);
+    }
   };
   const ours = documentsOf(wf);
   for (const handOff of wf.hands_off_to) {

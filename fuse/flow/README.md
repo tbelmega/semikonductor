@@ -174,7 +174,7 @@ The step fields have these effects:
   the workstream started (YYYY-MM-DD), which stays the same for the whole workstream.
 - `gates` is one gate or a list. Gate kinds are `owner-action`, `check`, `script` and `agent`.
   Gates run in a fixed order: mechanical gates, agent reviews, then owner actions. List order does
-  not change that sequence.
+  not change that sequence. A loop gate, below, decides after every other gate of its step.
 - `check: <kind>` names a lower-case check kind that policy binds to a command. `script: <command>`
   is a literal shell command. Both run from the repository root through `sh -c` and must exit 0.
   fuse-flow sets three variables for the command, which it may rely on: `FUSE_FLOW_SLUG`, the
@@ -187,7 +187,13 @@ The step fields have these effects:
   prints. When the last lines of its output read as a count of failures, such as `3 failed`, the
   check still passes, and fuse-flow adds a `WARNING:` line to its own output and, after
   `VERIFICATION`, to the owner's hand-over, so a test runner that hides its exit code is noticed.
-- `agent: <review>` tells the maker to obtain an independent review. `continue` is refused until
+- `agent: <what an agent judges>` names what an agent judges; the gate's `guide` says who judges and
+  how. Without a guide, and with a review guide, it tells the maker to obtain an independent review,
+  as below. A guide whose YAML front matter says `judged_by: working-agent` hands the judgement to
+  the maker itself: the step block tells it to judge by that guide, write its judgement as a
+  findings file and start no reviewer, and no project or personal `review.guide` and no artifact's
+  review guide replaces or joins that guide. Every gate without such a guide keeps an independent
+  reviewer. `continue` is refused until
   the reviewer has written a findings file for at least one round of the step's current pass, as
   the step block names it; fuse-flow does not read the findings, since the maker classifies them.
   A review the owner accepted needs none. When the owner waives a review that has not run,
@@ -209,6 +215,24 @@ The step fields have these effects:
   `owner-action` gate; in a step with one, it goes on with the step's later reviews, if any, then
   finishes the step and names the fixes no reviewer has seen, for the owner at that gate.
 - `owner-action: <action>` leaves the completed work in `AWAITING_OWNER` until the owner decides.
+- Any `owner-action`, `check`, `script` or `agent` gate becomes a loop gate with `repeat_from:
+  <step>`, this step or an earlier one: while it does not pass, `continue` starts the next cycle
+  instead of refusing or blocking. Every step from `repeat_from` to this one is reopened in a new
+  pass and handed out again from the first, without an owner decision; what the steps wrote keeps
+  its status, unlike after a send-back. A `check` or `script` loop gate decides by its exit code.
+  At an `agent` loop gate the maker runs `continue --again "<why>"` while what it judges does not
+  hold yet, once that cycle's findings file exists, and plain `continue` when it holds; the review
+  has no round cap. At an `owner-action` loop gate the owner approves, which ends the loop, or runs
+  `continue --again "<why>"`, which the next cycle prints as the owner's note. `interval`, such as
+  `15m`, is printed in the first step block of each later cycle as the wait before its work, which
+  the agent does with its harness's own tools; fuse-flow keeps no clock. `max_cycles` caps the
+  cycles: at the cap the step is blocked, and the owner grants more with `--more-cycles <n>`, ends
+  the loop with `--owner-approved`, or sends the work back. A loop gate is its step's last gate, on
+  a mandatory step with no other `owner-action` gate, and takes no `max_rounds`. Loops neither nest
+  nor overlap, and no step inside one has a `workflow` gate. The step that carries the gate records
+  the cycle, and a send-back keeps it; step blocks in the loop and `status` show it as `cycle <n> of
+  the loop at <step>`. Review findings files carry the pass, as after a send-back, so each cycle's
+  reviews have files of their own.
 - Any gate mapping may have `route_back_to`, as one step identifier or a list. Each target is the
   same step or an earlier step. It suggests routes for the owner's `--back-to` decision and does
   not create automatic control flow. A mapping may also have an informational `description`.
@@ -402,6 +426,8 @@ steps:
 | `continue <slug> --owner-approved [--gate <n>] [--note <text>]` | Record the owner's approval of an `AWAITING_OWNER` or `BLOCKED` step and complete it; the gates the blocked step has not passed do not run, and the hand-over names them. A step that delegates to a child workstream is approved only while the child is complete; otherwise the owner skips it. With `--gate`, the owner accepts only the review the step is blocked at: the step goes back to the agent, which runs the gates still ahead and does not run that review again. An acceptance, a block at a review and the reviews a step passed before the owner are each bound to the review's identity as recorded then: its number, its text, and each guide it follows with the artifact the guide applies to and a digest of the guide's content. They hold only while the workflow names the review exactly so. When an edit of the workflow, of a guide or of the policy changes an accepted review, the step block prints a `TAKEN BACK` line that names it and asks the agent to tell the owner; the review runs again with its rounds counted afresh, in findings files with `-redo` in the name, and the reviews that passed before it run again once an edit changes one of them. When the edit removed the review or moved it to another number, the line says so, and the hand-over's `VERIFICATION` line names the acceptance that was taken back. A change of the review the step is blocked at refuses `--gate` and leaves the owner the other decisions. A record an earlier fuse-flow wrote without the identity is bound to the reviews as the workflow names them at the first command that reads it; where no review has its number then, or the workflow no longer has the step, it is bound to none, so a review an edit adds at that number later runs, and the step block says the acceptance was taken back. An `AWAITING_OWNER` step whose work a check, script or review that an edit added or changed has not run on cannot be approved: the hand-over names those gates, and the owner sends the work back to the step, which runs them. |
 | `continue <slug> --more-rounds <n> [--gate <n>] [--note <text>]` | Add one or more review rounds on an `IN_PROGRESS` or `BLOCKED` step. Without `--gate`, every review of the step gets them, and in a step with several reviews the output says so; with `--gate`, only the review with that number. A step blocked at one review refuses rounds granted to another review alone. A grant to one review is bound to the review's identity, as an acceptance is. |
 | `continue <slug> --back-to <step> [--rerun <item>[,<item>]...] [--updated [<artifact>=]<file>]... [--note <text>]` | On the owner's decision, reopen the named step and every later step, from the current step in any status. `--rerun`, for a step with a `for_each` gate as the target, names the items that get new child workstreams; the other items keep their children while those fit the gate. It is refused for any other target, under `rerun_override: false`, before the step has recorded children, and for an item the step does not have or one named twice. Files stay on disk and stay recorded, as draft; `--updated` records what the current step wrote so far. A reopened step's next pass lists the files of its earlier passes; where it writes an artifact whole at a path an edit has moved, later steps and `--after` read the new file alone, also when an earlier fuse-flow recorded the earlier one, and the earlier one stays in the step's files as history. Its review rounds count from that pass, with findings files named `<step>-pass-<n>-round-<m>.json`. |
+| `continue <slug> --again <why> [--updated [<artifact>=]<file>]...` | At a loop gate that does not pass yet: the maker at an `agent` loop gate, while the step is in progress, once that cycle's findings file exists and the step's other gates pass; the owner at an `owner-action` loop gate, while the step awaits the owner. fuse-flow starts the next cycle at the gate's `repeat_from` step, or blocks the step when the loop has run its `max_cycles`. Refused on a step without a loop gate, and at a `check` or `script` loop gate, whose exit code decides. |
+| `continue <slug> --more-cycles <n> [--note <text>]` | The owner grants a step blocked at its loop's `max_cycles` 1 to 1000 more cycles, and the next cycle starts. Refused on any other step. |
 | `continue <slug> --forward-to <step> [--note <text>]` | On the owner's decision, skip the current step and every step before the later target. |
 | `finish <slug> --outcome failed --reason <why> [--updated [<artifact>=]<file>]... [--left-open <text>]` | The agent of a child workstream declares that it failed, while its parent step still waits for it. Accepted at any step except one awaiting the owner, a blocked one included: the files named with `--updated`, such as a verdict, are recorded first, then the current and remaining steps are skipped with the reason. On a complete child it only records the outcome. A second declaration is refused. |
 | `finish <slug> --outcome succeeded [--left-open <text>]` | Declare a complete child workstream succeeded. Refused on a child with a step left, since a success goes through every step; optional, since a complete child reads as succeeded. With either outcome, `--left-open` records what is still open, as `continue --left-open` does, once. |
@@ -416,12 +442,12 @@ step whose results still hold, such as a long live test run. The owner can `--fo
 them, with a note that names the evidence, such as `git range-diff` showing that no tested code
 changed. `status` then shows those steps as skipped by the owner's jump, with the note.
 
-`--note` is valid only with `--owner-approved`, `--more-rounds`, `--back-to` or `--forward-to`.
+`--note` is valid only with `--owner-approved`, `--more-rounds`, `--more-cycles`, `--back-to` or `--forward-to`.
 `--gate` is valid only with `--blocked`, `--owner-approved` or `--more-rounds`.
 `--waived` is valid only when the step's work is reported done, with no decision or other report.
 The owner decision flags are mutually exclusive. `--blocked` and `--skip` are mutually exclusive
 reports, and artifact-reporting flags do not accompany either kind, except `--updated` with
-`--back-to` and `--blocked`. Exit codes are 0 for success,
+`--back-to`, `--blocked` and `--again`. Exit codes are 0 for success,
 1 for a refusal, and 64 for a usage error. The `fuse-flow` launcher exits 69 before the engine
 runs when it finds neither bun nor a recent enough node with npm, or cannot install the
 dependencies. `check` also exits 1 when a check failed.
@@ -807,7 +833,8 @@ fuse-flow tracks one engineer's workstream on one machine. It is not a security 
 - The engine does not create templates, infer check commands, count review rounds, compare file
   contents, or choose jumps.
 - There are no parallel branches, path-choice constructs, workflow parameters or reusable gate
-  library entries. One workflow never runs inside another; workstreams only refer to each other,
+  library entries. The only repetition is a loop gate's, over a contiguous range of steps, and the
+  engine never waits for its interval or wakes the agent up. One workflow never runs inside another; workstreams only refer to each other,
   and only documents pass between them. The engine does not schedule or run the children of a
   `for_each` gate, choose their order, or merge what they return; it records the set and waits
   for it.

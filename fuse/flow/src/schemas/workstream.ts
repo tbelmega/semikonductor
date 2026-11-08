@@ -181,6 +181,17 @@ export const StepStateSchema = z
             "chosen by the owner with --rerun or by the engine for an automatic retry; every other item keeps its " +
             "previous child while that child still fits the gate. Consumed when the pass's set is recorded.",
         }),
+        cycle: z.number().int().min(2).optional().meta({
+          description:
+            "On a step that carries a loop gate: which cycle of its loop this is, from the second on; absent in the " +
+            "first. An owner send-back keeps it.",
+        }),
+        cycles_granted: z.number().int().min(1).optional().meta({
+          description: "On a step that carries a loop gate: the cycles the owner granted on top of its max_cycles, with --more-cycles.",
+        }),
+        blocked_cycles: z.literal(true).optional().meta({
+          description: "While the step is BLOCKED: it is blocked because its loop reached max_cycles without passing.",
+        }),
         retries_used: z.number().int().min(0).optional().meta({
           description:
             "With a for_each gate: how many passes the engine opened on its own for items whose child ended as failed, " +
