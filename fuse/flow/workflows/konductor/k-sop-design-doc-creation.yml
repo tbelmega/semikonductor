@@ -109,8 +109,8 @@ steps:
       validation report to the AWS validation path below; when the draft makes no AWS claim, the
       report says so. When the aws-mcp tools are missing, do as that reference says: tell the owner,
       and classify every claim UNVERIFIED with that reason. Do not hold the document back for
-      UNVERIFIED AWS claims. (3) Run the trade-off-evaluator skill for every significant decision
-      with more than one option: score each option 1 to 5 on cost, latency, complexity, scalability
+      UNVERIFIED AWS claims. (3) For every significant decision
+      with more than one option, score each option 1 to 5 on cost, latency, complexity, scalability
       and operability, embed the scored table in that ADR's Alternatives section, and write the full
       report to the trade-off path below. When no decision has more than one option, report the
       trade-off report as not produced with that reason. (4) With the decision-record guide, check

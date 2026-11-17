@@ -22,8 +22,8 @@ search only for what they do not name. Use what is available; at minimum you nee
 3. **The threat model**, written with the `threat-model` guide in the fuse library
    (`fuse/flow/library/artifacts/threat-model/guide.md`): threats, security controls, trust
    boundaries.
-4. **The DynamoDB design**, from the `dynamodb-design` skill: table schemas, key design, global
-   secondary indexes, access patterns.
+4. **The data model**, where the system has one: table schemas, key design, secondary indexes,
+   access patterns.
 5. **The API model**, written with the `api-model` guide in the fuse library
    (`fuse/flow/library/artifacts/api-model/guide.md`): Smithy service definitions, operation
    signatures, input and output shapes.

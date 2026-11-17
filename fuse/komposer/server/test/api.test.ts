@@ -1827,7 +1827,7 @@ steps:
     });
 
     test("refuses another skill file in the clone that no shipped library entry names", async () => {
-      const skill = join(import.meta.dir, "..", "..", "..", "..", "skills", "humanize-writing", "SKILL.md");
+      const skill = join(import.meta.dir, "..", "..", "..", "..", "skills", "k-aspect-review", "SKILL.md");
       expect(existsSync(skill)).toBe(true);
       const out = await askFor(skill);
       expect(out.gates[0].gateGuide).toMatchObject({ path: skill, outside: true, exists: false });

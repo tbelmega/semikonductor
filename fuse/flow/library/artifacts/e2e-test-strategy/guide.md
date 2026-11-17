@@ -6,8 +6,8 @@ which controls against flakiness. It is a plan, not test code. It is written fro
 analysis or a discovery report, the user stories and the system design, and it classifies every
 candidate test as P0 (critical path, must not fail), P1 (core features, high business value), P2
 (edge cases, important but not blocking) or P3 (nice to have, low risk if deferred). Writing the
-tests themselves is a separate job; for Playwright specs, the `playwright-test-implementation`
-skill covers it.
+tests themselves is a separate job; for Playwright specs, the Playwright guide beside this one
+(`playwright.md`) covers it.
 
 ## Inputs
 
@@ -238,16 +238,16 @@ timing and the network. Plan these controls:
 - Use test modes or mocks for external services the journey does not need to exercise for real.
 - Define a retry strategy for network-dependent tests, and report a test that passes only on retry
   as flaky rather than as passing.
-- Use stable selectors; the `playwright-test-implementation` skill gives the selector order for
-  Playwright.
+- Use stable selectors; the Playwright guide beside this one (`playwright.md`) gives the selector
+  order for Playwright.
 - Set targets and watch them: a pass rate above 95%, flakiness below 5%, the P0 and P1 run under 30
   minutes, and test maintenance below 10% of development time.
 
 ## 10. Recommend a framework
 
 Recommend a framework from the architecture and the team's existing tests, and say why:
-Playwright for web front ends (fast, several browsers, good debugging), with the
-`playwright-test-implementation` skill for writing the specs; Cypress where the project already
+Playwright for web front ends (fast, several browsers, good debugging), with the Playwright guide
+beside this one (`playwright.md`) for writing the specs; Cypress where the project already
 uses it; an API test tool such as Postman with Newman, REST Assured or Supertest for API-only
 journeys, matched to the project's language; and for serverless systems, tests against the real
 deployed endpoints, with a local emulation such as LocalStack only for development. A project

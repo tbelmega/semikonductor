@@ -4,8 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # A port of the former k-e2e-test-generation SOP from Konductor (agent-sops/k-e2e-test-generation.sop.md),
-# steps 1 to 7 in order. Skills are named by their name; they ship with fuse-konductor in the
-# clone's skills/ folder.
+# steps 1 to 7 in order. Library guides are named by their path in the fuse-konductor clone.
 # Deliberate deviations from the SOP:
 # - Parameters: fuse-flow has no workflow parameters. The parameters step asks the owner for what
 #   is missing and records the answers in test-run-parameters, which later steps read instead of
@@ -220,7 +219,8 @@ steps:
     condition:
       agent: the run parameters say output_mode=playwright
     instruction: >
-      Write Playwright specs in project_dir following the playwright-test-implementation skill:
+      Write Playwright specs in project_dir following the Playwright guide in the fuse library
+      (fuse/flow/library/artifacts/e2e-test-strategy/playwright.md in the fuse-konductor clone):
       its selector fallback chain, its global-setup.ts and storageState pattern, its Cloudscape
       locators when ui_framework is cloudscape, and its storageState opt-out for specs that test
       the login flow. Use the e2e-test-strategy guide to decide which journeys to cover, giving it
@@ -230,13 +230,13 @@ steps:
       when its quality gate finds issues, ask the owner whether to fix them unless they authorized
       generation in advance, and then list them in the strategy. Use page.goto(),
       page.getByTestId() and credentials only from process.env.TEST_USERNAME and
-      process.env.TEST_PASSWORD. Replace the skill's placeholder login selectors with the exact
+      process.env.TEST_PASSWORD. Replace the guide's placeholder login selectors with the exact
       selectors and texts from the discovery report. In an existing project follow the existing
       project analysis, and create fixtures/auth and add fixtures/auth/ to .gitignore if either is
       missing. Playwright itself is the owner's to install: if it is missing, tell them how, as
-      the skill says. Apply the skill's quality gate to the specs you wrote and fix its findings.
-      Run the skill's compile and list checks, but not the specs against the live app: this
-      workflow has no authorization to run them, so the skill's live verification is not run.
+      the guide says. Apply the guide's quality gate to the specs you wrote and fix its findings.
+      Run the guide's compile and list checks, but not the specs against the live app: this
+      workflow has no authorization to run them, so the guide's live verification is not run.
       If this step fails, delete the credentials file if you created it, and report the step
       blocked.
     consumes:

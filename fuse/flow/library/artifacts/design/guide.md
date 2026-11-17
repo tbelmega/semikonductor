@@ -89,7 +89,7 @@ Filler openers and connectors add nothing. Delete outright:
 - "When it comes to…", "At the end of the day…"
 - Stacked transitions: "Moreover," "Furthermore," "Additionally," opening consecutive paragraphs.
 
-Inflated buzzwords that sound substantive but aren't. Cut them or make them concrete. `humanize-writing` §7 is the canonical list; this section defers to it rather than keeping a separate one.
+Inflated buzzwords that sound substantive but aren't, such as delve, leverage, robust, seamless, holistic, pivotal, crucial, landscape, tapestry, synergy, showcase, underscore, cutting-edge, best-in-class, and scalable without a number. Cut them or make them concrete.
 
 Empty structure:
 

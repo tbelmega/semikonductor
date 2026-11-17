@@ -95,8 +95,8 @@ steps:
       step as blocked if it still fails. Do not print the report in your message; the file is
       enough. Tell the owner where it is, and state clearly READY FOR IMPLEMENTATION or NOT READY.
       When it is NOT READY, list the critical issues that must be resolved, offer to help fix them
-      with the guide or skill for each artifact (the design, threat-model or api-model guide in
-      fuse/flow/library/artifacts/, or the dynamodb-design or iam-policy-design skill), and offer to
+      with the guide for each artifact (the design, threat-model or api-model guide in
+      fuse/flow/library/artifacts/), and offer to
       run the review again after the fixes.
     consumes:
       - design-artifact-inventory

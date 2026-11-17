@@ -226,7 +226,7 @@ steps:
       instruction file where commands or structure changed: the file the project already uses,
       such as AGENTS.md, CLAUDE.md or steering files, or a new AGENTS.md when it has none (the
       agents-md guide, fuse/flow/library/artifacts/agents-md/guide.md in the fuse-konductor
-      clone). Apply the humanize-writing skill. Record the accuracy check's result in the
+      clone). Record the accuracy check's result in the
       documentation accuracy record. Report every file you change other than README.md with
       --updated, such as the developer guide and the agent instruction file, so the hand-over
       lists it; their paths are the project's own, so the step does not declare them.

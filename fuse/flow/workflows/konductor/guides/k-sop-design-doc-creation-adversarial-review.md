@@ -12,7 +12,8 @@ AWS validation and trade-off reports, the design adversarial review guide
 (`fuse/flow/library/artifacts/design/adversarial-review.md` in the fuse-konductor clone) with the
 argumentation reference beside it, read access to the repository, the path of its findings file, and
 the value of `consent_confirmed` that the owner gave before the first round. With
-`consent_confirmed=true` it may use the panel path through the deliberation-panel skill; otherwise
+`consent_confirmed=true` it may use the panel path through the deliberation panel guide beside the
+adversarial review guide; otherwise
 it runs the guide's single-voice path, and it does not ask the owner. It writes its findings as
 JSON, following the review findings schema the step names, and changes no other file. Do not tell
 it what you expect it to find. If the harness cannot start another agent and no launch command is

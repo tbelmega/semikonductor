@@ -47,6 +47,10 @@ A level is defined by what runs for real, not by the tool, the folder or the fil
   when the level below cannot show it. A higher level is slower and fails for more reasons.
 - **Push checks down to the types.** Where the language allows it, make an invalid state
   impossible to write, with strict types, rather than testing that it is rejected.
+- **Start a bug fix with a failing reproduction.** Write a test or command that reproduces the
+  bug, run it, and see it fail before you change the code.
+- **Show that each new test can fail.** Run it before the code exists, or break the code briefly
+  and watch it fail. A test that has never failed may not test anything.
 
 ## Acceptance tests
 

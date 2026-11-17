@@ -129,7 +129,7 @@ How would you like to proceed?
 **When the user opts in:**
 
 1. This skill pauses its question sequence.
-2. Invoke the `deliberation-panel` skill directly with `decision_domain` inferred from context (default `general-tradeoff`), `stance=evaluative`, and `consent_confirmed=true` (the user's opt-in above satisfies the panel's consent gate; pass it through explicitly rather than making the panel ask again). Pass the specific tradeoff as the subject.
+2. Follow the deliberation panel guide in the fuse library (`fuse/flow/library/artifacts/design/deliberation-panel.md` in the fuse-konductor clone) with `decision_domain` inferred from context (default `general-tradeoff`), `stance=evaluative`, and `consent_confirmed=true` (the user's opt-in above satisfies the panel's consent gate; pass it through explicitly rather than making the panel ask again). Pass the specific tradeoff as the subject.
 3. Present the panel's recommendation to the user.
 4. Resume elicitation with the user's decision incorporated into the requirements summary.
 
@@ -137,7 +137,7 @@ How would you like to proceed?
 
 - Offer the panel at MOST once per session per topic. Subsequent tradeoffs get a lighter prompt: "I found another tradeoff. Same treatment?"
 - Never auto-run the panel without the user's explicit opt-in.
-- If the `deliberation-panel` skill is not available in the current environment, offer the user the option to think it through together instead: "I found a significant tradeoff. Would you like to reason through it together, or decide directly?"
+- If the deliberation panel guide is not found, offer the user the option to think it through together instead: "I found a significant tradeoff. Would you like to reason through it together, or decide directly?"
 
 ---
 

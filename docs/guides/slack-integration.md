@@ -1,6 +1,6 @@
 # Slack Integration (Optional)
 
-The official Slack MCP server (`https://mcp.slack.com/mcp`) lets the agent that runs the `external-research` skill search
+The official Slack MCP server (`https://mcp.slack.com/mcp`) lets the agent search
 Slack channels and threads alongside web and documentation sources.
 
 This is a **user opt-in** — the package cannot ship a shared Slack app `client_id`, so each user must

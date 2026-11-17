@@ -1,11 +1,7 @@
----
-name: playwright-test-implementation
-description: Use when writing or reviewing Playwright specs against a discovered web app, wiring up global-setup.ts and storageState for authenticated sessions, or fixing flaky selectors on a Cloudscape UI. Covers selector strategy and Cloudscape-specific locator patterns. To plan which end-to-end tests to write, follow the e2e-test-strategy guide in the fuse library.
-version: 1.0.0
-tags: [skill, playwright, e2e-testing, implementation, quality-assurance]
----
-
 # Playwright Test Implementation
+
+A guide to writing Playwright specs, beside the e2e-test-strategy guide that decides which journeys
+to cover. The Playwright step of `k-sop-e2e-test-generation` follows it.
 
 ## Overview
 
@@ -13,7 +9,7 @@ Covers the parts of writing a Playwright spec that are easy to get wrong: which 
 
 ## Usage
 
-Use this skill when:
+Use this guide when:
 
 - Writing Playwright spec files against a discovered web app
 - Setting up `global-setup.ts` and `storageState` for authenticated flows
@@ -25,9 +21,9 @@ Do NOT use for: scaffolding a new Playwright project from scratch, planning whic
 
 ## Prerequisites
 
-### Playwright is a prerequisite, not something this skill installs
+### Playwright is a prerequisite, not something this guide installs
 
-This skill assumes Playwright is already part of the project. It does not install Playwright, run installers, or shell out to set it up automatically. Installation is the customer's own step, done once per project.
+This guide assumes Playwright is already part of the project. It does not install Playwright, run installers, or shell out to set it up automatically. Installation is the customer's own step, done once per project.
 
 **Check first, before assuming it's missing:**
 
@@ -35,7 +31,7 @@ This skill assumes Playwright is already part of the project. It does not instal
 npx --no-install playwright --version
 ```
 
-If that resolves, Playwright is already installed in this project. Move on to authoring. `--no-install` is required: a bare `npx playwright --version` silently fetches `@playwright/test` from the registry when it's absent (in a non-interactive shell it installs without prompting), so the check passes against a project that can't actually run a spec. The auto-fetch is itself the exact behavior the CRITICAL gate at the bottom of this file forbids the skill from triggering. Also check `package.json` for `@playwright/test` under `dependencies` or `devDependencies` as a second signal.
+If that resolves, Playwright is already installed in this project. Move on to authoring. `--no-install` is required: a bare `npx playwright --version` silently fetches `@playwright/test` from the registry when it's absent (in a non-interactive shell it installs without prompting), so the check passes against a project that can't actually run a spec. The auto-fetch is itself the exact behavior the CRITICAL gate at the bottom of this file forbids the guide from triggering. Also check `package.json` for `@playwright/test` under `dependencies` or `devDependencies` as a second signal.
 
 **If it's missing, tell the customer how to add it, do not install it on their behalf:**
 
@@ -172,7 +168,7 @@ An alternative to opting out per-spec: define a separate Playwright project in `
 - Hardcoded credentials in any spec file or in `global-setup.ts`
 - `fixtures/auth/` (or wherever `storageState` writes to) not in `.gitignore`
 - A login-flow spec does not opt out of the global `storageState`
-- Playwright installation attempted or scripted by this skill's own procedure instead of directed to the customer
+- Playwright installation attempted or scripted by this guide's own procedure instead of directed to the customer
 
 **IMPORTANT (should fix):**
 

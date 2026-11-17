@@ -117,7 +117,7 @@ When the system uses DynamoDB or needs an API design, establish:
 
 These answers are the input for the API model and the data model. For the API, see the `api-model`
 guide in the fuse library (`fuse/flow/library/artifacts/api-model/guide.md` in the fuse-konductor
-clone). For the data model, see the `dynamodb-design` and `dynamodb-validation` skills.
+clone).
 
 ## Interview practice
 
@@ -348,7 +348,6 @@ This is the input for the `architecture-diagram-generation` skill.
 ## Follow-up Artifacts
 
 - API model: the `api-model` guide in the fuse library (if applicable)
-- Data model: the `dynamodb-design` and `dynamodb-validation` skills (if applicable)
 - Threat model: the `threat-model` guide in the fuse library
 ```
 

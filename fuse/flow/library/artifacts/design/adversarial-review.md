@@ -101,8 +101,8 @@ Logical soundness:
    or unclear, stay with the single-voice review, and a reviewer started by a calling workflow
    does not ask the owner itself. Used on its own, ask the owner once before the first round,
    with that cost, whether to convene the panel, and use it only after an explicit yes. Never set
-   `consent_confirmed=true` on your own judgment. With consent, invoke the `deliberation-panel`
-   skill once per review round, with `decision_domain=design`, `stance=adversarial` and
+   `consent_confirmed=true` on your own judgment. With consent, follow the deliberation panel guide
+   (`deliberation-panel.md` beside this guide) once per review round, with `decision_domain=design`, `stance=adversarial` and
    `consent_confirmed=true`, and with every decision from step 1 and its trade-offs together as
    the subject. The panel derives three to six axes from the document's decisions, has each axis
    argue why the currently favored option fails on it, cross-examines the arguments anonymously,

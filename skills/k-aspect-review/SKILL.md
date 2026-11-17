@@ -163,7 +163,8 @@ Do **not** convene the panel unless the user explicitly selects option 2. If the
 
 ### Delegation to Deliberation Panel
 
-When the user opts in, invoke the `deliberation-panel` skill with:
+When the user opts in, follow the deliberation panel guide in the fuse library
+(`fuse/flow/library/artifacts/design/deliberation-panel.md` in the fuse-konductor clone) with:
 
 - `decision_domain=design`
 - `stance=evaluative`
@@ -171,7 +172,7 @@ When the user opts in, invoke the `deliberation-panel` skill with:
 
 Pass the specific tradeoff or ambiguity as the subject. The panel derives its own axes for this decision (Phase 0), argues each independently (Phase 1), cross-examines them anonymously (Phase 2), and returns a Decision Scorecard with an axis-weighted confidence level (Phase 3). Present that scorecard to the user.
 
-The `deliberation-panel` skill owns axis derivation, per-axis advocacy, anonymous cross-examination, and the scorecard synthesis, including its own Axis-Weighted Convergence confidence calibration. See the `deliberation-panel` skill for the full mechanism and the HIGH/MEDIUM/LOW thresholds.
+The deliberation panel guide owns axis derivation, per-axis advocacy, anonymous cross-examination, and the scorecard synthesis, including its own Axis-Weighted Convergence confidence calibration. See that guide for the full mechanism and the HIGH/MEDIUM/LOW thresholds.
 
 ### Scope of Deliberation Panel Mode
 

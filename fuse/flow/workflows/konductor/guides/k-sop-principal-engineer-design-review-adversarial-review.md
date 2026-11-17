@@ -14,7 +14,8 @@ adversarial review guide (`fuse/flow/library/artifacts/design/adversarial-review
 fuse-konductor clone) with the argumentation reference beside it, read
 access to the repository, the path of its findings file, and the value of `consent_confirmed`
 settled before the first round. Pass the same value in every round. With
-`consent_confirmed=true` it may use the panel path through the deliberation-panel skill;
+`consent_confirmed=true` it may use the panel path through the deliberation panel guide beside the
+adversarial review guide;
 otherwise it runs the guide's single-voice path, and it does not ask the owner. It writes its
 findings as JSON, following the review findings schema the step names, and changes no other file.
 Do not tell it what you expect it to find. If the harness cannot start another agent and no launch

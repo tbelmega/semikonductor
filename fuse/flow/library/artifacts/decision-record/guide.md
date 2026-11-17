@@ -16,8 +16,8 @@ only "Follow the project's convention" and the "Quality gate" at the end.
 | Program decision document | Program stakeholders must choose between options: go/no-go, resources, scope, timeline       | Writing the record, Program decision documents              |
 | Review                    | An existing record needs checking for structure, tone and completeness                       | Writing the record, Quality gate                            |
 
-Every task starts with the project's convention. To score options against each other, use
-`trade-off-evaluator`; to check a document's factual claims, use `doc-accuracy-analyzer`.
+Every task starts with the project's convention. To check a document's factual claims, use
+`doc-accuracy-analyzer`.
 
 ## Follow the project's convention
 
@@ -279,8 +279,8 @@ version.
 ### 1. Gather the decision context
 
 From the conversation and the documents, collect the problem and its constraints, the chosen option
-and its main reason, at least two alternatives with pros and cons (use `trade-off-evaluator` scores
-when they exist), and the status.
+and its main reason, at least two alternatives with pros and cons (use the scores of an earlier
+comparison when they exist), and the status.
 
 If the alternatives are not documented yet:
 

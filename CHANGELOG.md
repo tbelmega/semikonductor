@@ -347,8 +347,6 @@ script installs plain skills and an always-on instruction block that every suppo
   Revisit this if forks become rare.
 - **The running agent does the work** that SOPs and skills used to delegate to specialist agents,
   with generic subagents or separate passes where independence matters.
-- The `verification` skill names the checker for each kind of artifact and when to run
-  `design-impact-review`, taken from the removed agent prompts.
 - Skill descriptions open with when to use the skill, and the prose in skills and SOPs is
   rewritten in plain language.
 - The `persistent-memory` validator runs on Bun instead of Python, so the repository and its tests
@@ -383,7 +381,7 @@ script installs plain skills and an always-on instruction block that every suppo
   `test-coverage` guides in the artifact library, which linked to them, are now short guides of
   their own; the test coverage guide keeps the coverage procedure and report and drops the
   release-readiness mode, which no workflow used.
-- The `architecture-advisor` skill, now the quick-opinion mode of `trade-off-evaluator`.
+- The `architecture-advisor` skill. Answering a quick architecture question needs no skill.
 - The `adr-generator`, `program-decision-docs` and `decision-research` skills. The
   `decision-record` guide in the artifact library now covers them as sections: research before
   deciding, ADRs, and program decision documents. It also follows a project's existing
@@ -454,8 +452,25 @@ script installs plain skills and an always-on instruction block that every suppo
 - The `aws-service-validator` skill, now `aws.md`, the AWS check of `doc-accuracy-analyzer`.
 - The `find-aws-skills` skill, now the search-and-load part of `aws-mcp-usage`.
 - The `infra-validation` skill, now `k-infra-review.md` in `fuse/flow/workflows/konductor/`, the
-  infrastructure lens of `k-sop-code-review-workflow`. `verification` points infrastructure
-  changes at it.
+  infrastructure lens of `k-sop-code-review-workflow`.
+- The `cost-estimation`, `dynamodb-design`, `dynamodb-validation`, `external-research`,
+  `humanize-writing`, `iam-policy-design`, `policy-validation` and `trade-off-evaluator` skills.
+  In with-skill and without-skill runs on realistic tasks, a current frontier model did as well
+  or better without each of them, and each made a run cost more. Most of their content is what
+  such a model already does; the rest was scripted interaction (menus, mandatory scenarios,
+  numeric scores) that padded the result, or facts that were wrong or out of date, such as
+  service limits and prices. The design, decision-record and design-doc steps that named them
+  now state what they need directly.
+- The `verification` skill. Its two rules that a model does not follow by default, starting a bug
+  fix with a failing reproduction and showing that each new test can fail, are now rules of
+  `testing-strategy`. The rest, running the build and the tests and showing their output, is
+  default behavior, and the workflows' check and review gates cover the checker for each
+  artifact.
+- The `deliberation-panel` and `playwright-test-implementation` skills, now guides in the
+  artifact library: `design/deliberation-panel.md`, which `k-aspect-review`,
+  `socratic-elicitation` and the adversarial design review follow when the user agrees to the
+  panel's cost, and `e2e-test-strategy/playwright.md`, which the Playwright step of
+  `k-sop-e2e-test-generation` follows. Both were reached only from those callers.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in
   `fuse/flow/workflows/konductor/` replace them. The SOP files are in this repository's history and in upstream Konductor.
@@ -500,6 +515,10 @@ prints:
   authoring guide now makes a passed review of that artifact run again. A project that relied on
   a policy guide to replace an artifact's review guide can override the artifact's library entry
   instead.
+- Eleven skills were removed or moved into the artifact library (see Removed). Running
+  `install.sh` again removes their installed copies. Update your own workflows and instruction
+  files that name one: `deliberation-panel` and `playwright-test-implementation` by the path of
+  their guide, the rest by stating what the step needs.
 
 ## [1.0.0] - 2026-09-23
 
