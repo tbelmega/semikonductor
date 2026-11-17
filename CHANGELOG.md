@@ -349,8 +349,6 @@ script installs plain skills and an always-on instruction block that every suppo
   with generic subagents or separate passes where independence matters.
 - Skill descriptions open with when to use the skill, and the prose in skills and SOPs is
   rewritten in plain language.
-- The `persistent-memory` validator runs on Bun instead of Python, so the repository and its tests
-  need only Bun.
 - `README.md` describes Konductor and Fuse-Konductor, starts new users with the tutorial, and links
   the workflows, Komposer and the skills.
 - All pull requests target `fuse`, whose history stays linear.
@@ -467,10 +465,23 @@ script installs plain skills and an always-on instruction block that every suppo
   default behavior, and the workflows' check and review gates cover the checker for each
   artifact.
 - The `deliberation-panel` and `playwright-test-implementation` skills, now guides in the
-  artifact library: `design/deliberation-panel.md`, which `k-aspect-review`,
-  `socratic-elicitation` and the adversarial design review follow when the user agrees to the
+  artifact library: `design/deliberation-panel.md`, which `k-aspect-review`, the
+  requirements-summary guide and the adversarial design review follow when the user agrees to the
   panel's cost, and `e2e-test-strategy/playwright.md`, which the Playwright step of
   `k-sop-e2e-test-generation` follows. Both were reached only from those callers.
+- The `socratic-elicitation` skill, now the `requirements-summary` guide in the artifact library,
+  which the design-doc workflow's intake step and the requirements, task-doc and workflow-building
+  guidance follow. Picked up for an ad-hoc request, its one-question-at-a-time rule made the agent
+  stop after a single question where it otherwise laid out every open decision with a recommended
+  default; in a workflow interview that cadence is the intended one.
+- The `design-impact-review` and `architecture-diagram-generation` skills. With and without them,
+  the agent traced the same downstream impacts and drew the same draw.io AWS diagrams, and the
+  diagram skill carried wrong placement rules, such as Lambda outside the VPC.
+- The `persistent-memory` skill and its validator. It wrote what the user asked to remember into
+  `.konductor/memory/` instead of the harness's own memory, and a new session in a user project
+  never read that folder, so the facts were lost; the harness's native memory kept them. The
+  memory instructions in the `agents-md` guide and this repository's `AGENTS.md` are gone with it.
+  `install.sh` still requires Bun, for fuse-flow.
 - The user guide and its Python tooling, and the agent benchmark harness.
 - The SOPs in `agent-sops/`, which `install.sh` never installed. The workflows in
   `fuse/flow/workflows/konductor/` replace them. The SOP files are in this repository's history and in upstream Konductor.
@@ -515,10 +526,12 @@ prints:
   authoring guide now makes a passed review of that artifact run again. A project that relied on
   a policy guide to replace an artifact's review guide can override the artifact's library entry
   instead.
-- Eleven skills were removed or moved into the artifact library (see Removed). Running
+- Fifteen skills were removed or moved into the artifact library (see Removed). Running
   `install.sh` again removes their installed copies. Update your own workflows and instruction
-  files that name one: `deliberation-panel` and `playwright-test-implementation` by the path of
-  their guide, the rest by stating what the step needs.
+  files that name one: `deliberation-panel`, `playwright-test-implementation` and
+  `socratic-elicitation` by the path of their guide, the rest by stating what the step needs.
+  Facts the `persistent-memory` skill stored stay in `.konductor/memory/`; move any you still
+  want into your harness's own memory or the project's `AGENTS.md`.
 
 ## [1.0.0] - 2026-09-23
 

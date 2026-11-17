@@ -1,14 +1,14 @@
 # Deliberation Panel
 
 A guide for a high-stakes decision with several options, used only after the user has explicitly
-consented to the cost. `k-aspect-review`, `socratic-elicitation` and the design library's
+consented to the cost. `k-aspect-review`, the requirements-summary guide and the design library's
 adversarial review offer it and follow it when the user agrees.
 
 ## Overview
 
 Deliberation Panel is a structured decision-support mechanism for high-stakes, multi-option choices. Rather than running every decision through the same fixed set of named reviewer personas, it first asks what actually matters for _this_ decision, derives a small panel of perspectives from those axes, has each argue its case, cross-examines the arguments without revealing who made them, and closes with a scored recommendation rather than a prose verdict.
 
-This is **artifact-facing deliberation**: it operates on a described tradeoff or decision, not on a human. It is not a substitute for eliciting information from a person (use `socratic-elicitation` for that).
+This is **artifact-facing deliberation**: it operates on a described tradeoff or decision, not on a human. It is not a substitute for eliciting information from a person (use the requirements-summary guide for that).
 
 ---
 
@@ -19,9 +19,9 @@ This is **artifact-facing deliberation**: it operates on a described tradeoff or
 The panel takes an explicit `consent_confirmed` parameter (see below) precisely so that "has the user agreed to pay this cost" is never a guess. There is exactly one path:
 
 1. If `consent_confirmed` is `false` or omitted: STOP after Phase 0 (Axis Derivation) and present the derived axis count plus the cost estimate to the user. Do not proceed to Phase 1 until the caller runs the panel again with `consent_confirmed=true`.
-2. If `consent_confirmed` is `true`: the caller has already obtained consent (either the end user said yes directly, or a caller like `socratic-elicitation` relayed an in-conversation opt-in). Proceed straight through Phases 0-3 without pausing again.
+2. If `consent_confirmed` is `true`: the caller has already obtained consent (either the end user said yes directly, or a caller like the requirements-summary guide relayed an in-conversation opt-in). Proceed straight through Phases 0-3 without pausing again.
 
-There is no second, implicit "re-confirm if run directly" path. Whoever runs the panel, the user, `socratic-elicitation`, `k-aspect-review` or the adversarial review, sets `consent_confirmed` explicitly and is responsible for what they pass. The panel itself never infers consent from conversational tone.
+There is no second, implicit "re-confirm if run directly" path. Whoever runs the panel, the user, the requirements-summary guide, `k-aspect-review` or the adversarial review, sets `consent_confirmed` explicitly and is responsible for what they pass. The panel itself never infers consent from conversational tone.
 
 ---
 
@@ -148,7 +148,7 @@ The arbiter's synthesis is the panel's final output: a scorecard, not a six-part
 
 - **Consent is explicit, not inferred.** See Consent Gate; `consent_confirmed` is the only signal the panel acts on.
 - **Axes are re-derived every run.** Never carry over a prior decision's axis list, and never default to a fixed named roster regardless of domain.
-- **Once-per-session-per-topic guard (when called from `socratic-elicitation` or `k-aspect-review`).** The caller enforces this guard; the panel itself does not duplicate it.
+- **Once-per-session-per-topic guard (when called from the requirements-summary guide or `k-aspect-review`).** The caller enforces this guard; the panel itself does not duplicate it.
 - **Graceful degradation.** If the panel cannot spawn the subagents Phase 1/2 require (environment limitation, token budget, or tool unavailability), offer the user the option to deliberate inline instead: "A full deliberation panel isn't available right now. Would you like to reason through the axes together directly?"
 - **Parameter contract is fixed.** `decision_domain`, `stance`, and `consent_confirmed` must not be renamed or aliased by callers.
 

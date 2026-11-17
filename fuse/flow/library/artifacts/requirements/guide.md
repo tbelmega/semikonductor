@@ -19,7 +19,8 @@ the file, read until the first section that needs nothing from them, and stop.
 
 The draft is filled in by an interview with the owner, one or a few questions at a time, each
 with your recommended answer. The questions are not a script and have no fixed number: each answer
-can raise the next. The question dimensions of the socratic-elicitation skill can help you find
+can raise the next. The question dimensions of the requirements-summary guide
+(`../requirements-summary/guide.md`) can help you find
 what to ask, but its question cap, its requirements summary and its rule against drafting before
 the summary do not apply here: this document is the record, and it is drafted from the start.
 The draft changes every turn: each answer is folded into the body and removed from the top in the

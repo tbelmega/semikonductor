@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { REPO_ROOT, Sandbox, exists, isLink, snapshot } from "./helpers";
 
 const BLOCK = "# fuse-konductor\n\nRules for the agent.\n";
@@ -788,33 +788,6 @@ describe("the managed block", () => {
 });
 
 describe("this repository", () => {
-  // The validator lookup in skills/persistent-memory/SKILL.md, run from each
-  // supported install layout.
-  test("persistent-memory finds its validator in project and user-level installs", () => {
-    const real = new Sandbox([]);
-    try {
-      cpSync(join(REPO_ROOT, "skills", "persistent-memory"), join(real.clone, "skills", "persistent-memory"), { recursive: true });
-      const skill = readFileSync(join(REPO_ROOT, "skills", "persistent-memory", "SKILL.md"), "utf8");
-      const snippet = skill.match(/```bash\n\s*(VALIDATOR=[\s\S]*?)\n\s*printf/)?.[1];
-      expect(snippet).toBeDefined();
-      const find = (cwd: string) =>
-        Bun.spawnSync(["bash", "-c", `${snippet}\nprintf '%s' "$VALIDATOR"`], {
-          cwd,
-          env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: real.home },
-        }).stdout.toString();
-      real.ok("--project", real.project);
-      expect(find(real.project)).toBe(".agents/skills/persistent-memory/scripts/memory-validator.sh");
-      for (const file of [join(".codex", "AGENTS.md"), join(".config", "opencode", "AGENTS.md")]) {
-        const other = real.path(`elsewhere-${file.split("/")[1]}`);
-        mkdirSync(other);
-        real.ok("--global", join(real.home, file));
-        expect(find(other)).toBe(join(real.home, dirname(file), "skills", "persistent-memory", "scripts", "memory-validator.sh"));
-        real.ok("--global", join(real.home, file), "--uninstall");
-      }
-    } finally {
-      real.cleanup();
-    }
-  });
   test("AGENTS.fuse.md is under 8 KiB and contains no marker line", () => {
     const text = readFileSync(join(REPO_ROOT, "AGENTS.fuse.md"), "utf8");
     expect(statSync(join(REPO_ROOT, "AGENTS.fuse.md")).size).toBeLessThan(8 * 1024);

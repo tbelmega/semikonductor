@@ -291,7 +291,7 @@ This is the input for the `threat-model` guide in the fuse library
 
 ### 3. Architecture diagram description
 
-This is the input for the `architecture-diagram-generation` skill.
+This is the input for the architecture diagram.
 
 ```markdown
 # [System Name] - Architecture Diagram

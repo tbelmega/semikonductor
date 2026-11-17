@@ -334,7 +334,8 @@ judgment call as a deviation and report it at the end.
 
 The user may only have a rough idea, or want an existing workflow adapted. The aim is a workflow as
 simple as possible and as sophisticated as necessary, and only its purpose tells you which is
-which. The `socratic-elicitation` skill helps with the questioning.
+which. The requirements-summary guide in the fuse library
+(`fuse/flow/library/artifacts/requirements-summary/guide.md`) helps with the questioning.
 
 ### Interview with options, not open questions
 

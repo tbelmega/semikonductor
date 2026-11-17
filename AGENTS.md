@@ -3,14 +3,6 @@
 Guidance for custom agents on Kiro CLI or Claude Code. This file is loaded into agent
 context at session start. Follow these instructions for the duration of the session.
 
-## Context Loading (MUST follow at session start)
-
-Before starting work, load available project context:
-
-- You MUST read `.konductor/memory/*.md` if present: persistent workspace facts, decisions, and preferences.
-
-If a path does not exist, skip it silently and continue.
-
 ## Project Overview
 
 Konductor is an open-source package of skills, SOPs and workflows that automate the software development lifecycle. It ships as static configuration files compatible with Kiro CLI and Claude Code, with no runtime infrastructure required. The package ships no agent specs: an agent runs a workflow step by step and loads each step's skill directly (see `fuse/flow/`).
@@ -108,9 +100,3 @@ Instructions that tell agents how to work with fuse go in exactly one of these p
 `fuse-workstream` skill (picking, starting and running a workstream), the `fuse-flow-builder` skill
 (building and changing workflows), the `fuse-tutorial` skill (the guided tour), the always-on block
 `AGENTS.fuse.md`, or the output fuse-flow prints. Do not add another fuse skill.
-
-## Memory
-
-Local memory persistence is provided by the `persistent-memory` skill. Facts persist across sessions in
-`.konductor/memory/MEMORY.md` (project facts) and `.konductor/memory/USER.md` (preferences), validated against
-limits and an optional URL allowlist configured in `.konductor/memory-config.json`.

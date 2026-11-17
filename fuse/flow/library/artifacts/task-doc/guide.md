@@ -48,7 +48,8 @@ top of the document.
 
 When the intent is collaborative at medium or low confidence, architecture at low confidence, or
 you flagged an assumption cascade or scope creep, resolve it with the owner first: question them
-as the `socratic-elicitation` skill's intake mode describes, and fold the answers into the brief.
+as the intake mode of the requirements-summary guide (`../requirements-summary/guide.md`)
+describes, and fold the answers into the brief.
 
 ## The brief
 

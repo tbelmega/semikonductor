@@ -4,7 +4,7 @@ fuse-konductor is a set of skills plus a short always-on instruction block. You 
 clone of the `fuse` branch with `install.sh`. It works with Claude Code, Codex, Cursor, OpenCode and
 Kiro CLI.
 
-You need a POSIX shell, `git`, coreutils and [Bun](https://bun.sh). The `persistent-memory` skill needs Bun, so `install.sh` refuses to install without it. The `fuse-flow` runner also runs on Bun. On Windows, use WSL.
+You need a POSIX shell, `git`, coreutils and [Bun](https://bun.sh). The `fuse-flow` runner runs on Bun, so `install.sh` refuses to install without it. On Windows, use WSL.
 
 You can also let an agent do all of this with you: clone the repository as in step 1, open an agent session in the clone, and say "Start the tutorial". It checks your harnesses and existing skills first, and installs only after you agree.
 

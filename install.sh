@@ -323,8 +323,8 @@ tmpdir() { # tmpdir <variable> <dir> ; sets <variable> to a new directory in <di
 # before any target is touched.
 BLOCK=
 if [ "$uninstall" -eq 0 ]; then
-  # The persistent-memory skill and fuse-flow run on Bun; refuse before any
-  # change rather than install skills that cannot run.
+  # fuse-flow runs on Bun; refuse before any change rather than install a
+  # workflow runner that cannot run.
   bun --version > /dev/null 2>&1 || fatal "Bun is required but was not found on PATH; install it from https://bun.sh and run again"
   [ -f "$REPO/AGENTS.fuse.md" ] || fatal "$REPO/AGENTS.fuse.md not found"
   # Any line the marker parser reads as a section tag, not only our four: a

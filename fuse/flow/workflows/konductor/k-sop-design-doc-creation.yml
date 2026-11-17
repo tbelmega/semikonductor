@@ -42,16 +42,18 @@ steps:
       If the owner has not named the topic (the system, feature or problem to design, as a
       free-form description, user stories or a problem statement), ask for it once and wait. Do
       not ask for the output path, the validation report folder or the elicitation depth; use the
-      defaults. Run the socratic-elicitation skill in Mode A (intake) directly: its run is this
+      defaults. Follow the requirements-summary guide in the fuse library
+      (fuse/flow/library/artifacts/requirements-summary/guide.md in the fuse-konductor clone) in
+      Mode A (intake) directly: its run is this
       step's work, not a preparation for it. Ask one question at a time and wait for the answer
-      before asking the next, drawing on the skill's dimensions: business value [PM], technical
+      before asking the next, drawing on the guide's dimensions: business value [PM], technical
       feasibility and dependencies [SDE], timeline and cross-team coordination [TPM], auth and
       data protection [Security], observability and failure modes [Ops]. Let each answer decide
       whether to follow up or move to the next dimension; do not work through a fixed script. Ask
       at most 10 questions in total, or 5 when the owner asked for quick elicitation and 15 for
-      deep. Do not ask about dimensions the topic already answers clearly. Write the skill's
-      Requirements Summary (Functional Requirements, Constraints, Non-Functional Requirements,
-      Open Items) and present it. An early-exit signal such as "enough" or "proceed" ends the
+      deep. Do not ask about dimensions the topic already answers clearly. Write the guide's
+      requirements summary, with every section the guide names, and present it. An early-exit
+      signal such as "enough" or "proceed" ends the
       questions at once and counts as the owner's confirmation of the summary; record it as the
       owner's approval, with the signal as the note.
     produces:

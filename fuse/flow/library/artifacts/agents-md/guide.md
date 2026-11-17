@@ -30,8 +30,7 @@ Two things bootstrap the loading:
    globally or for the workspace, or where the project supports an older Kiro runtime that does
    not inherit it.
 2. **Claude Code:** the repository has a `CLAUDE.md` containing the import `@AGENTS.md`, so Claude
-   Code loads the content of `AGENTS.md`. Further imports can be chained there if needed, such as
-   `@.konductor/memory/MEMORY.md`.
+   Code loads the content of `AGENTS.md`. Further imports can be chained there if needed.
 
 ## Structure
 
@@ -63,13 +62,9 @@ explicit instructions, so the agent loads the adjacent context with its own file
 Before starting work, load available project context:
 
 - You MUST read `.kiro/steering/**/*.md` if present — workspace steering rules.
-- You MUST read `<workspace>/memory/*.md` if present — persistent facts and preferences.
 
 If a path does not exist, skip it silently and continue.
 ```
-
-Replace `<workspace>` with the project's workspace directory, such as `.konductor`, so that
-`<workspace>/memory/*.md` becomes `.konductor/memory/*.md`.
 
 ## Rules
 

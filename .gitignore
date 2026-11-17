@@ -5,11 +5,8 @@ build
 
 .kiro/skills/*
 # Local runtime state. The internal slash anchors this to the repo root,
-# which is the only place it can appear: memory-validator.sh resolves its
-# write target via `git rev-parse --show-toplevel`. memory-config.json is
-# re-included because it is shared configuration, not per-developer state.
+# so a stray nested .konductor/ shows up in git status instead.
 .konductor/*
-!.konductor/memory-config.json
 
 # Python bytecode
 __pycache__/
