@@ -349,6 +349,9 @@ script installs plain skills and an always-on instruction block that every suppo
   with generic subagents or separate passes where independence matters.
 - Skill descriptions open with when to use the skill, and the prose in skills and SOPs is
   rewritten in plain language.
+- `fuse-feature-development`'s implementation step ends with a completeness check: the hand-over
+  lists each of the spec's requirements and acceptance criteria as done, with the test or file
+  that shows it, or as not done, with the reason, so a quietly dropped requirement is visible.
 - `README.md` describes Konductor and Fuse-Konductor, starts new users with the tutorial, and links
   the workflows, Komposer and the skills.
 - All pull requests target `fuse`, whose history stays linear.

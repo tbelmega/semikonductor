@@ -143,6 +143,9 @@ steps:
       lies outside this checkout, such as a loaded machine, say so in the hand-over. Decide ambiguities
       yourself, with the spec as the authority, and record each decision in the decisions file.
       Stop and ask only before an irreversible action or one that reaches outside this checkout.
+      Before you continue, go through the spec's requirements and acceptance criteria one by one,
+      and list each in the hand-over as done, with the test or file that shows it, or as not done,
+      with the reason. Leave none out, also when the reason is that the owner deferred it.
     consumes: [feature-spec, requirements, design]
     updates:
       - artifact: code
