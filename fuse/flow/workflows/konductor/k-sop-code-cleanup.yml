@@ -86,9 +86,9 @@ steps:
       Review the cleaned code and write the cleanup report. This step changes no file other than
       the report.
 
-      Run the backend lens (fuse/flow/workflows/konductor/k-backend-review.md in the fuse-konductor
-      clone) on the cleaned .ts and .js service and handler files, and the frontend lens
-      (k-frontend-review.md next to it) on the cleaned .tsx and .jsx files and the .ts files in
+      Run the backend lens, the backend review guide, on the cleaned .ts and .js service and
+      handler files, and the frontend lens, the frontend review guide, on the cleaned .tsx and
+      .jsx files and the .ts files in
       component, page or hook paths. Skip file types that
       no lens matches, and say which were skipped. Tell each lens that the scope is confirmed: it
       reports every finding and leaves fixing to the owner, and it does not ask whether to fix them.
@@ -103,6 +103,7 @@ steps:
       CRITICAL and IMPORTANT review findings. Do not fix the review findings.
     consumes:
       - slop-findings
+    guides: [./k-backend-review.md, ./k-frontend-review.md]
     produces:
       - artifact: cleanup-report
         path: .konductor/{slug}/cleanup-report.md

@@ -71,6 +71,13 @@ export const DOCS: Record<string, FieldDoc> = {
   instruction: doc("instruction", true, stepShape.instruction),
   condition: doc("condition", false, stepShape.condition),
   consumes: doc("consumes", false, stepShape.consumes),
+  // The schema's text explains both reference forms for authors; the
+  // inspector shows the list read-only.
+  guides: {
+    yamlKey: "guides",
+    required: false,
+    description: "Files the instruction tells the agent to use. Komposer shows them; change them in the workflow file.",
+  },
   produces: doc("produces", false, stepShape.produces),
   optional_produces: doc("optional_produces", false, stepShape.optional_produces),
   updates: doc("updates", false, stepShape.updates),

@@ -100,6 +100,8 @@ export type Edit =
   | { op: "setInstruction"; step: number; text: string; style: ">" | "|" }
   | { op: "setCondition"; step: number; condition: ConditionValue | null }
   | { op: "setConsumes"; step: number; ids: string[] }
+  // The step's guides, as written; an empty list removes the key.
+  | { op: "setGuides"; step: number; refs: string[] }
   | { op: "addOutput"; step: number; mode: OutputMode; artifact: string; path: string; description?: string }
   | { op: "removeOutput"; step: number; mode: OutputMode; index: number }
   | { op: "setOutput"; step: number; mode: OutputMode; index: number; fields: OutputFields }
@@ -120,7 +122,7 @@ export type Edit =
 // The order new keys are inserted in: before the first existing key that comes
 // later in this order. Keys not listed keep their place and are skipped.
 const ROOT_KEY_ORDER = ["version", "name", "description", "inputs", "hands_off_to", "steps"] as const;
-const STEP_KEY_ORDER = ["id", "title", "phase", "mode", "description", "instruction", "condition", "consumes", "produces", "optional_produces", "updates", "gates"] as const;
+const STEP_KEY_ORDER = ["id", "title", "phase", "mode", "description", "instruction", "condition", "consumes", "guides", "produces", "optional_produces", "updates", "gates"] as const;
 const OUTPUT_KEY_ORDER = ["artifact", "path", "description"] as const;
 const LOOP_GATE_KEYS = ["repeat_from", "interval", "max_cycles"] as const;
 const GATE_KEY_ORDER = [...GATE_KINDS, ...WORKFLOW_GATE_KEYS, "description", "guide", "max_rounds", "route_back_to", ...LOOP_GATE_KEYS] as const;
@@ -561,6 +563,17 @@ function editModel(
       const current = step.consumes;
       if (Array.isArray(current) && deepEqual(current.map(text), edit.ids)) break;
       steps[edit.step] = withKey(step, "consumes", [...edit.ids], STEP_KEY_ORDER);
+      break;
+    }
+    case "setGuides": {
+      const step = stepAt(steps, edit.step);
+      if (edit.refs.length === 0) {
+        if (Object.hasOwn(step, "guides")) steps[edit.step] = withoutKey(step, "guides");
+        break;
+      }
+      const current = step.guides;
+      if (Array.isArray(current) && deepEqual(current.map(text), edit.refs)) break;
+      steps[edit.step] = withKey(step, "guides", [...edit.refs], STEP_KEY_ORDER);
       break;
     }
     case "addOutput": {

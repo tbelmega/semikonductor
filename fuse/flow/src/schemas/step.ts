@@ -32,6 +32,18 @@ export const ArtifactSchema = z
 
 export type Artifact = z.infer<typeof ArtifactSchema>;
 
+// A guide a step names: a path, when it starts with . or /, or else a guide
+// in a library entry, <id>/<file>.md.
+export const LIBRARY_GUIDE = /^([a-z0-9][a-z0-9-]*)\/([^/\\]+\.md)$/;
+export const isGuidePath = (ref: string) => ref.startsWith(".") || ref.startsWith("/");
+
+export const StepGuideSchema = z
+  .string()
+  .regex(
+    /^(?:[./][\s\S]*|[a-z0-9][a-z0-9-]*\/[^/\\]+\.md)$/,
+    "must be a path that starts with . or /, or a library guide <id>/<file>.md, such as design/review.md",
+  );
+
 const artifacts = (description: string) =>
   z
     .union([ArtifactSchema, z.array(ArtifactSchema)])
@@ -86,6 +98,17 @@ export const StepSchema = z
         "Ids of artifacts produced or updated by earlier steps that this step reads. Engine effect: the step " +
         "block lists each with its path and whether it exists; an id no earlier step produces or updates is " +
         "refused.",
+    }),
+    guides: z.array(StepGuideSchema).optional().transform((v) => v ?? []).meta({
+      description:
+        "Guides the step's instruction tells the agent to use, each one of two forms. A library guide, " +
+        "<id>/<file>.md such as design/review.md, is the file in the library entry <id> that wins: the project's " +
+        ".konductor/library/ first, then ~/.konductor/library/, then the library that ships with fuse-flow. A path, " +
+        "which starts with . or /, is relative to the workflow file or absolute, as a gate's guide is. Engine " +
+        "effect: the step block lists the absolute path of each, after the artifact guides, and says which wins " +
+        "where a guide and the instruction disagree: a guide from the project's or the user's library is a house " +
+        "rule, and the instruction wins over any other. `validate` refuses a guide that names no file.",
+      examples: [["design/review.md", "./backend-review.md"]],
     }),
     produces: artifacts(
       "Artifacts the step writes: one or a list. Engine effect: `continue` is refused while one of them is " +

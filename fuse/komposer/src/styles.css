@@ -967,6 +967,17 @@ button.step-title:focus-visible { outline: 2px solid var(--ring); outline-offset
   gap: 6px;
   flex-wrap: wrap;
 }
+.step-guides {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+/* A guide's path can wrap over several lines, so its item grows with it. */
+.step-guides li {
+  height: auto;
+}
 .toggle-pill {
   padding: 3px 9px;
   border-radius: 999px;
@@ -2164,6 +2175,8 @@ button.compare-card-title:focus-visible { outline: 2px solid var(--ring); outlin
 .compare-phase { display: flex; align-items: center; gap: 6px; font: 400 11.5px "JetBrains Mono", monospace; color: var(--text-muted); }
 .compare-phase-label { letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px; }
 .compare-phase-value { padding: 0 5px; border-radius: 4px; color: var(--text-strong); }
+/* Guide paths have no length limit, so they wrap inside the card. */
+.compare-guides-value { min-width: 0; overflow-wrap: anywhere; }
 .compare-condition { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 8px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface-subtle); }
 .compare-condition.is-chg { background: var(--sem-amber-bg); }
 .compare-condition-label { font: 600 10.5px "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; }

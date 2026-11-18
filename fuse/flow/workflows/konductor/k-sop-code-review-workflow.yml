@@ -100,10 +100,9 @@ steps:
       Review each category with its lens, then merge the findings into one list. This step
       changes no file other than this workflow's own artifacts.
 
-      Run the backend lens (fuse/flow/workflows/konductor/k-backend-review.md in the fuse-konductor
-      clone) on the backend files, the frontend lens (k-frontend-review.md next to it) on the
-      frontend files, and the infrastructure lens (k-infra-review.md next to it) on the infra
-      files,
+      Run the backend lens, the backend review guide, on the backend files, the frontend lens,
+      the frontend review guide, on the frontend files, and the infrastructure lens, the
+      infrastructure review guide, on the infra files,
       giving it the infrastructure type, the location and the environment from the review scope.
       Skip a category that has no files or that review_type excludes, and say so. Tell each lens
       that the scope is confirmed: it reports every finding and leaves fixing to the caller, and
@@ -117,6 +116,7 @@ steps:
     consumes:
       - review-scope
       - review-diff
+    guides: [./k-backend-review.md, ./k-frontend-review.md, ./k-infra-review.md]
     produces:
       - artifact: review-findings
         path: .konductor/{slug}/review-findings.md

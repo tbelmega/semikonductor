@@ -5,7 +5,7 @@
 
 import { newStepKey, openWorkflow, type OpenWorkflow } from "../workflowView.ts";
 import { parseWorkflowText } from "../../../flow/src/parse.ts";
-import { isWorkflowPath, rebaseRef } from "./workflowLinks.ts";
+import { isWorkflowPath, rebaseRef, rebaseStepGuide } from "./workflowLinks.ts";
 import { applyEdit, type Edit } from "./yamlEdit.ts";
 
 // The workflow after the edits, applied in order: either all apply or this
@@ -50,8 +50,9 @@ export const movedRef = rebaseRef;
 // is saved at `to` instead of `from`: an agent gate's guide, a workflow gate
 // and a hand-off written as a path are read relative to the workflow file, so
 // a relative one is written again relative to the new file, as a path
-// (rebaseRef). A gate or hand-off that names a workflow by name, and an
-// absolute path, stay.
+// (rebaseRef). A step's guide written as a relative path is rebased the same
+// way. A gate or hand-off that names a workflow by name, a library guide, and
+// an absolute path, stay.
 export function movedRefEdits(text: string, from: string, to: string): Edit[] {
   const parsed = parseWorkflowText(text);
   if (!parsed.ok) return [];
@@ -61,7 +62,9 @@ export function movedRefEdits(text: string, from: string, to: string): Edit[] {
     const workflow = movedRef(handOff.workflow, from, to);
     if (workflow !== handOff.workflow) edits.push({ op: "setHandOff", index, workflow });
   });
-  parsed.workflow.steps.forEach((step, stepIndex) =>
+  parsed.workflow.steps.forEach((step, stepIndex) => {
+    const guides = step.guides.map((ref) => rebaseStepGuide(ref, from, to));
+    if (guides.some((ref, i) => ref !== step.guides[i])) edits.push({ op: "setGuides", step: stepIndex, refs: guides });
     step.gates.forEach((gate, index) => {
       if (gate.kind === "agent" && gate.guide) {
         const guide = movedRef(gate.guide, from, to);
@@ -71,7 +74,7 @@ export function movedRefEdits(text: string, from: string, to: string): Edit[] {
         const ref = movedRef(gate.text, from, to);
         if (ref !== gate.text) edits.push({ op: "setGate", step: stepIndex, index, fields: { text: ref } });
       }
-    }),
-  );
+    });
+  });
   return edits;
 }

@@ -87,7 +87,7 @@ steps:
       Run discovery in a separate subagent when the runtime offers one, otherwise as a separate
       browser pass that reuses no conclusions from other passes. Give it the url, the features, the
       credentials file's path and form_submission_confirmed, never the password. It follows the
-      discovery-report guide, including dom-inspection.md next to it, with these overrides: discover
+      discovery-report guide, including its DOM inspection guide, with these overrides: discover
       only the url and pages reachable from it within two links, and stop after 10 pages or 15
       minutes, whichever comes first. It authenticates when the credentials file is not empty,
       detects the UI framework, captures every interactive element and inspects every form. It tries
@@ -105,6 +105,7 @@ steps:
       credentials file.
     consumes:
       - test-run-parameters
+    guides: [discovery-report/dom-inspection.md]
     produces:
       - artifact: discovery-report
         path: .konductor/{slug}/discovery-report.md

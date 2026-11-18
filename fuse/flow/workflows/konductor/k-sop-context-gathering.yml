@@ -46,12 +46,11 @@ steps:
       involved, what are the integration points, and what tests exist. Add more as needed. Do not
       synthesize while a question is unanswered; gather more context instead. (3) Check every
       complexity indicator, never skipping the check: an architecture decision is required, or the
-      change coordinates three or more components (write a design following
-      fuse/flow/library/artifacts/design/guide.md in the fuse-konductor clone, which says when its
-      AWS design interview applies); this is
+      change coordinates three or more components (write a design following the design guide,
+      which says when its AWS design interview applies); this is
       debugging after two or more failed fix attempts (gather context again, focused on the root
       cause); the change has security implications (run the applicable security review or write a
-      threat model with fuse/flow/library/artifacts/threat-model/guide.md); or it is a simple
+      threat model with the threat-model guide); or it is a simple
       implementation with clear patterns (proceed). End with a clear recommendation: "Proceed", or
       "Run <guide, skill or analysis> because <reason>" for each indicator that holds. (4) Write the
       summary: "## Analysis Summary" with the sections Current State (how the system works now),
@@ -60,6 +59,7 @@ steps:
       and Recommended Approach; then the numbered analysis questions with their answers, and the
       complexity assessment with each indicator and the recommendation. Synthesize into actionable
       insights; no raw tool output.
+    guides: [design/guide.md, threat-model/guide.md]
     produces:
       - artifact: analysis-summary
         path: .konductor/{slug}/analysis-summary.md
@@ -67,12 +67,12 @@ steps:
     title: Additional analysis
     instruction: >
       Run the further analysis the complexity assessment requires, for every indicator that holds,
-      before any implementation: a design following fuse/flow/library/artifacts/design/guide.md in
-      the fuse-konductor clone, with its design interview only where that guide says it applies, for an
+      before any implementation: a design following the design guide, with its design interview
+      only where that guide says it applies, for an
       architecture decision or coordination across three or more components; a fresh pass of context
       gathering focused on the root cause, as in the analysis step, for debugging after two or more
-      failed fix attempts; the applicable security review or a threat model following
-      fuse/flow/library/artifacts/threat-model/guide.md for security implications. Give each the
+      failed fix attempts; the applicable security review or a threat model following the
+      threat-model guide for security implications. Give each the
       specific questions the assessment raised. Write the additional analysis document: for each
       indicator, what was run, the paths of the documents it wrote, and its findings; every CRITICAL
       or IMPORTANT finding with what was done about it, and every finding left unfixed as a
@@ -83,6 +83,7 @@ steps:
         analysis for at least one indicator
     consumes:
       - analysis-summary
+    guides: [design/guide.md, threat-model/guide.md]
     produces:
       - artifact: additional-analysis
         path: .konductor/{slug}/additional-analysis.md

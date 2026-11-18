@@ -47,17 +47,17 @@ steps:
       optional. Write the artifact list to the path below: each artifact found with its file path,
       and each one missing with its severity, critical or optional. Warn when a critical artifact is
       missing. When the threat model is missing, say that the security and threat coverage dimension
-      will be limited, and suggest writing a threat model first with the threat-model guide
-      (fuse/flow/library/artifacts/threat-model/guide.md in the fuse-konductor clone). When
+      will be limited, and suggest writing a threat model first with the threat-model guide. When
       system-design.md is missing, do not go on to the evaluation: tell the owner the system design
-      is required and can be written first with the design guide and its interview
-      (fuse/flow/library/artifacts/design/), and report this step as blocked. Otherwise show the
+      is required and can be written first with the design guide and its design interview guide,
+      and report this step as blocked. Otherwise show the
       owner the list of artifacts found and ask "Proceed with review of these artifacts? [y/n]"; do
       not go on without their explicit confirmation. When the owner
       answers no, they either change the list, which sends the work back to this step, or stop:
       the gate then records the answer no, and the review step is skipped. If dry_run is true, stop here and report "DRY
       RUN" with what would be reviewed, each artifact found or not found, and that no report was
       generated (dry_run=true).
+    guides: [threat-model/guide.md, design/guide.md, design/interview.md]
     produces:
       - artifact: design-artifact-inventory
         path: .konductor/{slug}/design-artifact-inventory.md
@@ -74,8 +74,8 @@ steps:
     instruction: >
       Read every artifact in the confirmed list, in this order: system design, threat model, API
       specs, data models, security policies, diagrams. Note an optional artifact that is missing as
-      "not provided", and go on. Evaluate all of them with Part 2 of the design review guide
-      (fuse/flow/library/artifacts/design/review.md in the fuse-konductor clone): tailor the depth
+      "not provided", and go on. Evaluate all of them with Part 2 of the design review guide:
+      tailor the depth
       to the project's scope, and treat its list of what blocks implementation as CRITICAL. Evaluate
       all ten of these dimensions and give each a score from 1 to 5, flagging every dimension below
       3 for revision: (1) template adherence and completeness; (2) scalability and performance; (3)
@@ -95,11 +95,11 @@ steps:
       step as blocked if it still fails. Do not print the report in your message; the file is
       enough. Tell the owner where it is, and state clearly READY FOR IMPLEMENTATION or NOT READY.
       When it is NOT READY, list the critical issues that must be resolved, offer to help fix them
-      with the guide for each artifact (the design, threat-model or api-model guide in
-      fuse/flow/library/artifacts/), and offer to
+      with the guide for each artifact (the design, threat-model or api-model guide), and offer to
       run the review again after the fixes.
     consumes:
       - design-artifact-inventory
+    guides: [design/review.md, design/guide.md, threat-model/guide.md, api-model/guide.md]
     produces:
       - artifact: design-review-report
         path: design-review-report-{slug}.md

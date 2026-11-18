@@ -38,6 +38,8 @@ import {
   reviewGuideProblems,
   reviewGuides,
   rulings,
+  stepGuideProblems,
+  stepGuides,
   workingAgentJudges,
 } from "./policy.ts";
 import { debugLog, decisionsFile, findWorkflow, isDirectory, isWorkflowPath, reviewsDir, workflowDirs, workflowFilesBelow, workstreamFile, workstreamsDir } from "./project.ts";
@@ -102,6 +104,7 @@ interface Ctx {
   root: string;
   slug: string;
   wf: Workflow;
+  file: string; // the workflow file, which a step guide's path is relative to
   p: Project;
   date: string; // the day the workstream started, for {date} in artifact paths
   pathSlug: string; // what {slug} in artifact paths stands for: the slug before any rename
@@ -124,7 +127,7 @@ function context(
 ): Ctx {
   const file = findWorkflow(root, ws.workflow);
   if (gone(ws.workflow)) throw new FlowError(goneWorkflow(slug, ws.workflow));
-  const c = { root, slug, wf: loadWorkflow(file), p: loadProject(root), date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
+  const c = { root, slug, wf: loadWorkflow(file), file, p: loadProject(root), date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
   if (!readOnly) {
     const first = from(c.wf);
     refuseBadReviewGuides(c.p, c.wf, file, (step) => c.wf.steps.indexOf(step) >= first && unfinishedIn(ws)(step));
@@ -1629,6 +1632,22 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
       artifactLine("UPDATE", a, onDisk(c, a.path) ? undefined : `${a.path} does not exist yet; create it and report it with --updated.`),
     );
   }
+  // The guides the step names, after the artifacts' own guides. The
+  // instruction says when to use each, so the list only says where they are.
+  const ownGuides = stepGuides(c.p, step, c.file);
+  if (ownGuides.length) {
+    lines.push(
+      "STEP GUIDES: the instruction above says when to use each of these.\n" +
+        ownGuides
+          .map((g) =>
+            g.path
+              ? `  ${g.path}`
+              : `  ${g.ref} cannot be read (it ${g.problem}); ask the owner whether to continue without it, restore it and ` +
+                "run this command again, or use another workflow.",
+          )
+          .join("\n"),
+    );
+  }
   // A file in the paths of two artifacts does not say which it counts for.
   const nested = declared.flatMap((inner, i) =>
     declared
@@ -1666,6 +1685,7 @@ function stepBlock(c: Ctx, ws: Workstream, step: Step, state: StepState, above =
   }
   const guides = new Guides();
   for (const a of reviewed) guides.addAuthoring(libraryEntry(c.p, a.artifact.artifact));
+  for (const g of ownGuides) guides.addStepGuide(g);
   // A step instruction may deliberately depart from a shared guide; say which
   // wins. A guide the owner or the project put in place is a house rule.
   if (guides.any()) lines.push(`GUIDES: ${guidePrecedence(c, guides, "author")}`);
@@ -2072,6 +2092,9 @@ class Guides {
   }
   addAuthoring(entry: { level: string; guide?: string } | undefined) {
     if (entry?.guide) this.add(entry.guide, entry.level !== "package");
+  }
+  addStepGuide(guide: { path?: string; owners: boolean }) {
+    if (guide.path) this.add(guide.path, guide.owners);
   }
   addReview(p: Project, found: Parameters<typeof ownersReviewGuide>[1] | undefined, gate: Gate) {
     if (found) this.add(found.path, ownersReviewGuide(p, found, gate));
@@ -2846,7 +2869,7 @@ export function start(root: string, slug: string, workflowRef?: string, from?: s
     },
   );
   const ws = readWorkstream(root, slug);
-  const c: Ctx = { root, slug, wf, p, date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
+  const c: Ctx = { root, slug, wf, file: path, p, date: startedOn(ws), pathSlug: ws.paths_slug ?? slug };
   const update: Update = (change) => updateWorkstream(root, slug, change);
   convertOldState(c, ws, update);
   recordOldReviews(c, ws, update);
@@ -4816,16 +4839,19 @@ export function validate(root: string, refs: string[]): string[] {
       try {
         const wf = loadWorkflow(file);
         const { errors, warnings } = crossCheck(root, file, wf);
-        const guides = reviewGuideProblems(loadProject(root), wf, file);
+        const p = loadProject(root);
+        const guides = reviewGuideProblems(p, wf, file);
+        const stepGuideLines = stepGuideProblems(p, wf, file).map((g) => g.line);
         if (guides.length) {
-          invalid += 1;
           lines.push(`invalid: ${file} names a review guide that cannot be followed:`, ...guides.map((g) => `  ${g}`));
         } else if (errors.length) {
-          invalid += 1;
           lines.push(`invalid: ${file} refers to other workflows wrongly:`, ...errors.map((e) => `  ${e}`));
-        } else {
-          lines.push(`valid:   ${file}`);
         }
+        if (stepGuideLines.length) {
+          lines.push(`invalid: ${file} names a step guide that cannot be found:`, ...stepGuideLines.map((g) => `  ${g}`));
+        }
+        if (guides.length || errors.length || stepGuideLines.length) invalid += 1;
+        else lines.push(`valid:   ${file}`);
         lines.push(...warnings.map((w) => `  warning: ${w}`));
         // A workflow is found by its file name, so a different `name` is one
         // that start --workflow cannot take. The warning names the reference

@@ -92,7 +92,7 @@ steps:
       Run discovery in a separate subagent when the runtime offers one, otherwise as a separate
       browser pass that reuses no conclusions from other passes. Give it the url, the credentials
       file's path and form_submission_confirmed, never the password. It follows the discovery-report
-      guide fully, including dom-inspection.md next to it: authenticate when the credentials file is
+      guide fully, including its DOM inspection guide: authenticate when the credentials file is
       not empty, detect the UI framework and include ui_framework in the report, crawl up to 50
       pages or 30 minutes, capture every interactive element, and inspect every form. It tries
       submit-triggered validation only when form_submission_confirmed is true; otherwise the trigger
@@ -109,6 +109,7 @@ steps:
       --forward-to summary, which deletes the credentials file and reports the discovery summary.
     consumes:
       - test-run-parameters
+    guides: [discovery-report/dom-inspection.md]
     produces:
       - artifact: discovery-report
         path: .konductor/{slug}/discovery-report.md
@@ -219,9 +220,8 @@ steps:
     condition:
       agent: the run parameters say output_mode=playwright
     instruction: >
-      Write Playwright specs in project_dir following the Playwright guide in the fuse library
-      (fuse/flow/library/artifacts/e2e-test-strategy/playwright.md in the fuse-konductor clone):
-      its selector fallback chain, its global-setup.ts and storageState pattern, its Cloudscape
+      Write Playwright specs in project_dir following the Playwright guide: its selector fallback
+      chain, its global-setup.ts and storageState pattern, its Cloudscape
       locators when ui_framework is cloudscape, and its storageState opt-out for specs that test
       the login flow. Use the e2e-test-strategy guide to decide which journeys to cover, giving it
       the discovery report in place of the gap analysis, no user stories, design or feature plan
@@ -243,6 +243,7 @@ steps:
       - test-run-parameters
       - discovery-report
       - existing-project-analysis
+    guides: [e2e-test-strategy/playwright.md]
     optional_produces:
       - artifact: e2e-test-strategy
         path: .konductor/{slug}/e2e-test-strategy.md

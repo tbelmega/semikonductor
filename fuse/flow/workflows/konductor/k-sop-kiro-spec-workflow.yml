@@ -35,9 +35,7 @@ steps:
       The workflow needs four inputs; ask the owner for any the request does not give: feature_name,
       in kebab-case, which is this workstream's slug; feature_scope_path, the feature-split file
       with this feature's scoped user stories, key components and dependencies; user_stories_path,
-      the full user stories, written with the user-stories guide
-      (fuse/flow/library/artifacts/user-stories/guide.md in the fuse-konductor clone);
-      design_artifacts_path, the design artifacts directory from the architect phase. Write the
+      the full user stories, written with the user-stories guide; design_artifacts_path, the design artifacts directory from the architect phase. Write the
       four values to the spec inputs file, below, one per line, so that later steps and later
       sessions read them from there; when the owner changes one, update that file. The folder of
       the path of requirements.md is spec_dir, already resolved; create it. Read the feature scope
@@ -51,6 +49,7 @@ steps:
       If the owner still asks for changes after the second, stop and ask how to go on: accept the
       current draft with the open concerns noted, keep revising past the cap, or escalate or
       abandon. Do not keep looping silently, and do not go on with feedback unresolved.
+    guides: [user-stories/guide.md]
     produces:
       - artifact: kiro-requirements
         path: .kiro/specs/{slug}/requirements.md

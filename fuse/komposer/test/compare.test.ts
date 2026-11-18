@@ -46,7 +46,7 @@ function strictDifferences(a: StepView, b: StepView): string[] {
         : v,
     );
   const normal = (value: unknown) => (typeof value === "string" ? value.trimEnd() : value);
-  const fields = ["id", "title", "phase", "mode", "description", "instruction", "condition", "consumes", "artifacts", "gates"] as const;
+  const fields = ["id", "title", "phase", "mode", "description", "instruction", "condition", "consumes", "guides", "artifacts", "gates"] as const;
   return fields.filter((f) => canonical(normal(a[f])) !== canonical(normal(b[f])));
 }
 
@@ -228,6 +228,7 @@ steps:
     ["instruction", "    instruction: Do it.\n", "    instruction: Do it again.\n", { instruction: true }],
     ["condition", "      check: default\n    consumes", "      owner-action: only if asked\n    consumes", { condition: true }],
     ["a consume on the left only", "    consumes: [doc]\n", "    consumes: []\n", { consumesLeft: ["doc"] }],
+    ["guides", "    consumes: [doc]\n", "    consumes: [doc]\n    guides: [design/review.md]\n", { guides: true }],
     ["an output path", "        path: out.md\n", "        path: elsewhere.md\n", { outputsChanged: ["produces:out"] }],
     ["an output's mode", "    produces:\n      - artifact: out", "    updates:\n      - artifact: out", { outputsChanged: ["produces:out", "updates:out"] }],
     ["a gate's text", "      - owner-action: Approve.\n", "      - owner-action: Approve twice.\n", { gatesLeft: [0], gatesRight: [0] }],
@@ -1026,5 +1027,42 @@ describe("gate references as the files they name", () => {
     const other = { left: "/q/left.yml", right: file };
     const out = run(plain, copyStepEdits(at(file, delegating(`${W}/./child.yml`)), 0, at(other.left, plain), undefined, other));
     expect(at(other.left, out)[0].gates[0].text).toBe(`${W}/./child.yml`);
+  });
+});
+
+describe("step guides", () => {
+  const at = (path: string, text: string) =>
+    stepViews(openWorkflow({ location: "project", dir: "", file: path.split("/").pop()!, path, onDisk: true, text, hash: "" }));
+  const guided = (guides: string) => `version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n    guides: ${guides}\n`;
+  const plain = "version: 1\nname: g\nsteps:\n  - id: s\n    instruction: x\n";
+  const other = "version: 1\nname: g\nsteps:\n  - id: t\n    instruction: y\n";
+  const files = { left: "/p/destination/left.yml", right: "/p/source/right.yml" };
+
+  test("Add step carries the step's guides, a path rewritten to name the same file and a library guide as it is", () => {
+    const y = at(files.right, guided("[./lens.md, design/review.md]"));
+    const out = run(other, copyStepEdits(y, 0, at(files.left, other), undefined, files));
+    const copied = at(files.left, out).find((s) => s.id === "s")!;
+    expect(copied.guides).toEqual(["../source/lens.md", "design/review.md"]);
+    expect(hasDifferences(stepDiff(copied, y[0], files))).toBe(false);
+  });
+
+  test("Apply all carries the step's guides, and a difference in guides alone is shown read-only", () => {
+    const x = at(files.left, plain)[0];
+    const y = at(files.right, guided("[./lens.md]"))[0];
+    const d = stepDiff(x, y, files);
+    expect(d.guides).toBe(true);
+    expect(hasDifferences(d)).toBe(true);
+    const lines = differences(x, y, 0, files);
+    expect(lines).toEqual([{ mark: "add", label: "guides → ./lens.md", edits: [], refused: expect.stringContaining("Make the left step match this one") }]);
+    const out = run(plain, copyStepEdits([y], 0, [x], undefined, files));
+    expect(at(files.left, out)[0].guides).toEqual(["../source/lens.md"]);
+    expect(hasDifferences(stepDiff(at(files.left, out)[0], y, files))).toBe(false);
+  });
+
+  test("the same path in two folders names two files; a removed list is a difference too", () => {
+    const a = at("/p/a/w.yml", guided("[./lens.md]"))[0];
+    expect(stepDiff(a, at("/p/b/w.yml", guided("[./lens.md]"))[0], { left: "/p/a/w.yml", right: "/p/b/w.yml" }).guides).toBe(true);
+    expect(stepDiff(a, at("/p/b/w.yml", guided("[../a/lens.md]"))[0], { left: "/p/a/w.yml", right: "/p/b/w.yml" }).guides).toBe(false);
+    expect(differences(a, at("/p/a/w.yml", plain)[0], 0)).toEqual([expect.objectContaining({ mark: "del", label: "remove guides", edits: [] })]);
   });
 });

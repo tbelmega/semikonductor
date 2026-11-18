@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { sectionsWithProblems } from "../src/model/stepSections.ts";
-import { problemsByStep, problemsForText } from "../src/validate.ts";
+import { engineProblems, problemsByStep, problemsForText } from "../src/validate.ts";
 
 const sectionsOf = (text: string, step: number) =>
   [...sectionsWithProblems(problemsByStep(problemsForText(text)).get(step) ?? [])].sort();
@@ -46,5 +46,21 @@ describe("sectionsWithProblems", () => {
     expect(sectionsOf(FLOW.replace("instruction: Check it.", 'instruction: ""'), 1)).toEqual(["instruction"]);
     expect(sectionsOf(FLOW.replace("        path: essay.md\n", ""), 0)).toEqual(["artifacts"]);
     expect(sectionsOf(FLOW.replace("agent: review it", 'agent: ""'), 1)).toEqual(["gates"]);
+  });
+
+  test("a malformed step guide marks Inputs and outputs, where the inspector lists the step's guides", () => {
+    const text = FLOW.replace("    consumes: [essay]\n", "    consumes: [essay]\n    guides: [design]\n");
+    expect(sectionsOf(text, 1)).toEqual(["artifacts"]);
+    expect(problemsByStep(problemsForText(text)).get(1)).toEqual([
+      expect.objectContaining({ field: "guides", itemIndex: 0, message: expect.stringContaining("<id>/<file>.md") }),
+    ]);
+  });
+
+  test("a step guide the server cannot find is placed on the step's guides", () => {
+    const text = FLOW.replace("    consumes: [essay]\n", "    consumes: [essay]\n    guides: [./missing.md]\n");
+    const detail = "the guide ./missing.md does not exist: /p/missing.md";
+    const problems = engineProblems(text, { errors: [`/p/w.yml: steps.1 (check): ${detail}`], warnings: [], problems: [{ severity: "error", line: `/p/w.yml: steps.1 (check): ${detail}`, detail, at: [{ step: 1, field: "guides" }] }] });
+    expect(problems).toEqual([{ stepIndex: 1, field: "guides", message: detail }]);
+    expect([...sectionsWithProblems(problems)]).toEqual(["artifacts"]);
   });
 });

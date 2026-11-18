@@ -80,7 +80,7 @@ steps:
       recommended answer with each, and decide the rest yourself as recorded assumptions, labeled
       as your decisions so the owner can object. Record what is deferred. Create or update the
       project's glossary, its own or else glossary.md beside this workstream's documents, following
-      library/artifacts/glossary/guide.md in fuse-flow: prefer existing terms, and where sources
+      the glossary guide: prefer existing terms, and where sources
       disagree, pick one and record the synonyms not to use. Keep the spec as short
       as the feature allows, and have it state the current result: resolved questions, approvals
       and review history go to the decisions file, not the spec. List each published contract the
@@ -102,6 +102,7 @@ steps:
       clear the conversation, where the harness allows it, before the build starts. Commit the
       spec, unless this workstream's documents are kept private.
     consumes: [requirements, design]
+    guides: [glossary/guide.md]
     updates:
       - artifact: feature-spec
         path: docs/specs/{date}-{slug}.md

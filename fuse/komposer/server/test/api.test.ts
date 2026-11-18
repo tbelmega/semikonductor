@@ -408,6 +408,52 @@ describe("workflows", () => {
     expect(readFileSync(path, "utf8")).toBe(renamed);
   });
 
+  // A step guide is checked with fuse-flow's own lookup, against the file
+  // being saved, so Komposer refuses what `fuse-flow validate` refuses.
+  test("refuses a workflow whose step guide names no file, as fuse-flow validate does, and saves one whose guides resolve", async () => {
+    const folder = join(root, ".konductor", "workflows");
+    const path = write(join(folder, "two-steps.yml"), TWO_STEPS);
+    const broken = TWO_STEPS.replace("    instruction: Polish it.\n", "    instruction: Polish it.\n    guides: [design/review.md, ./missing.md]\n");
+    const put = await api("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text: broken }) });
+    expect(put.status).toBe(422);
+    const refused: any = await put.json();
+    const detail = `the guide ./missing.md does not exist: ${join(folder, "missing.md")}`;
+    const line = `${path}: steps.1 (polish): ${detail}`;
+    expect(refused.errors).toEqual([line]);
+    expect(refused.problems).toEqual([{ severity: "error", line, detail, at: [{ step: 1, field: "guides" }] }]);
+    expect(readFileSync(path, "utf8")).toBe(TWO_STEPS);
+
+    // The same text on disk: the command line refuses it with the same line.
+    const onDisk = write(join(folder, "broken.yml"), broken.replace("name: two steps", "name: broken"));
+    const proc = Bun.spawnSync([process.execPath, "run", CLI, "validate", onDisk], { cwd: root, env: { ...(process.env as Record<string, string>), HOME: home }, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(1);
+    expect(proc.stdout.toString() + proc.stderr.toString()).toContain(`${onDisk}: steps.1 (polish): the guide ./missing.md does not exist: ${join(folder, "missing.md")}`);
+
+    // Once the guide is there, the text loads without an error and saves.
+    write(join(folder, "missing.md"), "# guide\n");
+    const checked = await json("/api/validate", { method: "POST", body: JSON.stringify({ path, text: broken }) });
+    expect(checked.errors).toEqual([]);
+    await json("/api/workflows", { method: "PUT", body: JSON.stringify({ path, baseHash: hash(TWO_STEPS), text: broken }) });
+    expect(readFileSync(path, "utf8")).toBe(broken);
+  });
+
+  // Save as new rewrites a step guide written as a path, so the copy names
+  // the same file and the server takes it at its destination.
+  test("Save as new to another folder keeps a workflow-relative step guide naming the same file", async () => {
+    const folder = join(root, ".konductor", "workflows");
+    write(join(folder, "lens.md"), "# lens\n");
+    const text = TWO_STEPS.replace("    instruction: Polish it.\n", "    instruction: Polish it.\n    guides: [./lens.md, design/review.md]\n");
+    const from = write(join(folder, "two-steps.yml"), text);
+    const to = join(folder, "team", "deep", "copy.yml");
+    const moved = movedRefEdits(text, from, to).reduce((t, e) => applyEdit(t, e), text);
+    expect(moved).toBe(text.replace("guides: [./lens.md, design/review.md]", "guides: [../../lens.md, design/review.md]"));
+    await json("/api/workflows", { method: "POST", body: JSON.stringify({ location: "project", folder: "team/deep", file: "copy", text: moved }) });
+    expect(readFileSync(to, "utf8")).toBe(moved);
+    // Unrewritten, the copy would name a file that is not there.
+    const res = await api("/api/workflows", { method: "POST", body: JSON.stringify({ location: "project", folder: "team/deep", file: "copy2", text }) });
+    expect(res.status).toBe(422);
+  });
+
   test("keeps a working copy next to the project, ignored by git, until it is removed", async () => {
     const path = write(join(home, ".konductor", "workflows", "mine.yml"), TWO_STEPS);
     const text = `${TWO_STEPS}# unsaved\n`;
@@ -622,6 +668,33 @@ steps:
     // The file names ../child.yml, which leads to another file from each
     // of the three paths, so it is another workflow by each: no entry gives
     // a real path that a reference to the physical file would be matched by.
+    expect(editable.path).toBe(join(home, ".konductor", "workflows", "parent.yml"));
+    expect(editable.realPath).toBeUndefined();
+    const runEntry = workflows.find((w: any) => w.path === ran);
+    expect(runEntry.location).toBe("run");
+    expect(runEntry.realPath).toBeUndefined();
+  });
+
+  // A step guide given by a path is a relative reference like a gate guide:
+  // ../lens.md leads to another file from the linked and the physical path,
+  // so the two paths are not one workflow.
+  test("a step guide that leads to another file through a linked folder keeps the run's path and gives no real path", async () => {
+    const shared = join(root, "shared", "workflows");
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(join(home, ".konductor"), { recursive: true });
+    symlinkSync(shared, join(home, ".konductor", "workflows"));
+    const alias = join(root, "alias-workflows");
+    symlinkSync(shared, alias);
+    for (const dir of [join(root, "shared"), root, join(home, ".konductor")]) write(join(dir, "lens.md"), "# Lens\n");
+    const physical = write(join(shared, "parent.yml"), "version: 1\nname: parent\nsteps:\n  - id: ask\n    instruction: Ask.\n    guides:\n      - ../lens.md\n");
+    const ran = join(alias, "parent.yml");
+    flow("start", "guide-alias-run", "--workflow", ran);
+    const { workstreams } = await json("/api/workstreams");
+    const run = workstreams.find((w: any) => w.slug === "guide-alias-run");
+    expect(run.workflowPath).toBe(ran);
+    expect(run.workflowRealPath).toBe(physical);
+    const { workflows } = await json("/api/workflows");
+    const editable = workflows.find((w: any) => w.location === "personal" && w.file === "parent.yml");
     expect(editable.path).toBe(join(home, ".konductor", "workflows", "parent.yml"));
     expect(editable.realPath).toBeUndefined();
     const runEntry = workflows.find((w: any) => w.path === ran);

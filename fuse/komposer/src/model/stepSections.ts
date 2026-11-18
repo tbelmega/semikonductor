@@ -15,6 +15,7 @@ const SECTION_OF: Record<Exclude<ProblemField, "name" | "steps">, StepSection> =
   instr: "instruction",
   cond: "instruction",
   consumes: "artifacts",
+  guides: "artifacts",
   art: "artifacts",
   gate: "gates",
 };

@@ -88,6 +88,7 @@ export interface RawStepGuess {
   instruction?: string;
   condition?: unknown;
   consumes: string[];
+  guides: string[];
   produces: RawArtifactGuess[];
   optional_produces: RawArtifactGuess[];
   updates: RawArtifactGuess[];
@@ -148,6 +149,7 @@ export function guessRawWorkflow(text: string): RawWorkflowGuess {
         instruction: typeof s.instruction === "string" ? s.instruction : undefined,
         condition: s.condition,
         consumes: Array.isArray(s.consumes) ? s.consumes.filter((x): x is string => typeof x === "string") : [],
+        guides: Array.isArray(s.guides) ? s.guides.filter((x): x is string => typeof x === "string") : [],
         produces: asArtifactArray(s.produces),
         optional_produces: asArtifactArray(s.optional_produces),
         updates: asArtifactArray(s.updates),
@@ -276,6 +278,9 @@ export interface StepView {
   instruction?: string;
   condition?: { kind: Gate["kind"]; text: string; description?: string };
   consumes: string[];
+  // The guides the step names, as written: library guides <id>/<file>.md and
+  // paths relative to the workflow file or absolute.
+  guides: string[];
   artifacts: ArtifactView[];
   gates: Gate[];
 }
@@ -292,6 +297,7 @@ export function stepViewsFromWorkflow(w: Workflow): StepView[] {
       ? { kind: s.condition.kind, text: s.condition.text, description: s.condition.description }
       : undefined,
     consumes: s.consumes,
+    guides: s.guides,
     artifacts: [
       ...s.produces.map((a) => ({ role: "produces" as const, ...a })),
       ...s.optional_produces.map((a) => ({ role: "optional_produces" as const, ...a })),
@@ -399,6 +405,7 @@ export function stepViewsFromRaw(w: RawWorkflowGuess): StepView[] {
       instruction: s.instruction,
       condition: cond ?? undefined,
       consumes: s.consumes,
+      guides: s.guides,
       artifacts: [
         ...s.produces.map((a) => ({ role: "produces" as const, ...a, path: a.path ?? "" })),
         ...s.optional_produces.map((a) => ({ role: "optional_produces" as const, ...a, path: a.path ?? "" })),
@@ -439,6 +446,7 @@ export function readsCompletely(w: OpenWorkflow): boolean {
     return (
       typeof step.id === "string" &&
       (step.consumes === undefined || (Array.isArray(step.consumes) && step.consumes.every((c) => typeof c === "string"))) &&
+      (step.guides === undefined || (Array.isArray(step.guides) && step.guides.every((c) => typeof c === "string"))) &&
       (step.condition === undefined || guessCondition(step.condition) !== null) &&
       list(step.gates).every((g) => guessGate(g) !== null) &&
       ["produces", "optional_produces", "updates"].every((key) => list(step[key]).every(isOutput))

@@ -9,7 +9,8 @@ import type { Gate } from "../../../flow/src/schemas/gate.ts";
 import { lcsDiff } from "../diff.ts";
 import { readsCompletely, type ArtifactRole, type ArtifactView, type OpenWorkflow, type StepView } from "../workflowView.ts";
 import type { Edit } from "./yamlEdit.ts";
-import { isWorkflowPath, normalizePath, rebaseRef } from "./workflowLinks.ts";
+import { isGuidePath } from "../../../flow/src/schemas/step.ts";
+import { isWorkflowPath, normalizePath, rebaseRef, rebaseStepGuide } from "./workflowLinks.ts";
 
 // --------------------------------------------------------- the two workflows
 
@@ -129,6 +130,14 @@ const resolvedGate = (g: Gate, file?: string) => (file === undefined ? g : mapGa
 // A gate of the right side as the left side has to write it.
 const gateForLeft = (g: Gate, files?: CompareFiles) => (files ? mapGateRefs(g, (ref) => rebaseRef(ref, files.right, files.left)) : g);
 
+// A step's guides as the file they are in reads them, for comparing: a path
+// resolved to the file it names, a library guide as it is.
+const resolvedGuides = (guides: string[], file?: string) =>
+  file === undefined ? guides : guides.map((ref) => (isGuidePath(ref) ? resolveFrom(ref, file) : ref));
+// A step's guides of the right side as the left side has to write them.
+const guidesForLeft = (guides: string[], files?: CompareFiles) =>
+  files ? guides.map((ref) => rebaseStepGuide(ref, files.right, files.left)) : guides;
+
 // ----------------------------------------------------------- gate order
 
 // The order fuse-flow runs a step's gates in (gatesInOrder in
@@ -226,6 +235,8 @@ export interface StepDiff {
   description: boolean;
   condition: boolean;
   instruction: boolean;
+  // Whether the steps name other guides, or the same ones in another order.
+  guides: boolean;
   consumesLeft: string[];
   consumesRight: string[];
   outputsLeft: string[];
@@ -255,6 +266,7 @@ export function stepDiff(x: StepView, y: StepView, files?: CompareFiles): StepDi
     description: (x.description ?? "").trim() !== (y.description ?? "").trim(),
     condition: conditionValue(x.condition) !== conditionValue(y.condition),
     instruction: normalInstruction(x.instruction) !== normalInstruction(y.instruction),
+    guides: canonical(resolvedGuides(x.guides, files?.left)) !== canonical(resolvedGuides(y.guides, files?.right)),
     consumesLeft: notIn(x.consumes, y.consumes, id),
     consumesRight: notIn(y.consumes, x.consumes, id),
     outputsLeft: outputs.onlyLeft.map((i) => outputKey(x.artifacts[i])),
@@ -277,6 +289,7 @@ export function hasDifferences(d: StepDiff): boolean {
     d.description ||
     d.condition ||
     d.instruction ||
+    d.guides ||
     [d.consumesLeft, d.consumesRight, d.outputsLeft, d.outputsRight, d.outputsChanged, d.gatesLeft, d.gatesRight, d.gatesChanged, d.gatesReordered].some(
       (list) => list.length > 0,
     )
@@ -450,6 +463,15 @@ export function differences(x: StepView, y: StepView, step: number, files?: Comp
     });
   // Literal style keeps the text exactly; folded style would rewrap it.
   if (d.instruction) out.push({ mark: "chg", label: "instruction", edits: [{ op: "setInstruction", step, text: y.instruction ?? "", style: "|" }] });
+  // Komposer shows a step's guides without editing them, so a difference in
+  // them is shown, and taken over only with the whole step.
+  if (d.guides)
+    out.push({
+      mark: presence(x.guides.length, y.guides.length),
+      label: y.guides.length ? `guides → ${y.guides.join(", ")}` : "remove guides",
+      edits: [],
+      refused: "Komposer does not edit a step's guides; use Make the left step match this one, or change them in the workflow file.",
+    });
   for (const c of d.consumesRight) out.push({ mark: "add", label: `consumes ${c}`, edits: [{ op: "setConsumes", step, ids: [...x.consumes, c] }] });
   for (const c of d.consumesLeft)
     out.push({ mark: "del", label: `consumes ${c}`, edits: [{ op: "setConsumes", step, ids: x.consumes.filter((v) => v !== c) }] });
@@ -557,7 +579,7 @@ export function moveEdits(row: CompareRow): Edit[] {
 // the right, the target on the left), a gate reference is written so that it
 // names in the target what it names in the source.
 export function copyStepEdits(source: StepView[], index: number, target: StepView[], at?: number, files?: CompareFiles): Edit[] {
-  const step = { ...source[index], gates: source[index].gates.map((g) => gateForLeft(g, files)) };
+  const step = { ...source[index], guides: guidesForLeft(source[index].guides, files), gates: source[index].gates.map((g) => gateForLeft(g, files)) };
   if (step.gates.some(delegates))
     throw new Error(`Step ${step.id} has a workflow gate with a slug, inputs, returns, for_each, accept, rerun, rerun_override or retries; copy it in edit mode instead.`);
   const position = copyPosition(source, index, target, at);
@@ -577,6 +599,7 @@ export function copyStepEdits(source: StepView[], index: number, target: StepVie
     if (step[key] !== undefined) edits.push({ op: "setStepField", step: to, key, value: step[key]! });
   if (step.condition) edits.push({ op: "setCondition", step: to, condition: step.condition });
   if (step.consumes.length) edits.push({ op: "setConsumes", step: to, ids: step.consumes });
+  if (step.guides.length) edits.push({ op: "setGuides", step: to, refs: step.guides });
   for (const a of step.artifacts)
     edits.push({
       op: "addOutput",

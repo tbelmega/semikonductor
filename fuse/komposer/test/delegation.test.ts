@@ -28,7 +28,7 @@ import type { OpenWorkflow, StepView, WorkflowLink } from "../src/workflowView.t
 
 const wf = (extra: Partial<Gate> = {}): Gate => ({ kind: "workflow", text: "child", route_back_to: [], ...extra });
 const perItem = (extra: Partial<Gate> = {}) => wf({ for_each: "units", inputs: { spec: "units" }, ...extra });
-const step = (id: string, extra: Partial<StepView> = {}): StepView => ({ id, consumes: [], artifacts: [], gates: [], ...extra });
+const step = (id: string, extra: Partial<StepView> = {}): StepView => ({ id, consumes: [], guides: [], artifacts: [], gates: [], ...extra });
 const produces = (id: string) => ({ artifact: id, path: `${id}.md`, role: "produces" as const });
 const ok: WorkflowLink = { ok: true, key: "/w/child.yml", name: "child", path: "/w/child.yml" };
 const missing: WorkflowLink = { ok: false, reason: "not found" };

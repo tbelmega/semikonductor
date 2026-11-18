@@ -32,9 +32,9 @@ steps:
     title: 2. Architect
     instruction: >
       Write the system design: architecture, non-functional requirements, a threat model (the
-      threat-model guide, fuse/flow/library/artifacts/threat-model/guide.md in the fuse-konductor
-      clone), API and data models, access policies. Cite code for every claim
+      threat-model guide), API and data models, access policies. Cite code for every claim
       about current behaviour.
+    guides: [threat-model/guide.md]
     produces:
       - artifact: design
         path: .konductor/{slug}/design.md
@@ -119,14 +119,14 @@ steps:
     title: 6. QA
     instruction: >
       Find the test coverage gaps for what was implemented, plan the end-to-end tests (the
-      e2e-test-strategy guide, fuse/flow/library/artifacts/e2e-test-strategy/guide.md in the
-      fuse-konductor clone) and the security tests, and check user-facing text when there is
+      e2e-test-strategy guide) and the security tests, and check user-facing text when there is
       any; each is a section of the report, and the test coverage guide names the guides for the
       security tests and the user-facing text.
       This is the last step; findings are reported, not routed back to implementation, and the
       workflow ends with this step. Put any gap that leaves an acceptance criterion untested at
       the top, and in the hand-over recommend closing it as follow-on work started after this
       workstream.
+    guides: [e2e-test-strategy/guide.md]
     produces:
       - artifact: test-coverage
         path: .konductor/{slug}/test-coverage.md

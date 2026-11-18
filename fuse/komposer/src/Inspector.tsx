@@ -570,6 +570,22 @@ function StepTab({
           {err("consumes") && <div className="field-error">{err("consumes")}</div>}
         </div>
 
+        {(step.guides.length > 0 || err("guides")) && (
+          <div className="field-block" data-step-guides>
+            <div className="field-block-head">
+              <FieldLabel label="Guides" doc={DOCS.guides} />
+            </div>
+            <ul className="step-guides">
+              {step.guides.map((ref, i) => (
+                <li key={`${i}-${ref}`} className="mono-input">
+                  {ref}
+                </li>
+              ))}
+            </ul>
+            {err("guides") && <div className="field-error">{err("guides")}</div>}
+          </div>
+        )}
+
         <div className="field-block">
           <div className="field-block-head">
             <FieldLabel label="Outputs" doc={DOCS.produces} />

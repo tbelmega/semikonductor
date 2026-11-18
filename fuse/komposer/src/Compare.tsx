@@ -407,7 +407,8 @@ function Row({
   const rightName = stem(right.file);
 
   let head: React.ReactNode = null;
-  if (y && row.kind === "changed" && lines.length > 1)
+  // A difference in guides alone is applied only with the whole step.
+  if (y && row.kind === "changed" && (lines.length > 1 || row.diff?.guides))
     head = (
       <button
         className="compare-apply"
@@ -585,6 +586,12 @@ function Card({
         <div className="compare-phase">
           <span className="compare-phase-label">phase</span>
           <span className={`compare-phase-value${d?.phase ? " is-chg" : ""}`}>{step.phase || "none"}</span>
+        </div>
+      )}
+      {(step.guides.length > 0 || d?.guides) && (
+        <div className="compare-phase">
+          <span className="compare-phase-label">guides</span>
+          <span className={`compare-phase-value compare-guides-value${d?.guides ? " is-chg" : ""}`}>{step.guides.join(", ") || "none"}</span>
         </div>
       )}
       {step.condition && (

@@ -20,6 +20,8 @@
 // its location, because fuse-flow's search stops there. The server lists both
 // as unavailable. No React, no DOM, no Node APIs.
 
+import { isGuidePath } from "../../../flow/src/schemas/step.ts";
+
 export interface ListedWorkflow {
   location: string;
   path: string;
@@ -87,6 +89,16 @@ export function rebaseRef(ref: string, from: string, to: string): string {
   return rebased.includes("/") ? rebased : `./${rebased}`;
 }
 const baseOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
+// A step guide written as a path (one that starts with . or /), rebased as
+// rebaseRef does, and kept a path: fuse-flow reads a guide without a leading
+// . or / as a library guide, so a rebased "sub/guide.md" is written
+// "./sub/guide.md". A library guide is not rewritten.
+export function rebaseStepGuide(ref: string, from: string, to: string): string {
+  if (!isGuidePath(ref)) return ref;
+  const rebased = rebaseRef(ref, from, to);
+  return isGuidePath(rebased) ? rebased : `./${rebased}`;
+}
 
 // Where a listed or unavailable workflow is, which is all a lookup level reads.
 type Placed = Pick<ListedWorkflow, "location" | "path">;

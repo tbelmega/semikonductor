@@ -334,6 +334,13 @@ script installs plain skills and an always-on instruction block that every suppo
   fuse agent build a trivial program with a workflow, and judges whether an engineer who knows
   nothing about fuse-flow could get through it.
 - `docs/GLOSSARY.md`, including the scope terms prohibited, deferred and out of scope.
+- A step's `guides:` lists the guides its instruction tells the agent to use: library guides such
+  as `design/review.md`, looked up with the project's own library first, and files next to the
+  workflow such as `./k-backend-review.md`, written as a gate's `guide:` is. The step block prints
+  each absolute path with the same precedence note artifact guides get, and `fuse-flow validate`
+  and Komposer's saves refuse a guide that names no file. The shipped workflows name their guides
+  this way instead of writing paths into instructions. Komposer lists a step's guides read-only
+  and keeps them through saving, Save as new and Compare.
 
 ### Changed
 
@@ -529,6 +536,12 @@ prints:
   authoring guide now makes a passed review of that artifact run again. A project that relied on
   a policy guide to replace an artifact's review guide can override the artifact's library entry
   instead.
+- A workflow that uses a step's `guides:` needs the fuse-flow that ships with it; an earlier
+  fuse-flow refuses the field.
+- A project's or user's own copy of a guide a shipped step names now wins over the step's
+  instruction where they disagree, as an artifact guide in the project library already did. This
+  also holds for guides the shipped workflows used to name by path in their instructions, which
+  always came from the clone.
 - Fifteen skills were removed or moved into the artifact library (see Removed). Running
   `install.sh` again removes their installed copies. Update your own workflows and instruction
   files that name one: `deliberation-panel`, `playwright-test-implementation` and

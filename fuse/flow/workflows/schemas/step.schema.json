@@ -57,6 +57,14 @@
         "pattern": "^[a-z0-9][a-z0-9-]*$"
       }
     },
+    "guides": {
+      "description": "Guides the step's instruction tells the agent to use, each one of two forms. A library guide, <id>/<file>.md such as design/review.md, is the file in the library entry <id> that wins: the project's .konductor/library/ first, then ~/.konductor/library/, then the library that ships with fuse-flow. A path, which starts with . or /, is relative to the workflow file or absolute, as a gate's guide is. Engine effect: the step block lists the absolute path of each, after the artifact guides, and says which wins where a guide and the instruction disagree: a guide from the project's or the user's library is a house rule, and the instruction wins over any other. `validate` refuses a guide that names no file.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[./][\\s\\S]*|[a-z0-9][a-z0-9-]*\\/[^/\\\\]+\\.md)$"
+      }
+    },
     "produces": {
       "description": "Artifacts the step writes: one or a list. Engine effect: `continue` is refused while one of them is neither on disk nor reported with `--not-produced <artifact> \"<reason>\"`. A path that already exists and that this workstream did not record is reported when the step is handed out.",
       "anyOf": [

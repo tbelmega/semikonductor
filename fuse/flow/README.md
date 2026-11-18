@@ -140,6 +140,20 @@ The step fields have these effects:
   `.` when they have no deeper folder in common. Each document read, also a file
   recorded in a folder and a document the step's own child returned, is reported when it is no
   longer on disk.
+- `guides` lists the guides the step's instruction tells the agent to use, beyond the guides of
+  its artifacts, such as a review lens or one part of another artifact's guide. A reference that
+  starts with `.` or `/` is a path, relative to the workflow file or absolute, as a gate's `guide`
+  is. Any other reference is a library guide, `<id>/<file>.md` such as `design/review.md`: the file
+  in the library entry `<id>` that wins, the project's `.konductor/library/` first, then
+  `~/.konductor/library/`, then the package's library, so a project replaces a shipped guide by
+  putting its own file in its project library. The step block lists the absolute path of each
+  under `STEP GUIDES`, after the artifact guides, and its `GUIDES` line says which wins where a
+  guide and the instruction disagree, as for artifact guides: a guide from the project's or the
+  user's library is a house rule, and the instruction wins over any other, a path next to the
+  workflow included. The instruction still names each guide in words, such as "the backend review
+  guide", so the agent knows when to use which file. `validate` refuses a reference that is not
+  of either form, and one that names no file, with the step and the reference. A workflow that
+  uses `guides` needs a fuse-flow that knows the field.
 - `produces` contains one artifact mapping or a list. Each mapping has an `artifact` identifier,
   a `path`, and an optional `description`. Completion requires the path to exist, and a folder
   to hold something, or the agent to report `--not-produced <artifact> <reason>`. When the path is

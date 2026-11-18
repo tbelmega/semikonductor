@@ -42,9 +42,7 @@ steps:
       If the owner has not named the topic (the system, feature or problem to design, as a
       free-form description, user stories or a problem statement), ask for it once and wait. Do
       not ask for the output path, the validation report folder or the elicitation depth; use the
-      defaults. Follow the requirements-summary guide in the fuse library
-      (fuse/flow/library/artifacts/requirements-summary/guide.md in the fuse-konductor clone) in
-      Mode A (intake) directly: its run is this
+      defaults. Follow the requirements-summary guide in Mode A (intake) directly: its run is this
       step's work, not a preparation for it. Ask one question at a time and wait for the answer
       before asking the next, drawing on the guide's dimensions: business value [PM], technical
       feasibility and dependencies [SDE], timeline and cross-team coordination [TPM], auth and
@@ -56,6 +54,7 @@ steps:
       signal such as "enough" or "proceed" ends the
       questions at once and counts as the owner's confirmation of the summary; record it as the
       owner's approval, with the signal as the note.
+    guides: [requirements-summary/guide.md]
     produces:
       - artifact: requirements-summary
         path: .konductor/{slug}/requirements-summary.md
@@ -77,14 +76,14 @@ steps:
       where there is no such structure to show, such as a section listing configuration values or a
       single API contract; say in that section that it has no diagram, and why. Write an ADR for
       every significant design decision following the decision-record guide's section on
-      architecture decision records (fuse/flow/library/artifacts/decision-record/guide.md in the
-      fuse-konductor clone): inline under "## Architecture Decision Records" by default, or in the
+      architecture decision records: inline under "## Architecture Decision Records" by default, or in the
       project's own decision-record location when it has one. Use its format: Context, Decision,
       Alternatives Considered (a table), Consequences. Do not wait for trade-off scores; the next
       step adds them. Run that guide's quality gate on each ADR and fix what it finds. Then have the
       draft checked as the gate below says, and do not move on while a CRITICAL finding is open.
     consumes:
       - requirements-summary
+    guides: [decision-record/guide.md]
     produces:
       - artifact: design
         path: docs/design/{slug}.md
@@ -137,16 +136,14 @@ steps:
     instruction: >
       Have every major architectural decision, trade-off and AWS service choice challenged as the
       gate below says. Before the first round, ask the owner once whether to convene the
-      deliberation panel, as the design adversarial review guide describes
-      (fuse/flow/library/artifacts/design/adversarial-review.md in the fuse-konductor clone;
-      roughly 2 to 3 minutes, scaling with the number of derived axes), and pass
+      deliberation panel, as the design adversarial review guide describes (roughly 2 to 3
+      minutes, scaling with the number of derived axes), and pass
       the answer to every round's reviewer as consent_confirmed; without an explicit opt-in the
       reviewer works single-voice. After each round, apply the corrections, then check the
       document against the draft step's maker-checker rules again and fix every CRITICAL finding
       before the next round. Do not discard any finding silently: each is fixed, or recorded with
       your reason as rejected, for the owner to confirm as an engineer override. The gate's own
-      review guide (guides/k-sop-design-doc-creation-adversarial-review.md next to this workflow)
-      gives the exit condition and when to stop the loop for the owner. Write the adversarial review
+      review guide gives the exit condition and when to stop the loop for the owner. Write the adversarial review
       summary: the panel decision, for each round its findings by severity and the corrections
       applied, the findings marked for engineer override, and the issues still open.
     consumes:
@@ -154,6 +151,7 @@ steps:
       - requirements-summary
       - aws-validation
       - trade-offs
+    guides: [design/adversarial-review.md, ./guides/k-sop-design-doc-creation-adversarial-review.md]
     updates:
       - artifact: design
         path: docs/design/{slug}.md
@@ -175,8 +173,7 @@ steps:
       Apply every correction from the quality gates and the adversarial review before writing the
       final version of the design document: an INCORRECT claim is corrected, not only flagged.
       Check the final version against the draft step's maker-checker rules once more. Compute the
-      confidence score with Part 2 of the design review guide
-      (fuse/flow/library/artifacts/design/review.md in the fuse-konductor clone): the average of
+      confidence score with Part 2 of the design review guide: the average of
       its ten dimension scores, 1 to 5 each. Score each section of the document as well, as the
       average of the dimension scores that apply to it, and flag every section below 3 for
       revision. Write the readiness result: each condition of the quality gate with its result, the
@@ -194,6 +191,7 @@ steps:
       - aws-validation
       - trade-offs
       - adversarial-review
+    guides: [design/review.md]
     updates:
       - artifact: design
         path: docs/design/{slug}.md

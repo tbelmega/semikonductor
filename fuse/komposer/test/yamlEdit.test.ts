@@ -2429,3 +2429,47 @@ describe("switching a gate with a malformed per-item key back to one child", () 
     expect(parseWorkflowText(out).ok).toBe(true);
   });
 });
+
+describe("a step's guides, which Komposer shows but does not edit", () => {
+  const text = `version: 1
+name: g
+steps:
+  - id: write
+    instruction: Write it with the lens guide.
+    # the lens guide sits next to this workflow
+    guides:
+      - ./k-backend-review.md
+      - design/review.md
+    gates:
+      - owner-action: approve it
+`;
+  const GUIDES = "    guides:\n      - ./k-backend-review.md\n      - design/review.md\n";
+
+  test("editing every other field of the step and saving keeps its guides as written", () => {
+    const edits: Edit[] = [
+      { op: "setInstruction", step: 0, text: "Write it again, with the lens guide.", style: ">" },
+      { op: "setStepField", step: 0, key: "title", value: "Write" },
+      { op: "setStepField", step: 0, key: "mode", value: "unattended" },
+      { op: "setConsumes", step: 0, ids: ["notes"] },
+      { op: "addOutput", step: 0, mode: "produces", artifact: "essay", path: "essay.md" },
+      { op: "setGate", step: 0, index: 0, fields: { description: "the owner reads it" } },
+      { op: "setCondition", step: 0, condition: { kind: "check", text: "default" } },
+    ];
+    for (const edit of edits) {
+      const out = applyEdit(text, edit);
+      expect([edit.op, out.includes(`    # the lens guide sits next to this workflow\n${GUIDES}`)]).toEqual([edit.op, true]);
+    }
+    const titled = parseWorkflowText(applyEdit(text, edits[1]));
+    expect(titled.ok && titled.workflow.steps[0].guides).toEqual(["./k-backend-review.md", "design/review.md"]);
+    const all = edits.reduce((t, e) => applyEdit(t, e), text);
+    expect(all).toContain(GUIDES);
+  });
+
+  test("a whole-step copy writes the list after consumes, and an empty list removes the key", () => {
+    const plain = "version: 1\nname: g\nsteps:\n  - id: a\n    instruction: Do it.\n    consumes: [x]\n    produces:\n      - artifact: y\n        path: y.md\n";
+    const out = applyEdit(plain, { op: "setGuides", step: 0, refs: ["design/review.md"] });
+    expect(out.indexOf("guides:")).toBeGreaterThan(out.indexOf("consumes:"));
+    expect(out.indexOf("guides:")).toBeLessThan(out.indexOf("produces:"));
+    expect(applyEdit(out, { op: "setGuides", step: 0, refs: [] })).toBe(plain);
+  });
+});

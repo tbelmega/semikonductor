@@ -18,6 +18,7 @@ import { DEFAULT_MAX_ROUNDS, type Gate } from "./schemas/gate.ts";
 import { LibraryEntrySchema } from "./schemas/library.ts";
 import { type Policy, PolicySchema } from "./schemas/policy.ts";
 import type { Artifact, Step } from "./schemas/step.ts";
+import { isGuidePath, LIBRARY_GUIDE } from "./schemas/step.ts";
 import type { Workflow } from "./schemas/workflow.ts";
 
 interface Layer {
@@ -427,6 +428,54 @@ export function ownersReviewGuide(p: Project, found: { path: string; source: Rev
   if (!named) return false;
   const dirs = libraryDirs(p.root);
   return [dirs.project, dirs.user].some((dir) => named.startsWith(join(dir, "artifacts") + sep));
+}
+
+// ------------------------------------------------------------------ step guides
+
+// One guide a step names, as it applies in this project: `ref` as the
+// workflow writes it, `path` the real path of the file it names when there is
+// one, and `problem` why it names none. A library guide comes from the entry
+// that wins, as an artifact's guide does; a path is relative to the workflow
+// file `file`, or absolute, as a gate's guide is. `owners` says whether the
+// guide is the owner's or the project's own, by the same rule as review
+// guides: found in the project's or the user's library.
+export interface StepGuide {
+  ref: string;
+  path?: string;
+  problem?: string;
+  owners: boolean;
+}
+
+export function stepGuides(p: Project, step: Step, file: string): StepGuide[] {
+  const dirs = libraryDirs(p.root);
+  const inOwnLibrary = (path: string) => [dirs.project, dirs.user].some((dir) => path.startsWith(join(dir, "artifacts") + sep));
+  return step.guides.map((ref) => {
+    if (isGuidePath(ref)) {
+      const named = isAbsolute(ref) ? ref : resolve(dirname(file), ref);
+      const why = notAGuide(named);
+      return why ? { ref, problem: `${why}: ${named}`, owners: false } : { ref, path: realpathSync(named), owners: inOwnLibrary(named) };
+    }
+    const [, id, name] = LIBRARY_GUIDE.exec(ref)!;
+    const entry = libraryEntry(p, id);
+    if (!entry) return { ref, problem: `names ${id}, which no library has`, owners: false };
+    const named = join(entry.folder, name);
+    const why = notAGuide(named);
+    return why ? { ref, problem: `${why}: ${named}`, owners: false } : { ref, path: realpathSync(named), owners: entry.level !== "package" };
+  });
+}
+
+// The step guides of workflow `wf`, saved at `file`, that name no file: for
+// each, the index of its step, the line that names the step and the guide as
+// the workflow writes it, and the line without the place it starts with.
+export function stepGuideProblems(p: Project, wf: Workflow, file: string): { step: number; line: string; detail: string }[] {
+  return wf.steps.flatMap((step, i) =>
+    stepGuides(p, step, file)
+      .filter((g) => g.problem)
+      .map((g) => {
+        const detail = `the guide ${g.ref} ${g.problem}`;
+        return { step: i, line: `${file}: steps.${i} (${step.id}): ${detail}`, detail };
+      }),
+  );
 }
 
 // ------------------------------------------------------------------ artifacts

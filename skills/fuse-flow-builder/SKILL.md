@@ -184,6 +184,14 @@ Reach for them in this order, and stop as soon as the workflow does what it is f
    the next workflow's inputs to this workstream's documents. A `when` that does not hold rules
    the hand-off out, and the agent does not mention it. Use them when the source says
    "then run X" or "this is the input to X", instead of a sentence in the last instruction.
+10. **`guides`.** Guides the instruction tells the agent to use beyond its artifacts' own, such
+    as a review lens or one part of another artifact's guide. Write a library guide as
+    `<id>/<file>.md`, such as `design/review.md`, and a file next to the workflow as a path that
+    starts with `.`, such as `./backend-review.md`, relative to the workflow file as a gate's
+    `guide` is. The step block prints the absolute path of each, and `validate` refuses one that
+    names no file, which a path written in prose cannot get. Never write a guide's path in the
+    instruction: name the guide in words there, such as "the backend review guide", and list the
+    file in `guides`.
 
 ### The artifact library
 
@@ -300,6 +308,7 @@ judgment call as a deviation and report it at the end.
 | A skill or section that says how to write a document | That artifact's `guide.md` |
 | A required format, header or section list | That artifact's `template.<ext>` |
 | A procedure for reviewing a document | Its `review.md`, or `guide:` on the agent gate |
+| A guide a step follows that is not its artifacts' own, such as a review lens | `guides:` on the step, named in words in the instruction |
 | A procedure with no document, such as test-driven development or debugging | Its essence in the step's `instruction` |
 | "Wait for the user", "get approval", "the user chooses" | `owner-action` gate |
 | "Run the tests", "the build must pass" | `check: default` |

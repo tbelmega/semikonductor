@@ -107,7 +107,7 @@ steps:
     mode: unattended
     instruction: >
       If the approved requirements are still in their working-draft form, first make them durable,
-      as the requirements guide (library/artifacts/requirements/guide.md in fuse-flow) says. Then
+      as the requirements guide says. Then
       design how the system meets the approved requirements: its parts and the interfaces between
       them, the data it keeps, how it fails, and the acceptance tests that will show it
       meets each requirement. Choose the simplest design that meets them. For each significant
@@ -129,6 +129,7 @@ steps:
       and the trade-offs only the owner can decide first in the hand-over, with your
       recommendation for each.
     consumes: [requirements, research-note]
+    guides: [requirements/guide.md]
     produces:
       - artifact: design
         path: docs/specs/{date}-{slug}/design.md

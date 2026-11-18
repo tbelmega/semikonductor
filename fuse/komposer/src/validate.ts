@@ -7,7 +7,7 @@ import YAML from "yaml";
 import { parseWorkflowText, type WorkflowIssue } from "../../flow/src/parse.ts";
 import { ArtifactSchema } from "../../flow/src/schemas/step.ts";
 
-export type ProblemField = "name" | "steps" | "id" | "mode" | "instr" | "cond" | "consumes" | "art" | "gate";
+export type ProblemField = "name" | "steps" | "id" | "mode" | "instr" | "cond" | "consumes" | "guides" | "art" | "gate";
 export interface Problem {
   stepIndex: number;
   field: ProblemField;
@@ -109,6 +109,10 @@ function translate(issue: WorkflowIssue, doc: Record<string, unknown>): Problem 
           : issue.message,
     };
   }
+  if (key === "guides") {
+    const itemIndex = typeof p[3] === "number" ? p[3] : undefined;
+    return { stepIndex, field: "guides", ...(itemIndex !== undefined ? { itemIndex } : {}), message: issue.message };
+  }
   if (key === "consumes") {
     const itemIndex = typeof p[3] === "number" ? p[3] : undefined;
     const id = String(entryAt(step.consumes, itemIndex) ?? "");
@@ -195,7 +199,7 @@ export interface EnginePlace {
   step?: number;
   gate?: number;
   handOff?: number;
-  field?: "guide" | "workflow" | "name";
+  field?: "guide" | "workflow" | "name" | "guides";
 }
 export interface EngineProblem {
   severity: "error" | "warning";
@@ -216,6 +220,7 @@ function placedProblems(problem: EngineProblem, stepCount: number): Problem[] {
   const onSteps = problem.at.filter((place) => place.step !== undefined && place.step < stepCount);
   if (!onSteps.length) return [{ stepIndex: -1, field: problem.at.some((p) => p.field === "name") ? "name" : "steps", message: problem.line }];
   return onSteps.map((place): Problem => {
+    if (place.field === "guides") return { stepIndex: place.step!, field: "guides", message: problem.detail };
     if (place.gate === undefined) return { stepIndex: place.step!, field: "id", message: problem.detail };
     return {
       stepIndex: place.step!,

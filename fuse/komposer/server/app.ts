@@ -24,7 +24,7 @@ import { FlowError } from "../../flow/src/errors.ts";
 import { summarizeRun, runEvents } from "../../flow/src/history.ts";
 import { crossCheck } from "../../flow/src/links.ts";
 import { formatIssue, parseWorkflowText } from "../../flow/src/parse.ts";
-import { display, listLibrary, loadProject, READS_NO_GUIDE, reviewGuideFindings, reviewGuides as appliedGuides, workingAgentJudges } from "../../flow/src/policy.ts";
+import { display, listLibrary, loadProject, READS_NO_GUIDE, reviewGuideFindings, reviewGuides as appliedGuides, stepGuideProblems, workingAgentJudges } from "../../flow/src/policy.ts";
 import { findRepoRoot, findWorkflow, isDirectory, isWorkflowPath, libraryDirs, policyFiles, projectsFile, workflowDirs, workflowFilesBelow, workstreamsDir } from "../../flow/src/project.ts";
 import { readProjects, registerProject, unregisterProject } from "../../flow/src/registry.ts";
 import { listWorkstreams, type WorkstreamListing } from "../../flow/src/workstream.ts";
@@ -73,7 +73,7 @@ interface Place {
   step?: number;
   gate?: number;
   handOff?: number;
-  field?: "guide" | "workflow" | "name";
+  field?: "guide" | "workflow" | "name" | "guides";
 }
 
 // One line of a validation answer with the places it is about, and the line
@@ -223,7 +223,8 @@ export function startServer(options: ServerOptions): KomposerServer {
   const inLocation = (path: string) => locations.some((l) => listedForm(path).startsWith(l.path + sep));
 
   // The paths a workflow file names relative to itself: workflow gates and
-  // hand-offs given by a path, and gate guides.
+  // hand-offs given by a path, gate guides, and step guides given by a path
+  // (a step guide without a leading `.` or `/` is a library reference).
   const relativeRefs = (text: string | undefined): string[] => {
     const parsed = text === undefined ? undefined : parseWorkflowText(text);
     if (!parsed?.ok) return [];
@@ -231,6 +232,7 @@ export function startServer(options: ServerOptions): KomposerServer {
     return [
       ...wf.hands_off_to.map((h) => h.workflow).filter(isWorkflowPath),
       ...wf.steps.flatMap((step) => step.gates.flatMap((g) => [...(g.kind === "workflow" && isWorkflowPath(g.text) ? [g.text] : []), ...(g.guide ? [g.guide] : [])])),
+      ...wf.steps.flatMap((step) => (step.guides ?? []).filter((ref) => ref.startsWith("."))),
     ].filter((ref) => !isAbsolute(ref));
   };
 
@@ -903,6 +905,10 @@ export function startServer(options: ServerOptions): KomposerServer {
       const found = reviewGuideFindings(p, wf, path, undefined, read);
       const guides = found.filter((f) => !f.uncertain).map((f) => f.line);
       const guideWarnings = found.filter((f) => f.uncertain).map((f) => f.line);
+      // The guides each step names, resolved against the file being saved,
+      // with the engine's own lookup, so a guide fuse-flow validate refuses is
+      // refused here too, in its words.
+      const stepGuideLines = stepGuideProblems(p, wf, path);
       const { errors, warnings } = crossCheck(root, path, wf, undefined, read);
       const stem = basename(path).replace(/\.ya?ml$/, "");
       const name = wf.name !== stem ? nameWarning(wf.name, stem, path) : undefined;
@@ -954,10 +960,11 @@ export function startServer(options: ServerOptions): KomposerServer {
         });
       };
       return {
-        errors: [...guides, ...errors],
+        errors: [...guides, ...stepGuideLines.map((g) => g.line), ...errors],
         warnings: [...guideWarnings, ...warnings],
         problems: [
           ...guides.map(guideProblem("error")),
+          ...stepGuideLines.map((g): Problem => ({ severity: "error", line: g.line, detail: g.detail, at: [{ step: g.step, field: "guides" }] })),
           ...guideWarnings.map(guideProblem("warning")),
           ...crossProblems("error", errors),
           ...crossProblems("warning", warnings),

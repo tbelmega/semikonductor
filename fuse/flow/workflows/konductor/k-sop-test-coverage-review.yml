@@ -117,8 +117,8 @@ steps:
     title: Step 5. Generate security test plan
     phase: Planning
     instruction: >
-      Plan the security tests by following security-tests.md, the guide next to the test-coverage
-      guide in the artifact library, and write the plan to the path below. When a design_file was
+      Plan the security tests by following the security tests guide, and write the plan to the
+      path below. When a design_file was
       given, use it for threat context. Cover all seven domains: authentication and authorization,
       input validation, API security, data protection, session management, error handling and
       infrastructure, and say why a domain does not apply when you skip one. Organize the tests by
@@ -129,6 +129,7 @@ steps:
     consumes:
       - test-file-inventory
       - test-coverage
+    guides: [test-coverage/security-tests.md]
     produces:
       - artifact: security-test-plan
         path: .konductor/{slug}/security-test-plan.md
