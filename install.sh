@@ -235,7 +235,7 @@ while [ "$#" -gt 0 ]; do
         files=$files$1$NL
         shift
       done
-      [ -n "$files" ] || usage_error "--global needs at least one file"
+      [ -n "$files" ] || usage_error "--global needs at least one target config file. pass the config files of all harnesses you want to link fuse-konductor to, e.g. ./install.sh --global ~/.claude/CLAUDE.md ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md ~/.kiro/steering/AGENTS.md"
       ;;
     *) usage_error "unknown argument: $1" ;;
   esac

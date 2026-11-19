@@ -41,6 +41,14 @@ describe("arguments", () => {
     expect(snapshot(sb.root)).toEqual(before);
   });
 
+  test("--global without a file names the config files to pass", () => {
+    const result = sb.run("--global");
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain(
+      "install.sh: --global needs at least one target config file. pass the config files of all harnesses you want to link fuse-konductor to, e.g. ./install.sh --global ~/.claude/CLAUDE.md ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md ~/.kiro/steering/AGENTS.md",
+    );
+  });
+
   test("--help prints the usage and exits 0", () => {
     const result = sb.run("--help");
     expect(result.status).toBe(0);
