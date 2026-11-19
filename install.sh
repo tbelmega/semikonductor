@@ -3,8 +3,9 @@
 #
 # install.sh - install fuse-konductor from this clone.
 #
-#   install.sh --project <dir>                     [--uninstall]
-#   install.sh --global <file> [<file> ...] [--link] [--uninstall]
+#   install.sh --project <dir>                     [--uninstall] [--reviewer-setup]
+#   install.sh --global <file> [<file> ...] [--link] [--uninstall] [--reviewer-setup]
+#   install.sh --reviewer-setup
 #
 # --project <dir> copies every skill into <dir>/.agents/skills/, adds the
 #   always-on block to <dir>/AGENTS.md, and links <dir>/.claude/skills and
@@ -21,6 +22,14 @@
 #   skills this script installed earlier to the requested form.
 #
 # --uninstall reverses an install for the same arguments, without --link.
+#
+# The reviewer pairing. After an install in a terminal, while the user's policy
+# file ~/.konductor/policy-overrides.yml sets no reviewer yet, the script asks
+# which harness and model the user develops with and which ones review, and
+# writes the pairing there (fuse/flow/src/reviewer-setup.ts does the asking and
+# the writing). A run that is not in a terminal asks nothing and says how to set
+# it up. --reviewer-setup asks even when a reviewer is set, reads the answers
+# from stdin whether or not it is a terminal, and on its own installs nothing.
 #
 # The always-on block is AGENTS.fuse.md from this clone, with every {{CLONE}}
 # replaced: by the clone's path in a global instruction file, and by a pointer
@@ -121,8 +130,9 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-USAGE='usage: install.sh --project <dir>                     [--uninstall]
-       install.sh --global <file> [<file> ...] [--link] [--uninstall]'
+USAGE='usage: install.sh --project <dir>                     [--uninstall] [--reviewer-setup]
+       install.sh --global <file> [<file> ...] [--link] [--uninstall] [--reviewer-setup]
+       install.sh --reviewer-setup'
 
 GEN_OPEN='<GENERATED>'
 GEN_CLOSE='</GENERATED>'
@@ -179,6 +189,7 @@ project=
 files=
 uninstall=0
 link=0
+reviewer_setup=0
 [ "$#" -gt 0 ] || usage_error "give --project <dir> or --global <file> ..."
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -194,6 +205,11 @@ while [ "$#" -gt 0 ]; do
     --link)
       [ "$link" -eq 0 ] || usage_error "--link given twice"
       link=1
+      shift
+      ;;
+    --reviewer-setup)
+      [ "$reviewer_setup" -eq 0 ] || usage_error "--reviewer-setup given twice"
+      reviewer_setup=1
       shift
       ;;
     --project)
@@ -224,7 +240,11 @@ while [ "$#" -gt 0 ]; do
     *) usage_error "unknown argument: $1" ;;
   esac
 done
-[ -n "$mode" ] || usage_error "give --project <dir> or --global <file> ..."
+if [ "$reviewer_setup" -eq 1 ]; then
+  [ "$uninstall" -eq 0 ] || usage_error "--reviewer-setup cannot be combined with --uninstall"
+  [ -n "$mode" ] || [ "$link" -eq 0 ] || usage_error "--link works only with --global"
+fi
+[ -n "$mode" ] || [ "$reviewer_setup" -eq 1 ] || usage_error "give --project <dir> or --global <file> ..."
 if [ "$link" -eq 1 ]; then
   [ "$mode" = global ] || usage_error "--link works only with --global"
   [ "$uninstall" -eq 0 ] || usage_error "--link cannot be combined with --uninstall"
@@ -1078,7 +1098,26 @@ project_uninstall() {
   edit_block remove "$P/AGENTS.md"
 }
 
+# Runs the reviewer setup, with its arguments, once the dependencies of
+# fuse-flow it needs are installed, as fuse-flow's own launcher installs them.
+REVIEWER_HELPER=$REPO/fuse/flow/src/reviewer-setup.ts
+run_reviewer_setup() {
+  [ -f "$REVIEWER_HELPER" ] || { warn "$REVIEWER_HELPER not found; the reviewer was not set up"; return 1; }
+  if [ ! -f "$REPO/fuse/flow/node_modules/yaml/package.json" ] || [ ! -f "$REPO/fuse/flow/node_modules/zod/package.json" ]; then
+    (cd "$REPO/fuse/flow" && bun install > /dev/null 2>&1) || {
+      warn "installing fuse-flow's dependencies in $REPO/fuse/flow failed; run 'bun install' there"
+      return 1
+    }
+  fi
+  bun "$REVIEWER_HELPER" "$@"
+}
+
 # ── main ──────────────────────────────────────────────────────────────────────
+
+if [ -z "$mode" ]; then
+  run_reviewer_setup --force || exit 1
+  exit 0
+fi
 
 # Skills that cannot be placed are warnings; the refusals that set the exit
 # status (an instruction file left untouched) happen in this shell.
@@ -1107,6 +1146,21 @@ fi
 if [ "$FAILED" -ne 0 ]; then
   say "Some targets were left untouched; see the messages above."
   exit 1
+fi
+# The reviewer pairing, once everything is installed, so that a skipped or
+# failed setup leaves a complete install. Without a terminal and without the
+# flag, a policy that names neither reviewers nor a launch only gets a hint.
+if [ "$uninstall" -eq 0 ]; then
+  if [ "$reviewer_setup" -eq 1 ]; then
+    run_reviewer_setup --force || exit 1
+  elif [ -t 0 ] && [ -t 1 ]; then
+    run_reviewer_setup || warn "the reviewer was not set up; run $REPO/install.sh --reviewer-setup to try again"
+  elif [ -f "$REVIEWER_HELPER" ]; then
+    _status=0
+    run_reviewer_setup --check || _status=$?
+    [ "$_status" -ne 3 ] ||
+      say "No reviewer is set up yet. To choose which model reviews your work, run $REPO/install.sh --reviewer-setup in a terminal."
+  fi
 fi
 if [ "$uninstall" -eq 0 ]; then
   say "Custom Kiro agents inherit skills and steering by default; with chat.disableInheritingDefaultResources set, list them in the agent's resources field (see INSTALL.md)."

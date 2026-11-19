@@ -165,6 +165,33 @@ output on reasoning and return nothing, so the session stalls with empty turns.
 The reviewers the workflows start are set apart from the author: see the review guide of the
 workflow, and the `reviewers` policy setting in `fuse/flow/README.md`.
 
+## Choose your reviewer
+
+The workflows hand every change to a fresh reviewer before you see it. A reviewer from a different
+model family than the one that wrote the work catches more of its mistakes: for example, develop
+with Opus and review with GPT Sol.
+
+The first time you run `install.sh` in a terminal, after it has installed everything, it asks
+which harness and model you develop with and which ones review your work. Press Enter at the first
+question to skip it. It writes the pairing to your own policy file,
+`~/.konductor/policy-overrides.yml`, as `review.reviewers` rows, and keeps everything else in that
+file:
+
+- When the reviewer runs in the same harness, it is started as a subagent.
+- When it runs in another harness (Claude Code, Codex, OpenCode or Kiro CLI), the script shows the
+  command that will start each review and lets you accept it or type your own. For another
+  harness, you type the command; `{model}`, `{effort}` and `{prompt_file}` in it are filled in when
+  a review starts.
+- It offers to write the reverse pairing too, so that work written on the reviewer's model is
+  reviewed by your development model.
+- Before it replaces a pairing the file already has, it shows the old one and asks.
+- It leaves a policy file that uses YAML anchors or aliases alone and asks you to add the pairing
+  by hand.
+
+It asks only while that file names no reviewer. Run `./install.sh --reviewer-setup` to change the
+pairing later; on its own it installs nothing. An install that is not run in a terminal, such as
+one from a script, asks nothing and prints how to set the pairing up.
+
 ## Update
 
 ```bash

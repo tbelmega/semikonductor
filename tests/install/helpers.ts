@@ -13,6 +13,7 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -104,12 +105,22 @@ export class Sandbox {
     this.env.FUSE_TEST_FLAG = flag;
   }
 
+  /** Links this repository's fuse-flow into the clone, for the reviewer setup that runs from it. */
+  linkFlow(): void {
+    mkdirSync(join(this.clone, "fuse"), { recursive: true });
+    symlinkSync(join(REPO_ROOT, "fuse", "flow"), join(this.clone, "fuse", "flow"));
+  }
+
+  /** What the next runs read on stdin; empty by default. */
+  input = "";
+
   run(...args: string[]): Run {
     const path = [...this.pathPrefix, process.env.PATH ?? "/usr/bin:/bin"].join(":");
     const result = spawnSync(SHELL, [join(this.clone, "install.sh"), ...args], {
       cwd: this.root,
       env: { ...this.env, PATH: path, HOME: this.home },
       encoding: "utf8",
+      input: this.input,
     });
     const stdout = result.stdout ?? "";
     const stderr = result.stderr ?? "";

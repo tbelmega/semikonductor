@@ -822,3 +822,83 @@ describe("this repository", () => {
     }
   });
 });
+
+describe("the reviewer setup", () => {
+  const policy = () => join(sb.home, ".konductor", "policy-overrides.yml");
+  const claudeFile = () => join(sb.home, ".claude", "CLAUDE.md");
+  // Claude Code with Opus, reviewed by Codex with GPT Sol: accept the command, no reverse row.
+  const answers = "1\nclaude-opus-5-5\n2\ngpt-6.1-sol\n\nn\n";
+
+  test("an install that is not in a terminal asks nothing, writes no policy and says how to set it up", () => {
+    sb.linkFlow();
+    sb.input = answers;
+    const output = sb.ok("--global", claudeFile());
+    expect(output).not.toContain("Which harness");
+    expect(output).toContain("--reviewer-setup in a terminal");
+    expect(exists(policy())).toBe(false);
+  });
+
+  test("the hint reads the policy as YAML: reviewers in any style silence it, an unrelated launch key does not", () => {
+    sb.linkFlow();
+    for (const [text, hint] of [
+      ["review:\n  reviewers:\n    a: { model: b }\n", false],
+      ["review: { reviewers: { a: { model: b } } }\n", false],
+      ['"review":\n  "launch": subagent\n', false],
+      ["checks:\n  launch: make check\n", true],
+    ] as const) {
+      sb.write(policy(), text);
+      expect(sb.ok("--global", claudeFile()).includes("--reviewer-setup in a terminal")).toBe(hint);
+    }
+  });
+
+  test("--reviewer-setup with an install asks after installing and writes the pairing", () => {
+    sb.linkFlow();
+    sb.input = answers;
+    const output = sb.ok("--global", claudeFile(), "--reviewer-setup");
+    expect(sb.read(claudeFile())).toBe(wrapped());
+    expect(output.indexOf("Which harness")).toBeGreaterThan(output.indexOf(claudeFile()));
+    expect(output).toContain("develop with Opus and review with GPT Sol");
+    const text = sb.read(policy());
+    expect(text).toContain("claude-opus-5-5:");
+    expect(text).toContain("model: gpt-6.1-sol");
+    expect(text).toContain("codex exec");
+  });
+
+  test("--reviewer-setup on its own installs nothing, and keeps the other keys of an existing policy", () => {
+    sb.linkFlow();
+    sb.write(policy(), "# mine\nchecks:\n  default: make check\n");
+    sb.input = answers;
+    const before = snapshot(sb.home);
+    sb.ok("--reviewer-setup");
+    // Bun keeps its own cache under $HOME/.bun; that is not something the script installs.
+    const after = Object.fromEntries(Object.entries(snapshot(sb.home)).filter(([path]) => !/^\.bun(\/|$)/.test(path)));
+    delete before[".konductor/policy-overrides.yml"];
+    delete after[".konductor/policy-overrides.yml"];
+    expect(after).toEqual(before);
+    const text = sb.read(policy());
+    expect(text).toContain("# mine");
+    expect(text).toContain("default: make check");
+    expect(text).toContain("model: gpt-6.1-sol");
+  });
+
+  test("an empty first answer writes nothing, and a policy the merge cannot keep valid fails the run unchanged", () => {
+    sb.linkFlow();
+    sb.input = "\n";
+    expect(sb.ok("--reviewer-setup")).toContain("No reviewer was set up");
+    expect(exists(policy())).toBe(false);
+    sb.write(policy(), "review: 3\n");
+    sb.input = answers;
+    const result = sb.run("--reviewer-setup");
+    expect(result.status).toBe(1);
+    expect(result.output).toContain("was not changed, because");
+    expect(sb.read(policy())).toBe("review: 3\n");
+  });
+
+  test("--reviewer-setup cannot be combined with --uninstall, nor given twice", () => {
+    for (const args of [["--reviewer-setup", "--uninstall"], ["--reviewer-setup", "--reviewer-setup"], ["--reviewer-setup", "--link"]]) {
+      const result = sb.run(...args);
+      expect(result.status).toBe(64);
+      expect(result.stderr).toContain("usage:");
+    }
+  });
+});
