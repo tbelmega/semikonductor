@@ -120,6 +120,8 @@ Guides have no frontmatter that gets loaded into every agent session, which keep
 
 The skills live in [`skills/`](skills/), one folder per skill. The guides live in the artifact library, as `fuse/flow/library/artifacts/<artifact>/guide.md`, next to the artifact's template and review guide; [`fuse/flow/README.md`](fuse/flow/README.md) describes the library and how a project or a user overrides an entry.
 
+Two skills are words you type yourself when an agent's reply does not land: `plain` has the agent say the same thing again in plain words, and `sketch` has it explain what you are missing, with the context, an example or a diagram.
+
 
 ## Komposer
 
